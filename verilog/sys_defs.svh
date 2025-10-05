@@ -20,28 +20,53 @@
 // some starting parameters that you should set
 // this is *your* processor, you decide these values (try analyzing which is best!)
 
-// superscalar width
-`define N 1
-`define CDB_SZ `N // This MUST match your superscalar width
+// =========================================
+// R10K Processor Parameters (6-stage pipeline)
+// =========================================
 
-// sizes
-`define ROB_SZ xx
-`define RS_SZ xx
+// superscalar width (3-way superscalar)
+`define N 3
+`define CDB_SZ `N // This MUST match superscalar width
+
+// structure sizes
+`define ROB_SZ 32
+`define RS_SZ 16
 `define PHYS_REG_SZ_P6 32
-`define PHYS_REG_SZ_R10K (32 + `ROB_SZ)
+`define PHYS_REG_SZ_R10K (32 + `ROB_SZ)  // 64 physical registers for R10K
 
-// worry about these later
-`define BRANCH_PRED_SZ xx
-`define LSQ_SZ xx
+// physical register and index bit widths
+`define PHYS_TAG_BITS $clog2(`PHYS_REG_SZ_R10K)  // 6 bits for phys tag
+`define ROB_IDX_BITS $clog2(`ROB_SZ)            // 5 bits for ROB index
+`define RS_IDX_BITS $clog2(`RS_SZ)              // 4 bits for RS index
 
-// functional units (you should decide if you want more or fewer types of FUs)
-`define NUM_FU_ALU xx
-`define NUM_FU_MULT xx
-`define NUM_FU_LOAD xx
-`define NUM_FU_STORE xx
+// branch prediction
+`define BRANCH_PRED_SZ 512  // Branch predictor size
+
+// functional units
+`define NUM_FU_ALU 3      // Enough for superscalar width
+`define NUM_FU_MULT 1     // Single pipelined multiplier
+`define NUM_FU_BRANCH 1   // Single branch resolver
+`define NUM_FU_ADDR 1     // Single address calculator for mem ops
+`define NUM_FU_LOAD xx // KEEP THIS???
+`define NUM_FU_STORE xx // KEEP THIS???
 
 // number of mult stages (2, 4) (you likely don't need 8)
 `define MULT_STAGES 4
+
+// cache parameters
+`define ICACHE_ASSOC 2           // 2-way associative I-cache
+`define ICACHE_LINES 32
+`define ICACHE_LINE_BITS $clog2(`ICACHE_LINES)
+`define ICACHE_LINE_BYTES 16     // 16 bytes (4 instructions) for superscalar support
+`define VICTIM_CACHE_SZ 4        // Small victim cache
+
+`define DCACHE_ASSOC 2           // 2-way associative D-cache
+`define DCACHE_LINES 32
+`define DCACHE_LINE_BYTES 8      // 8 bytes/line (2 words; 256 bytes total)
+`define DCACHE_VICTIM_SZ 4       // Small victim cache
+
+// Load/Store Queue (not implemented in base design)
+`define LSQ_SZ 8
 
 ///////////////////////////////
 // ---- Basic Constants ---- //
@@ -57,6 +82,19 @@
 typedef logic [31:0] ADDR;
 typedef logic [31:0] DATA;
 typedef logic [4:0] REG_IDX;
+
+// =========================================
+// R10K Typedefs (used across all stages)
+// =========================================
+
+// Physical register tag
+typedef logic [`PHYS_TAG_BITS-1:0] PHYS_TAG;
+
+// ROB index
+typedef logic [`ROB_IDX_BITS-1:0] ROB_IDX;
+
+// RS index
+typedef logic [`RS_IDX_BITS-1:0] RS_IDX;
 
 // the zero register
 // In RISC-V, any read of this register returns zero and any writes are thrown away
