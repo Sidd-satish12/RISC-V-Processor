@@ -319,8 +319,8 @@ typedef enum logic [2:0] {
     CAT_ALU   = 3'b000,
     CAT_MULT  = 3'b001,
     CAT_MEM   = 3'b010,
-    CAT_BRANCH= 3'b011
-    // Room for more (e.g., CAT_CSR = 3'b100 if extending)
+    CAT_BRANCH= 3'b011,
+    CAT_CSR   = 3'b100  // Control and Status Register operations
 } OP_CATEGORY;
 
 // Packed struct for OP_TYPE (total 7 bits)
@@ -369,6 +369,11 @@ const OP_TYPE OP_BR_LTU      = '{category: CAT_BRANCH, func: 4'h4};
 const OP_TYPE OP_BR_GEU      = '{category: CAT_BRANCH, func: 4'h5};
 const OP_TYPE OP_JAL         = '{category: CAT_BRANCH, func: 4'h6};
 const OP_TYPE OP_JALR        = '{category: CAT_BRANCH, func: 4'h7};
+
+// CSR operations
+const OP_TYPE OP_CSRRW       = '{category: CAT_CSR, func: 4'h0};
+const OP_TYPE OP_CSRRS       = '{category: CAT_CSR, func: 4'h1};
+const OP_TYPE OP_CSRRC       = '{category: CAT_CSR, func: 4'h2};
 
 ////////////////////////////////
 // ---- Datapath Packets ---- //
