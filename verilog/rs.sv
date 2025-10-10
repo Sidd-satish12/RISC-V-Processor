@@ -37,7 +37,7 @@ module rs (
 
     // From execute: mispredict flush signal
     input logic        mispredict,      // Mispredict detected (flush speculative)
-    input ROB_IDX      mispred_rob_idx, // ROB index of mispredicted branch
+    input ROB_IDX      mispred_rob_idx, // ROB index of mispredicted branch TODO: maybe delete?
 
     // Outputs to issue/dispatch
     output RS_ENTRY [`RS_SZ-1:0] entries,  // Full RS entries for issue selection
