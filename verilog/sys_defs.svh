@@ -27,11 +27,12 @@
 // superscalar width (3-way superscalar)
 `define N 3
 `define CDB_SZ `N // This MUST match superscalar width
+`define MAX_RS_FREE_CNT 3 // max broadcasted free spots in RS
 
 // structure sizes
-`define ROB_SZ 32
-`define RS_SZ 16
-`define PHYS_REG_SZ_P6 32
+`define ROB_SZ 32 // ROB Size
+`define RS_SZ 16 // Reservation Station Size
+`define PHYS_REG_SZ_P6 32 // 32 Physical Register Size for P6
 `define PHYS_REG_SZ_R10K (32 + `ROB_SZ)  // 64 physical registers for R10K
 
 // physical register and index bit widths
