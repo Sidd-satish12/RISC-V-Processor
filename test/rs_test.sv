@@ -135,6 +135,9 @@ module testbench;
     endfunction
 
     initial begin
+        $dumpfile("../rs.vcd");
+        $dumpvars(0, testbench.dut);
+
         clock = 0;
         reset = 1;
         failed = 0;
@@ -156,24 +159,24 @@ module testbench;
         check_free_count(`N);
         check_entries(all_empty());
 
-        // // Test 2: Allocate single entry to lowest index
-        // $display("\nTest 2: Allocate single entry to lowest index");
-        // begin
-        //     RS_ENTRY [`N-1:0] a_e;
-        //     a_e[0] = empty_entry();
-        //     a_e[0].valid = 1;
-        //     a_e[0].src1_tag = 6'h01;
-        //     a_e[0].src1_ready = 0;
-        //     a_e[0].src2_tag = 6'h02;
-        //     a_e[0].src2_ready = 0;
-        //     apply_inputs(3'b001, a_e, empty_cdb(), 3'b000, '{0,0,0}, 0);
-        // end
-        // begin
-        //     RS_ENTRY [`RS_SZ-1:0] exp = all_empty();
-        //     exp[0] = alloc_entries[0];  // Reuse from above
-        //     check_entries(exp);
-        //     check_free_count(3);  // Still >N free
-        // end
+        // Test 2: Allocate single entry
+        $display("\nTest 2: Allocate single entry");
+        begin
+            RS_ENTRY [`N-1:0] a_e;
+            a_e[0] = empty_entry();
+            a_e[0].valid = 1;
+            a_e[0].src1_tag = 6'h01;
+            a_e[0].src1_ready = 0;
+            a_e[0].src2_tag = 6'h02;
+            a_e[0].src2_ready = 0;
+            apply_inputs(3'b001, a_e, empty_cdb(), 3'b000, '{0,0,0}, 0);
+        end
+        begin
+            RS_ENTRY [`RS_SZ-1:0] exp = all_empty();
+            exp[`RS_SZ-1] = alloc_entries[0];  // priority selector inserts top-bottom alternating
+            check_entries(exp);
+            check_free_count(`N);  // Still >N free
+        end
 
         // // Test 3: Allocate multiple (3) entries to lowest indices
         // $display("\nTest 3: Allocate multiple (3) entries to lowest indices");
