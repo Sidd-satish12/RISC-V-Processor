@@ -15,15 +15,6 @@ typedef logic [$clog2(`RS_SZ)-1:0] RS_IDX;  // 4 bits for 16
 typedef struct packed {
     PHYS_TAG [`CDB_SZ-1:0] tags;
 } CDB_PACKET;
-
-typedef struct packed {
-    logic valid;
-    PHYS_TAG src1_tag;
-    logic src1_ready;
-    PHYS_TAG src2_tag;
-    logic src2_ready;
-    logic [31:0] dummy;  // Placeholder for other fields (e.g., inst, rob_idx); we don't modify them
-} RS_ENTRY;
 `endif
 
 module testbench;
@@ -100,12 +91,11 @@ module testbench;
                 entries[i].src1_tag != expected[i].src1_tag ||
                 entries[i].src1_ready != expected[i].src1_ready ||
                 entries[i].src2_tag != expected[i].src2_tag ||
-                entries[i].src2_ready != expected[i].src2_ready ||
-                entries[i].dummy != expected[i].dummy) begin
-                $display("Entry %d mismatch: expected valid=%b, src1_tag=%h, src1_ready=%b, src2_tag=%h, src2_ready=%b, dummy=%h",
-                         i, expected[i].valid, expected[i].src1_tag, expected[i].src1_ready, expected[i].src2_tag, expected[i].src2_ready, expected[i].dummy);
-                $display("               got valid=%b, src1_tag=%h, src1_ready=%b, src2_tag=%h, src2_ready=%b, dummy=%h",
-                         entries[i].valid, entries[i].src1_tag, entries[i].src1_ready, entries[i].src2_tag, entries[i].src2_ready, entries[i].dummy);
+                entries[i].src2_ready != expected[i].src2_ready) begin
+                $display("Entry %d mismatch: expected valid=%b, src1_tag=%h, src1_ready=%b, src2_tag=%h, src2_ready=%b",
+                         i, expected[i].valid, expected[i].src1_tag, expected[i].src1_ready, expected[i].src2_tag, expected[i].src2_ready);
+                $display("               got valid=%b, src1_tag=%h, src1_ready=%b, src2_tag=%h, src2_ready=%b",
+                         entries[i].valid, entries[i].src1_tag, entries[i].src1_ready, entries[i].src2_tag, entries[i].src2_ready);
                 mismatch = 1;
             end
         end
@@ -115,11 +105,26 @@ module testbench;
     // Helper to create a default empty entry
     function RS_ENTRY empty_entry;
         empty_entry.valid = 0;
+        empty_entry.opa_select = OPA_IS_RS1;
+        empty_entry.opb_select = OPB_IS_RS2;
+        empty_entry.op_type = OP_ALU_ADD;
         empty_entry.src1_tag = 0;
         empty_entry.src1_ready = 0;
+        empty_entry.src1_value = 0;
         empty_entry.src2_tag = 0;
         empty_entry.src2_ready = 0;
-        empty_entry.dummy = 0;
+        empty_entry.src2_value = 0;
+        empty_entry.dest_tag = 0;
+        empty_entry.rob_idx = 0;
+        empty_entry.PC = 0;
+        empty_entry.pred_taken = 0;
+        empty_entry.pred_target = 0;
+    endfunction
+
+    // Helper to create a default CDB packet (no broadcasts)
+    function CDB_PACKET empty_cdb;
+        empty_cdb.valid = 3'b000;
+        empty_cdb.tags = '{6'h0, 6'h0, 6'h0};
     endfunction
 
     // Helper to create an expected array with all empty
@@ -155,13 +160,13 @@ module testbench;
         $display("\nTest 2: Allocate single entry to lowest index");
         begin
             RS_ENTRY [`N-1:0] a_e;
+            a_e[0] = empty_entry();
             a_e[0].valid = 1;
             a_e[0].src1_tag = 6'h01;
             a_e[0].src1_ready = 0;
             a_e[0].src2_tag = 6'h02;
             a_e[0].src2_ready = 0;
-            a_e[0].dummy = 32'hDEAD0001;
-            apply_inputs(3'b001, a_e, '{0,0,0}, 3'b000, '{0,0,0}, 0);
+            apply_inputs(3'b001, a_e, empty_cdb(), 3'b000, '{0,0,0}, 0);
         end
         begin
             RS_ENTRY [`RS_SZ-1:0] exp = all_empty();
@@ -176,14 +181,14 @@ module testbench;
         begin
             RS_ENTRY [`N-1:0] a_e;
             for (int i = 0; i < `N; i++) begin
+                a_e[i] = empty_entry();
                 a_e[i].valid = 1;
                 a_e[i].src1_tag = 6'h10 + i;
                 a_e[i].src1_ready = 0;
                 a_e[i].src2_tag = 6'h20 + i;
                 a_e[i].src2_ready = 0;
-                a_e[i].dummy = 32'hBEEF0000 + i;
             end
-            apply_inputs(3'b111, a_e, '{0,0,0}, 3'b000, '{0,0,0}, 0);
+            apply_inputs(3'b111, a_e, empty_cdb(), 3'b000, '{0,0,0}, 0);
         end
         begin
             RS_ENTRY [`RS_SZ-1:0] exp = all_empty();
@@ -197,13 +202,13 @@ module testbench;
         // Continue from Test 3 state (indices 0-2 occupied)
         begin
             RS_ENTRY [`N-1:0] a_e;
+            a_e[0] = empty_entry();
             a_e[0].valid = 1;
             a_e[0].src1_tag = 6'h03;
             a_e[0].src1_ready = 0;
             a_e[0].src2_tag = 6'h04;
             a_e[0].src2_ready = 0;
-            a_e[0].dummy = 32'hDEAD0004;
-            apply_inputs(3'b001, a_e, '{0,0,0}, 3'b000, '{0,0,0}, 0);
+            apply_inputs(3'b001, a_e, empty_cdb(), 3'b000, '{0,0,0}, 0);
         end
         begin
             RS_ENTRY [`RS_SZ-1:0] exp;
@@ -219,22 +224,22 @@ module testbench;
         begin
             RS_ENTRY [`N-1:0] a_e_base;
             for (int i = 0; i < `N; i++) begin
+                a_e_base[i] = empty_entry();
                 a_e_base[i].valid = 1;
-                a_e_base[i].src1_tag = 6'hA0 + i;
+                a_e_base[i].src1_tag = 6'h20 + i;
                 a_e_base[i].src1_ready = 0;
-                a_e_base[i].src2_tag = 6'hB0 + i;
+                a_e_base[i].src2_tag = 6'h30 + i;
                 a_e_base[i].src2_ready = 0;
-                a_e_base[i].dummy = 32'hFULL0000 + i;
             end
             // Allocate 3 per cycle until full
             for (int c = 0; c < 5; c++) begin  // 5*3=15
-                apply_inputs(3'b111, a_e_base, '{0,0,0}, 3'b000, '{0,0,0}, 0);
+                apply_inputs(3'b111, a_e_base, empty_cdb(), 3'b000, '{0,0,0}, 0);
             end
             // One more to make 16
-            apply_inputs(3'b001, a_e_base, '{0,0,0}, 3'b000, '{0,0,0}, 0);
+            apply_inputs(3'b001, a_e_base, empty_cdb(), 3'b000, '{0,0,0}, 0);
             check_free_count(0);
             // Attempt to allocate 3 more, should not happen
-            apply_inputs(3'b111, a_e_base, '{0,0,0}, 3'b000, '{0,0,0}, 0);
+            apply_inputs(3'b111, a_e_base, empty_cdb(), 3'b000, '{0,0,0}, 0);
             check_free_count(0);  // No change
         end
 
@@ -243,15 +248,15 @@ module testbench;
         reset = 1; @(negedge clock); reset = 0; @(negedge clock);
         begin
             RS_ENTRY [`N-1:0] a_e;
+            CDB_PACKET cdb;  // Moved to top
+            a_e[0] = empty_entry();
             a_e[0].valid = 1;
             a_e[0].src1_tag = 6'h05;
             a_e[0].src1_ready = 0;
             a_e[0].src2_tag = 6'h06;
             a_e[0].src2_ready = 1;  // src2 already ready
-            a_e[0].dummy = 32'hWAKE0001;
-            apply_inputs(3'b001, a_e, '{0,0,0}, 3'b000, '{0,0,0}, 0);
+            apply_inputs(3'b001, a_e, empty_cdb(), 3'b000, '{0,0,0}, 0);
             // Broadcast src1 tag
-            CDB_PACKET cdb;
             cdb.tags = '{6'h05, 0, 0};
             apply_inputs(3'b000, a_e, cdb, 3'b000, '{0,0,0}, 0);
         end
@@ -262,7 +267,6 @@ module testbench;
             exp[0].src1_ready = 1;  // Woken
             exp[0].src2_tag = 6'h06;
             exp[0].src2_ready = 1;
-            exp[0].dummy = 32'hWAKE0001;
             check_entries(exp);
         end
 
@@ -271,21 +275,21 @@ module testbench;
         reset = 1; @(negedge clock); reset = 0; @(negedge clock);
         begin
             RS_ENTRY [`N-1:0] a_e;
+            CDB_PACKET cdb;  // Moved to top
+            a_e[0] = empty_entry();
             a_e[0].valid = 1;
             a_e[0].src1_tag = 6'h07;
             a_e[0].src1_ready = 0;
             a_e[0].src2_tag = 6'h08;
             a_e[0].src2_ready = 0;
-            a_e[0].dummy = 32'hWAKE0002;
+            a_e[1] = empty_entry();
             a_e[1].valid = 1;
             a_e[1].src1_tag = 6'h09;
             a_e[1].src1_ready = 0;
             a_e[1].src2_tag = 6'h0A;
             a_e[1].src2_ready = 0;
-            a_e[1].dummy = 32'hWAKE0003;
-            apply_inputs(3'b011, a_e, '{0,0,0}, 3'b000, '{0,0,0}, 0);
+            apply_inputs(3'b011, a_e, empty_cdb(), 3'b000, '{0,0,0}, 0);
             // Broadcast multiple tags
-            CDB_PACKET cdb;
             cdb.tags = '{6'h07, 6'h08, 6'h09};
             apply_inputs(3'b000, a_e, cdb, 3'b000, '{0,0,0}, 0);
         end
@@ -296,13 +300,11 @@ module testbench;
             exp[0].src2_ready = 1;
             exp[0].src1_tag = 6'h07;
             exp[0].src2_tag = 6'h08;
-            exp[0].dummy = 32'hWAKE0002;
             exp[1].valid = 1;
             exp[1].src1_ready = 1;
             exp[1].src2_ready = 0;  // 0x0A not broadcast
             exp[1].src1_tag = 6'h09;
             exp[1].src2_tag = 6'h0A;
-            exp[1].dummy = 32'hWAKE0003;
             check_entries(exp);
         end
 
@@ -311,15 +313,15 @@ module testbench;
         reset = 1; @(negedge clock); reset = 0; @(negedge clock);
         begin
             RS_ENTRY [`N-1:0] a_e;
+            CDB_PACKET cdb;  // Moved to top
+            a_e[0] = empty_entry();
             a_e[0].valid = 1;
             a_e[0].src1_tag = 6'h0B;
             a_e[0].src1_ready = 0;
             a_e[0].src2_tag = 6'h0B;  // Same tag
             a_e[0].src2_ready = 0;
-            a_e[0].dummy = 32'hWAKE0004;
-            apply_inputs(3'b001, a_e, '{0,0,0}, 3'b000, '{0,0,0}, 0);
+            apply_inputs(3'b001, a_e, empty_cdb(), 3'b000, '{0,0,0}, 0);
             // Broadcast the tag
-            CDB_PACKET cdb;
             cdb.tags = '{6'h0B, 0, 0};
             apply_inputs(3'b000, a_e, cdb, 3'b000, '{0,0,0}, 0);
         end
@@ -330,7 +332,6 @@ module testbench;
             exp[0].src2_ready = 1;
             exp[0].src1_tag = 6'h0B;
             exp[0].src2_tag = 6'h0B;
-            exp[0].dummy = 32'hWAKE0004;
             check_entries(exp);
         end
 
@@ -338,17 +339,17 @@ module testbench;
         $display("\nTest 9: Broadcast tag not matching any");
         // Continue from Test 8 state
         begin
-            CDB_PACKET cdb;
-            cdb.tags = '{6'hFF, 6'hFE, 6'hFD};  // No match
+            CDB_PACKET cdb;  // Already at top
+            RS_ENTRY [`RS_SZ-1:0] exp;  // Moved to top for declaration order
+            cdb.tags = '{6'h3F, 6'h3E, 6'h3D};  // Valid 6-bit, no match
             apply_inputs(3'b000, '{empty_entry(), empty_entry(), empty_entry()}, cdb, 3'b000, '{0,0,0}, 0);
             // State should unchanged
-            RS_ENTRY [`RS_SZ-1:0] exp = all_empty();
+            exp = all_empty();
             exp[0].valid = 1;
             exp[0].src1_ready = 1;
             exp[0].src2_ready = 1;
             exp[0].src1_tag = 6'h0B;
             exp[0].src2_tag = 6'h0B;
-            exp[0].dummy = 32'hWAKE0004;
             check_entries(exp);
         end
 
@@ -357,15 +358,15 @@ module testbench;
         reset = 1; @(negedge clock); reset = 0; @(negedge clock);
         begin
             RS_ENTRY [`N-1:0] a_e;
+            a_e[0] = empty_entry();
             a_e[0].valid = 1;
             a_e[0].src1_tag = 6'h0C;
             a_e[0].src1_ready = 1;
             a_e[0].src2_tag = 6'h0D;
             a_e[0].src2_ready = 1;
-            a_e[0].dummy = 32'hCLEAR001;
-            apply_inputs(3'b001, a_e, '{0,0,0}, 3'b000, '{0,0,0}, 0);
+            apply_inputs(3'b001, a_e, empty_cdb(), 3'b000, '{0,0,0}, 0);
             // Clear index 0
-            apply_inputs(3'b000, a_e, '{0,0,0}, 3'b001, '{4'd0,0,0}, 0);
+            apply_inputs(3'b000, a_e, empty_cdb(), 3'b001, '{4'd0,0,0}, 0);
         end
         check_entries(all_empty());
         check_free_count(3);
@@ -375,24 +376,24 @@ module testbench;
         reset = 1; @(negedge clock); reset = 0; @(negedge clock);
         begin
             RS_ENTRY [`N-1:0] a_e;
+            a_e[0] = empty_entry();
             a_e[0].valid = 1;
             a_e[0].src1_tag = 6'h0E;
             a_e[0].src1_ready = 0;
             a_e[0].src2_tag = 6'h0F;
             a_e[0].src2_ready = 0;
-            a_e[0].dummy = 32'hMIXED001;
-            apply_inputs(3'b001, a_e, '{0,0,0}, 3'b000, '{0,0,0}, 0);  // Allocate to 0
+            apply_inputs(3'b001, a_e, empty_cdb(), 3'b000, '{0,0,0}, 0);  // Allocate to 0
         end
         begin
             RS_ENTRY [`N-1:0] a_e_new;
+            a_e_new[0] = empty_entry();
             a_e_new[0].valid = 1;
             a_e_new[0].src1_tag = 6'h10;
             a_e_new[0].src1_ready = 0;
             a_e_new[0].src2_tag = 6'h11;
             a_e_new[0].src2_ready = 0;
-            a_e_new[0].dummy = 32'hMIXED002;
             // Clear 0 and allocate 1 new (should go to 1, not reuse 0 yet)
-            apply_inputs(3'b001, a_e_new, '{0,0,0}, 3'b001, '{4'd0,0,0}, 0);
+            apply_inputs(3'b001, a_e_new, empty_cdb(), 3'b001, '{4'd0,0,0}, 0);
         end
         begin
             RS_ENTRY [`RS_SZ-1:0] exp = all_empty();
@@ -407,12 +408,12 @@ module testbench;
         begin
             RS_ENTRY [`N-1:0] a_e;
             for (int i = 0; i < `N; i++) begin
+                a_e[i] = empty_entry();
                 a_e[i].valid = 1;
-                a_e[i].dummy = 32'hMISP001 + i;
             end
-            apply_inputs(3'b111, a_e, '{0,0,0}, 3'b000, '{0,0,0}, 0);  // Allocate 3
+            apply_inputs(3'b111, a_e, empty_cdb(), 3'b000, '{0,0,0}, 0);  // Allocate 3
+            apply_inputs(3'b000, a_e, empty_cdb(), 3'b000, '{0,0,0}, 1);  // Mispredict (now in scope)
         end
-        apply_inputs(3'b000, a_e, '{0,0,0}, 3'b000, '{0,0,0}, 1);  // Mispredict
         check_entries(all_empty());
         check_free_count(3);
 
@@ -422,10 +423,10 @@ module testbench;
         begin
             RS_ENTRY [`N-1:0] a_e;
             for (int i = 0; i < `N; i++) begin
+                a_e[i] = empty_entry();
                 a_e[i].valid = 1;
-                a_e[i].dummy = 32'hMISP002 + i;
             end
-            apply_inputs(3'b111, a_e, '{0,0,0}, 3'b000, '{0,0,0}, 1);  // Alloc + mispredict
+            apply_inputs(3'b111, a_e, empty_cdb(), 3'b000, '{0,0,0}, 1);  // Alloc + mispredict
         end
         check_entries(all_empty());
         check_free_count(3);
@@ -436,34 +437,29 @@ module testbench;
         begin
             RS_ENTRY [`N-1:0] a_e;
             // Cycle 1: Alloc 2 entries
-            a_e[0].valid = 1; a_e[0].src1_tag = 6'h12; a_e[0].src1_ready = 0; a_e[0].src2_tag = 6'h13; a_e[0].src2_ready = 0; a_e[0].dummy = 32'hSTRESS01;
-            a_e[1].valid = 1; a_e[1].src1_tag = 6'h14; a_e[1].src1_ready = 0; a_e[1].src2_tag = 6'h15; a_e[1].src2_ready = 0; a_e[1].dummy = 32'hSTRESS02;
-            apply_inputs(3'b011, a_e, '{0,0,0}, 3'b000, '{0,0,0}, 0);
+            a_e[0] = empty_entry(); a_e[0].valid = 1; a_e[0].src1_tag = 6'h12; a_e[0].src1_ready = 0; a_e[0].src2_tag = 6'h13; a_e[0].src2_ready = 0;
+            a_e[1] = empty_entry(); a_e[1].valid = 1; a_e[1].src1_tag = 6'h14; a_e[1].src1_ready = 0; a_e[1].src2_tag = 6'h15; a_e[1].src2_ready = 0;
+            apply_inputs(3'b011, a_e, empty_cdb(), 3'b000, '{0,0,0}, 0);
         end
         begin
-            RS_ENTRY [`RS_SZ-1:0] exp = all_empty();
-            exp[0] = alloc_entries[0];
-            exp[1] = alloc_entries[1];
-            check_entries(exp);
-        end
-        begin
+            RS_ENTRY [`N-1:0] a_e;  // Local declaration for cycle 2
+            CDB_PACKET cdb;  // Already at top
             // Cycle 2: Wakeup some, alloc 1 more, clear 1
-            CDB_PACKET cdb;
             cdb.tags = '{6'h12, 6'h14, 0};
-            a_e[0].valid = 1; a_e[0].src1_tag = 6'h16; a_e[0].src1_ready = 0; a_e[0].src2_tag = 6'h17; a_e[0].src2_ready = 0; a_e[0].dummy = 32'hSTRESS03;
+            a_e[0] = empty_entry(); a_e[0].valid = 1; a_e[0].src1_tag = 6'h16; a_e[0].src1_ready = 0; a_e[0].src2_tag = 6'h17; a_e[0].src2_ready = 0;
             apply_inputs(3'b001, a_e, cdb, 3'b001, '{4'd0,0,0}, 0);  // Clear 0, alloc to 2 (next free)
         end
         begin
             RS_ENTRY [`RS_SZ-1:0] exp = all_empty();
-            exp[1].valid = 1; exp[1].src1_tag = 6'h14; exp[1].src1_ready = 1; exp[1].src2_tag = 6'h15; exp[1].src2_ready = 0; exp[1].dummy = 32'hSTRESS02;
-            exp[2].valid = 1; exp[2].src1_tag = 6'h16; exp[2].src1_ready = 0; exp[2].src2_tag = 6'h17; exp[2].src2_ready = 0; exp[2].dummy = 32'hSTRESS03;
+            exp[1].valid = 1; exp[1].src1_tag = 6'h14; exp[1].src1_ready = 1; exp[1].src2_tag = 6'h15; exp[1].src2_ready = 0;
+            exp[2].valid = 1; exp[2].src1_tag = 6'h16; exp[2].src1_ready = 0; exp[2].src2_tag = 6'h17; exp[2].src2_ready = 0;
             check_entries(exp);
         end
         begin
+            CDB_PACKET cdb;  // Moved to top
             // Cycle 3: More wakeup, clear 2, no alloc
-            CDB_PACKET cdb;
             cdb.tags = '{6'h15, 6'h17, 6'h16};
-            apply_inputs(3'b000, a_e, cdb, 3'b011, '{4'd1,4'd2,0}, 0);  // Clear 1 and 2
+            apply_inputs(3'b000, '{empty_entry(), empty_entry(), empty_entry()}, cdb, 3'b011, '{4'd1,4'd2,0}, 0);  // Clear 1 and 2 (no alloc)
         end
         check_entries(all_empty());
 
@@ -472,15 +468,15 @@ module testbench;
         reset = 1; @(negedge clock); reset = 0; @(negedge clock);
         begin
             RS_ENTRY [`N-1:0] a_e;
-            a_e[0].valid = 1; a_e[0].dummy = 32'hPRIO01;  // Will be skipped since alloc_valid[0]=0
-            a_e[1].valid = 1; a_e[1].dummy = 32'hPRIO02;
-            a_e[2].valid = 1; a_e[2].dummy = 32'hPRIO03;
-            apply_inputs(3'b110, a_e, '{0,0,0}, 3'b000, '{0,0,0}, 0);  // valid[2]=1, [1]=1, [0]=0 -> assign to 0 (for i=1), 1 (for i=2)
+            a_e[0] = empty_entry(); a_e[0].valid = 1;  // Will be skipped since alloc_valid[0]=0
+            a_e[1] = empty_entry(); a_e[1].valid = 1;
+            a_e[2] = empty_entry(); a_e[2].valid = 1;
+            apply_inputs(3'b110, a_e, empty_cdb(), 3'b000, '{0,0,0}, 0);  // valid[2]=1, [1]=1, [0]=0 -> assign to 0 (for i=1), 1 (for i=2)
         end
         begin
             RS_ENTRY [`RS_SZ-1:0] exp = all_empty();
-            exp[0].valid = 1; exp[0].dummy = 32'hPRIO02;  // a_e[1] to lowest
-            exp[1].valid = 1; exp[1].dummy = 32'hPRIO03;  // a_e[2] to next
+            exp[0].valid = 1;  // a_e[1] to lowest
+            exp[1].valid = 1;  // a_e[2] to next
             check_entries(exp);
         end
 
@@ -489,15 +485,16 @@ module testbench;
         reset = 1; @(negedge clock); reset = 0; @(negedge clock);
         begin
             RS_ENTRY [`N-1:0] a_e;
+            a_e[0] = empty_entry();
             a_e[0].valid = 1;
             a_e[0].src1_tag = 6'h18;
             a_e[0].src1_ready = 0;
             a_e[0].src2_tag = 6'h19;
             a_e[0].src2_ready = 0;
-            a_e[0].dummy = 32'hREADYCLR;
-            apply_inputs(3'b001, a_e, '{0,0,0}, 3'b000, '{0,0,0}, 0);
+            apply_inputs(3'b001, a_e, empty_cdb(), 3'b000, '{0,0,0}, 0);
         end
         begin
+            RS_ENTRY [`N-1:0] a_e;  // Local for wakeup block (unused but for consistency)
             CDB_PACKET cdb;
             cdb.tags = '{6'h18, 6'h19, 0};
             // Wakeup and clear same cycle
