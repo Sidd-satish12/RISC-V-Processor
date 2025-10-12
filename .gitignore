@@ -58,3 +58,4 @@ output/
 !correct_out/*
 
 *.DS_Store
+*.vcd
