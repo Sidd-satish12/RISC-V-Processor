@@ -6,27 +6,19 @@
 //                 instructions waiting for operands to become ready.  //
 //                 Supports allocation of new entries from dispatch,   //
 //                 wakeup via CDB broadcasts from complete, clearing   //
-//                 of issued entries from issue, and flushing of       //
-//                 speculative entries on branch mispredictions.       //
-//                 Entries are allocated to the lowest available       //
-//                 indices to approximate age ordering. Issue selects  //
-//                 ready entries preferring lower indices.             //
-//                                                                     //
+//                 of issued entries from issue.                       //
 /////////////////////////////////////////////////////////////////////////
 
 `include "sys_defs.svh"
 
-// Parameters and typedefs are now centrally defined in sys_defs.svh
-
-// RS entry structure is now defined in sys_defs.svh
 
 module rs (
     input clock,  // system clock
     input reset,  // system reset
 
     // From dispatch: allocation signals
-    input logic [`N-1:0] alloc_valid,  // Valid allocations this cycle
-    input RS_ENTRY [`N-1:0] alloc_entries,  // New entries to allocate
+    input logic [`N-1:0] alloc_valid,       // Valid allocations this cycle
+    input RS_ENTRY [`N-1:0] alloc_entries,  // N way allocating entries
 
     // From complete: CDB broadcasts for operand wakeup
     input CDB_PACKET cdb_broadcast,
