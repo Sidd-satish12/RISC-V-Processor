@@ -190,7 +190,7 @@ GREP = grep -E --color=auto
 # ---- Modules to Test ---- #
 
 # TODO: add more modules here
-MODULES = cpu mult rob rs regfile stage_dispatch stage_dispatch freelist map_table
+MODULES = cpu mult rob rs regfile stage_dispatch freelist map_table
 
 # TODO: update this if you add more header files
 ALL_HEADERS = $(CPU_HEADERS)
@@ -233,15 +233,6 @@ build/freelist.cov:  $(FREELIST_FILES)
 synth/freelist.vg:   $(FREELIST_FILES)
 
 
-MAP_TABLE_FILES = verilog/sys_defs.svh
-build/map_table.simv: $(MAP_TABLE_FILES)
-build/map_table.cov:  $(MAP_TABLE_FILES)
-synth/map_table.vg:   $(MAP_TABLE_FILES)
-
-STAGE_DISPATCH_FILES = verilog/sys_defs.svh verilog/map_table.sv
-build/stage_dispatch.simv: $(STAGE_DISPATCH_FILES)
-build/stage_dispatch.cov:  $(STAGE_DISPATCH_FILES)
-synth/stage_dispatch.vg:   $(STAGE_DISPATCH_FILES)
 
 
 #################################
