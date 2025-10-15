@@ -51,7 +51,7 @@ module testbench;
     );
 
     always begin
-        #5 clock = ~clock;  // Assume 10ns period, adjustable
+        #40 clock = ~clock;  // Assume 10ns period, adjustable
     end
 
     // Helper task to advance one cycle with inputs
@@ -70,7 +70,7 @@ module testbench;
         clear_idxs = c_i;
         mispredict = misp;
         @(posedge clock);
-        #1;  // Small delay to let combinational logic settle
+        #20;  // Small delay to let combinational logic settle
     endtask
 
     // Helper task to check free_count
