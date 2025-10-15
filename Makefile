@@ -190,7 +190,7 @@ GREP = grep -E --color=auto
 # ---- Modules to Test ---- #
 
 # TODO: add more modules here
-MODULES = cpu mult rob rs regfile
+MODULES = cpu mult rob rs regfile freelist
 
 # TODO: update this if you add more header files
 ALL_HEADERS = $(CPU_HEADERS)
@@ -219,6 +219,15 @@ REGFILE_FILES = verilog/sys_defs.svh verilog/ISA.svh
 build/regfile.simv: $(REGFILE_FILES)
 build/regfile.cov:  $(REGFILE_FILES)
 synth/regfile.vg:   $(REGFILE_FILES)
+
+# ---- freelist testbench deps ---- #
+FREELIST_FILES = verilog/sys_defs.svh
+build/freelist.simv: $(FREELIST_FILES)
+build/freelist.cov:  $(FREELIST_FILES)
+synth/freelist.vg:   $(FREELIST_FILES)
+
+
+
 
 #################################
 # ---- Main CPU Definition ---- #
