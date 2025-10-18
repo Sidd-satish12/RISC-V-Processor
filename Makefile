@@ -190,7 +190,7 @@ GREP = grep -E --color=auto
 # ---- Modules to Test ---- #
 
 # TODO: add more modules here
-MODULES = cpu mult rob rs regfile rename_tables
+MODULES = cpu mult rob rs regfile map_table
 
 # TODO: update this if you add more header files
 ALL_HEADERS = $(CPU_HEADERS)
@@ -220,10 +220,10 @@ build/regfile.simv: $(REGFILE_FILES)
 build/regfile.cov:  $(REGFILE_FILES)
 synth/regfile.vg:   $(REGFILE_FILES)
 
-RENAME_FILES =
-build/rename_tables.simv: $(RENAME_FILES)
-build/rename_tables.cov:  $(RENAME_FILES)
-synth/rename_tables.vg:   $(RENAME_FILES)
+MAP_TABLE_FILES =
+build/map_table.simv: $(MAP_TABLE_FILES)
+build/map_table.cov:  $(MAP_TABLE_FILES)
+synth/map_table.vg:   $(MAP_TABLE_FILES)
 
 
 #################################
