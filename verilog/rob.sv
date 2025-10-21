@@ -63,7 +63,7 @@ module rob (
   ROB_IDX rob_complete_update_idx;
 
 
-  // Combinational: compute free slots
+  // Combinational OUTPUT (free_slots): compute free slots
   logic [$clog2(`ROB_SZ):0] valid_count;
   always_comb begin
     valid_count = 0;
@@ -77,7 +77,7 @@ module rob (
   end
 
 
-  // Combinational: assign allocation indices starting from tail
+  // Combinational OUTPUT (alloc_idxs): assign allocation indices starting from tail
   always_comb begin
     ROB_IDX current_idx = tail;
     for (int i = 0; i < `N; i++) begin
@@ -104,6 +104,8 @@ module rob (
   ROB_ENTRY [`ROB_SZ-1:0] rob_next;
   logic [(ALLOC_CNT_WIDTH-1):0] alloc_cnt;
   // logic [(ALLOC_CNT_WIDTH-1):0] retire_cnt;
+  
+  
   always_comb begin
     // default vals
     rob_next  = rob_array;
@@ -117,7 +119,7 @@ module rob (
       // No need to invalidate entries explicitly; overwriting on future alloc suffices
     end else begin
 
-      // Retire: advance head, invalidate retired entries
+      // RETIRE STAGE: advance head, invalidate retired entries
       for (int i = 0; i < `N; i++) begin
         if (rob_array[head_next].valid && rob_array[head_next].complete) begin
           head_entries[i] = rob_array[head_next];
@@ -135,7 +137,7 @@ module rob (
           rob_complete_update_idx = rob_update_packet.idx[i];
           rob_next[rob_complete_update_idx].complete = 1'b1;
           
-          // TODO: not sure if we need to store value inside the rob_update_packet
+          // for debug purposes
           // rob_next[idx].value = rob_update_packet.values[i];
 
           // Branching WIP
