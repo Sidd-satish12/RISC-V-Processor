@@ -3,48 +3,34 @@
 //   Modulename :  cpu_test.sv                                         //
 //                                                                     //
 //  Description :  Testbench module for the VeriSimpleV processor.     //
+//                 (Fake-Fetch enabled: feeds N insts per cycle)       //
 //                                                                     //
 /////////////////////////////////////////////////////////////////////////
 
 `include "sys_defs.svh"
 
-// P4 TODO: Add your own debugging framework. Basic printing of data structures
-//          is an absolute necessity for the project. You can use C functions 
-//          like in test/pipeline_print.c or just do everything in verilog.
-//          Be careful about running out of space on CAEN printing lots of state
-//          for longer programs (alexnet, outer_product, etc.)
-
-// These link to the pipeline_print.c file in this directory, and are used below to print
-// detailed output to the pipeline_output_file, initialized by open_pipeline_output_file()
+// Minimal DPI use (writeback pretty printer)
 import "DPI-C" function string decode_inst(int inst);
-//import "DPI-C" function void open_pipeline_output_file(string file_name);
-//import "DPI-C" function void print_header();
-//import "DPI-C" function void print_cycles(int clock_count);
-//import "DPI-C" function void print_stage(int inst, int npc, int valid_inst);
-//import "DPI-C" function void print_reg(int wb_data, int wb_idx, int wb_en);
-//import "DPI-C" function void print_membus(int proc2mem_command, int proc2mem_addr,
-//                                          int proc2mem_data_hi, int proc2mem_data_lo);
-//import "DPI-C" function void close_pipeline_output_file();
-
 
 `define TB_MAX_CYCLES 50000000
 
-
 module testbench;
-    // string inputs for loading memory and output files
-    // run like: cd build && ./simv +MEMORY=../programs/mem/<my_program>.mem +OUTPUT=../output/<my_program>
-    // this testbench will generate 4 output files based on the output
-    // named OUTPUT.{out cpi, wb, ppln} for the memory, cpi, writeback, and pipeline outputs.
+    // ----------------------------------------------------------------
+    // CLI args & output files
+    // ----------------------------------------------------------------
     string program_memory_file, output_name;
-    string out_outfile, cpi_outfile, writeback_outfile;//, pipeline_outfile;
-    int out_fileno, cpi_fileno, wb_fileno; // verilog uses integer file handles with $fopen and $fclose
+    string out_outfile, cpi_outfile, writeback_outfile;
+    int    out_fileno, cpi_fileno, wb_fileno;
 
-    // variables used in the testbench
+    // ----------------------------------------------------------------
+    // TB state
+    // ----------------------------------------------------------------
     logic        clock;
     logic        reset;
-    logic [31:0] clock_count; // also used for terminating infinite loops
+    logic [31:0] clock_count;
     logic [31:0] instr_count;
 
+    // Processor <-> Memory (data-side; IF is faked)
     MEM_COMMAND proc2mem_command;
     ADDR        proc2mem_addr;
     MEM_BLOCK   proc2mem_data;
@@ -53,9 +39,11 @@ module testbench;
     MEM_TAG     mem2proc_data_tag;
     MEM_SIZE    proc2mem_size;
 
+    // Retire bundle
     COMMIT_PACKET [`N-1:0] committed_insts;
-    EXCEPTION_CODE error_status = NO_ERROR;
+    EXCEPTION_CODE         error_status = NO_ERROR;
 
+    // Debug taps (unchanged)
     ADDR  if_NPC_dbg;
     DATA  if_inst_dbg;
     logic if_valid_dbg;
@@ -72,17 +60,31 @@ module testbench;
     DATA  mem_wb_inst_dbg;
     logic mem_wb_valid_dbg;
 
+    // ----------------------------------------------------------------
+    // Fake-Fetch wires (testbench <-> cpu)
+    // ----------------------------------------------------------------
+    ADDR  fake_pc;
+    DATA  fake_instr [`N-1:0];
+    logic [$clog2(`N+1)-1:0] fake_nvalid;
+    logic [$clog2(`N+1)-1:0] fake_consumed;
 
-    // Instantiate the Pipeline
+    logic ff_branch_taken;
+    ADDR  ff_branch_target;
+
+    // ----------------------------------------------------------------
+    // DUT
+    // ----------------------------------------------------------------
     cpu verisimpleV (
-        // Inputs
+        // Clk/Reset
         .clock (clock),
         .reset (reset),
+
+        // Memory return path (data only)
         .mem2proc_transaction_tag (mem2proc_transaction_tag),
         .mem2proc_data            (mem2proc_data),
         .mem2proc_data_tag        (mem2proc_data_tag),
 
-        // Outputs
+        // Memory request path (data only)
         .proc2mem_command (proc2mem_command),
         .proc2mem_addr    (proc2mem_addr),
         .proc2mem_data    (proc2mem_data),
@@ -90,8 +92,10 @@ module testbench;
         .proc2mem_size    (proc2mem_size),
 `endif
 
+        // Retire
         .committed_insts (committed_insts),
 
+        // Debug
         .if_NPC_dbg       (if_NPC_dbg),
         .if_inst_dbg      (if_inst_dbg),
         .if_valid_dbg     (if_valid_dbg),
@@ -106,13 +110,21 @@ module testbench;
         .ex_mem_valid_dbg (ex_mem_valid_dbg),
         .mem_wb_NPC_dbg   (mem_wb_NPC_dbg),
         .mem_wb_inst_dbg  (mem_wb_inst_dbg),
-        .mem_wb_valid_dbg (mem_wb_valid_dbg)
+        .mem_wb_valid_dbg (mem_wb_valid_dbg),
+
+        // ---- Fake-Fetch interface ----
+        .ff_instr        (fake_instr),
+        .ff_pc           (fake_pc),
+        .ff_nvalid       (fake_nvalid),
+        .ff_consumed     (fake_consumed),
+        .branch_taken_o  (ff_branch_taken),
+        .branch_target_o (ff_branch_target)
     );
 
-
-    // Instantiate the Data Memory
+    // ----------------------------------------------------------------
+    // Unified Memory (data-side only; IF is faked here)
+    // ----------------------------------------------------------------
     mem memory (
-        // Inputs
         .clock            (clock),
         .proc2mem_command (proc2mem_command),
         .proc2mem_addr    (proc2mem_addr),
@@ -120,25 +132,62 @@ module testbench;
 `ifndef CACHE_MODE
         .proc2mem_size    (proc2mem_size),
 `endif
-
-        // Outputs
         .mem2proc_transaction_tag (mem2proc_transaction_tag),
         .mem2proc_data            (mem2proc_data),
         .mem2proc_data_tag        (mem2proc_data_tag)
     );
 
-
-    // Generate System Clock
+    // ----------------------------------------------------------------
+    // Clock
+    // ----------------------------------------------------------------
     always begin
         #(`CLOCK_PERIOD/2.0);
         clock = ~clock;
     end
 
+    // ----------------------------------------------------------------
+    // Fake-Fetch: PC register
+    // ----------------------------------------------------------------
+    always_ff @(posedge clock) begin
+        if (reset) begin
+            fake_pc <= '0;
+        end else begin
+            if (ff_branch_taken) begin
+                fake_pc <= ff_branch_target;
+            end else begin
+                // Advance by 4*X where X = fake_consumed from CPU
+                fake_pc <= fake_pc + 32'(4 * fake_consumed);
+            end
+        end
+    end
 
+    // ----------------------------------------------------------------
+    // Read a 32b instruction from unified memory at byte address 'addr'
+    // ----------------------------------------------------------------
+    function DATA get_inst32(input ADDR addr);
+        MEM_BLOCK blk;
+        begin
+            blk = memory.unified_memory[addr[31:3]]; // 8B-aligned line
+            get_inst32 = blk.word_level[addr[2]];    // 0: low word, 1: high word
+        end
+    endfunction
+
+    // ----------------------------------------------------------------
+    // Build the N-wide bundle every cycle (sequential @ fake_pc + 4*i)
+    // ----------------------------------------------------------------
+    always_comb begin
+        for (int i = 0; i < `N; i++) begin
+            fake_instr[i] = get_inst32(fake_pc + 32'(4*i));
+        end
+        fake_nvalid = `N; // simple model: always provide N; CPU decides how many to take
+    end
+
+    // ----------------------------------------------------------------
+    // Init / Load / Run
+    // ----------------------------------------------------------------
     initial begin
-        $display("\n---- Starting CPU Testbench ----\n");
+        $display("\n---- Starting CPU Testbench (Fake-Fetch) ----\n");
 
-        // set paramterized strings, see comment at start of module
         if ($value$plusargs("MEMORY=%s", program_memory_file)) begin
             $display("Using memory file  : %s", program_memory_file);
         end else begin
@@ -146,11 +195,10 @@ module testbench;
             $finish;
         end
         if ($value$plusargs("OUTPUT=%s", output_name)) begin
-            $display("Using output files : %s.{out, cpi, wb, ppln}", output_name);
-            out_outfile       = {output_name,".out"}; // this is how you concatenate strings in verilog
+            $display("Using output files : %s.{out, cpi, wb}", output_name);
+            out_outfile       = {output_name,".out"};
             cpi_outfile       = {output_name,".cpi"};
             writeback_outfile = {output_name,".wb"};
-            //pipeline_outfile  = {output_name,".ppln"};
         end else begin
             $display("\nDid not receive '+OUTPUT=' argument. Exiting.\n");
             $finish;
@@ -166,122 +214,97 @@ module testbench;
         @(posedge clock);
 
         $display("  %16t : Loading Unified Memory", $realtime);
-        // load the compiled program's hex data into the memory module
         $readmemh(program_memory_file, memory.unified_memory);
 
         @(posedge clock);
         @(posedge clock);
-        #1; // This reset is at an odd time to avoid the pos & neg clock edges
+        #1;
         $display("  %16t : Deasserting Reset", $realtime);
         reset = 1'b0;
 
         wb_fileno = $fopen(writeback_outfile);
         $fdisplay(wb_fileno, "Register writeback output (hexadecimal)");
 
-        // Open pipeline output file AFTER throwing the reset otherwise the reset state is displayed
-        // open_pipeline_output_file(pipeline_outfile);
-        // print_header();
-
         out_fileno = $fopen(out_outfile);
 
         $display("  %16t : Running Processor", $realtime);
     end
 
-
+    // ----------------------------------------------------------------
+    // Progress + retire logging + stop conditions
+    // ----------------------------------------------------------------
     always @(negedge clock) begin
         if (reset) begin
-            // Count the number of cycles and number of instructions committed
             clock_count = 0;
             instr_count = 0;
         end else begin
-            #2; // wait a short time to avoid a clock edge
-
+            #2;
             clock_count = clock_count + 1;
 
-            if (clock_count % 10000 == 0) begin
-                $display("  %16t : %d cycles", $realtime, clock_count);
-            end
+            if ((clock_count % 10000) == 0)
+                $display("  %16t : %0d cycles", $realtime, clock_count);
 
-            // print the pipeline debug outputs via c code to the pipeline output file
-            // print_cycles(clock_count - 1);
-            // print_stage(if_inst_dbg,     if_NPC_dbg,     {31'b0,if_valid_dbg});
-            // print_stage(if_id_inst_dbg,  if_id_NPC_dbg,  {31'b0,if_id_valid_dbg});
-            // print_stage(id_ex_inst_dbg,  id_ex_NPC_dbg,  {31'b0,id_ex_valid_dbg});
-            // print_stage(ex_mem_inst_dbg, ex_mem_NPC_dbg, {31'b0,ex_mem_valid_dbg});
-            // print_stage(mem_wb_inst_dbg, mem_wb_NPC_dbg, {31'b0,mem_wb_valid_dbg});
-            // print_reg(committed_insts[0].data, {27'b0,committed_insts[0].reg_idx},
-            //           {31'b0,committed_insts[0].valid});
-            // print_membus({30'b0,proc2mem_command}, proc2mem_addr[31:0],
-            //              proc2mem_data[63:32], proc2mem_data[31:0]);
-
-            print_custom_data();
+            // Optional: peek at fake-fetch behavior
+            // $display("%0t [FF] pc=%h consumed=%0d br=%0d tgt=%h",
+            //          $time, fake_pc, fake_consumed, ff_branch_taken, ff_branch_target);
 
             output_reg_writeback_and_maybe_halt();
 
-            // stop the processor
             if (error_status != NO_ERROR || clock_count > `TB_MAX_CYCLES) begin
-
                 $display("  %16t : Processor Finished", $realtime);
-
-                // close the writeback and pipeline output files
-                // close_pipeline_output_file();
                 $fclose(wb_fileno);
-
-                // display the final memory and status
                 show_final_mem_and_status(error_status);
-                // output the final CPI
                 output_cpi_file();
-
                 $display("\n---- Finished CPU Testbench ----\n");
-
                 #100 $finish;
             end
-        end // if(reset)
+        end
     end
 
-
-    // Task to output register writeback data and potentially halt the processor.
+    // ----------------------------------------------------------------
+    // Retire printer (unchanged)
+    // ----------------------------------------------------------------
     task output_reg_writeback_and_maybe_halt;
         ADDR pc;
         DATA inst;
         MEM_BLOCK block;
-        for (int n = 0; n < `N; ++n) begin
-            if (committed_insts[n].valid) begin
-                // update the count for every committed instruction
-                instr_count = instr_count + 1;
+        begin
+            for (int n = 0; n < `N; ++n) begin
+                if (committed_insts[n].valid) begin
+                    instr_count = instr_count + 1;
 
-                pc = committed_insts[n].NPC - 4;
-                block = memory.unified_memory[pc[31:3]];
-                inst = block.word_level[pc[2]];
-                // print the committed instructions to the writeback output file
-                if (committed_insts[n].reg_idx == `ZERO_REG) begin
-                    $fdisplay(wb_fileno, "PC %4x:%-8s| ---", pc, decode_inst(inst));
-                end else begin
-                    $fdisplay(wb_fileno, "PC %4x:%-8s| r%02d=%-8x",
-                              pc,
-                              decode_inst(inst),
-                              committed_insts[n].reg_idx,
-                              committed_insts[n].data);
-                end
+                    pc    = committed_insts[n].NPC - 4;
+                    block = memory.unified_memory[pc[31:3]];
+                    inst  = block.word_level[pc[2]];
 
-                // exit if we have an illegal instruction or a halt
-                if (committed_insts[n].illegal) begin
-                    error_status = ILLEGAL_INST;
-                    break;
-                end else if(committed_insts[n].halt) begin
-                    error_status = HALTED_ON_WFI;
-                    break;
+                    if (committed_insts[n].reg_idx == `ZERO_REG) begin
+                        $fdisplay(wb_fileno, "PC %4x:%-8s| ---", pc, decode_inst(inst));
+                    end else begin
+                        $fdisplay(wb_fileno, "PC %4x:%-8s| r%02d=%-8x",
+                                  pc, decode_inst(inst),
+                                  committed_insts[n].reg_idx,
+                                  committed_insts[n].data);
+                    end
+
+                    if (committed_insts[n].illegal) begin
+                        error_status = ILLEGAL_INST;
+                        break;
+                    end else if (committed_insts[n].halt) begin
+                        error_status = HALTED_ON_WFI;
+                        break;
+                    end
                 end
-            end // if valid
+            end
         end
-    endtask // task output_reg_writeback_and_maybe_halt
+    endtask
 
-
-    // Task to output the final CPI and # of elapsed clock edges
+    // ----------------------------------------------------------------
+    // CPI file
+    // ----------------------------------------------------------------
     task output_cpi_file;
         real cpi;
         begin
-            cpi = $itor(clock_count) / instr_count; // must convert int to real
+            cpi = (instr_count == 0) ? 0.0 : ($itor(clock_count) / instr_count);
             cpi_fileno = $fopen(cpi_outfile);
             $fdisplay(cpi_fileno, "@@@  %0d cycles / %0d instrs = %f CPI",
                       clock_count, instr_count, cpi);
@@ -289,11 +312,11 @@ module testbench;
                       clock_count * `CLOCK_PERIOD);
             $fclose(cpi_fileno);
         end
-    endtask // task output_cpi_file
+    endtask
 
-
-    // Show contents of Unified Memory in both hex and decimal
-    // Also output the final processor status
+    // ----------------------------------------------------------------
+    // Final memory dump & status
+    // ----------------------------------------------------------------
     task show_final_mem_and_status;
         input EXCEPTION_CODE final_status;
         int showing_data;
@@ -304,8 +327,8 @@ module testbench;
             showing_data = 0;
             for (int k = 0; k <= `MEM_64BIT_LINES - 1; k = k+1) begin
                 if (memory.unified_memory[k] != 0) begin
-                    $fdisplay(out_fileno, "@@@ mem[%5d] = %x : %0d", k*8, memory.unified_memory[k],
-                                                             memory.unified_memory[k]);
+                    $fdisplay(out_fileno, "@@@ mem[%5d] = %x : %0d",
+                              k*8, memory.unified_memory[k], memory.unified_memory[k]);
                     showing_data = 1;
                 end else if (showing_data != 0) begin
                     $fdisplay(out_fileno, "@@@");
@@ -323,17 +346,9 @@ module testbench;
             $fdisplay(out_fileno, "@@@");
             $fclose(out_fileno);
         end
-    endtask // task show_final_mem_and_status
-
-
-
-    // OPTIONAL: Print our your data here
-    // It will go to the $program.log file
-    task print_custom_data;
-        //$display("%3d: YOUR DATA HERE", 
-        //    clock_count-1
-        //);
     endtask
 
+    // Optional hook
+    task print_custom_data; endtask
 
 endmodule // module testbench
