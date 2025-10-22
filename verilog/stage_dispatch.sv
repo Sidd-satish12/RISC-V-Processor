@@ -29,93 +29,103 @@ typedef struct packed {
 
 // RS entry is now defined in sys_defs.svh
 
-// Packet from Dispatch to Issue (minimal, since Issue reads from RS directly; this could signal new entries)
-typedef struct packed {
-    logic [`N-1:0] valid;      // Valid bits for dispatched bundle
-    RS_IDX [`N-1:0] rs_idxs;   // Indices of newly allocated RS entries
-} DISP_ISS_PACKET;
+
+// // Packet from Dispatch to Issue (minimal, since Issue reads from RS directly; this could signal new entries)
+// typedef struct packed {
+//     logic [`N-1:0]  valid;    // Valid bits for dispatched bundle
+//     RS_IDX [`N-1:0] rs_idxs;  // Indices of newly allocated RS entries
+// } DISP_ISS_PACKET;
 
 // Packet for mispredict recovery (from Execute/Complete to Dispatch for map/free recovery)
 typedef struct packed {
-    logic valid;               // Mispredict occurred
-    ROB_IDX rob_idx;           // ROB index of mispredicted branch (to truncate from)
-    ADDR correct_target;       // Correct target for fetch redirect
+    logic valid;  // Mispredict occurred
+    ROB_IDX rob_idx;  // ROB index of mispredicted branch (to truncate from)
+    ADDR correct_target;  // Correct target for fetch redirect
 } MISPRED_RECOVERY_PACKET;
 
 // Packet from Retire to Dispatch (for committed map updates and free list additions)
 typedef struct packed {
-    logic [`N-1:0] valid;      // Valid commits this cycle
-    REG_IDX [`N-1:0] arch_rds; // Architectural destinations
-    PHYS_TAG [`N-1:0] phys_rds; // Committed physical regs
-    PHYS_TAG [`N-1:0] prev_phys_rds; // Previous phys to free
+    logic [`N-1:0]    valid;          // Valid commits this cycle
+    REG_IDX [`N-1:0]  arch_rds;       // Architectural destinations
+    PHYS_TAG [`N-1:0] phys_rds;       // Committed physical regs
+    PHYS_TAG [`N-1:0] prev_phys_rds;  // Previous phys to free
 } RETIRE_DISP_PACKET;
 
 module stage_dispatch (
-    input              clock,           // system clock
-    input              reset,           // system reset
+    input clock,  // system clock
+    input reset,  // system reset
 
     // From Fetch: partially decoded bundle
+    // FETCH_DISP_PACKET Undefined right now
     input FETCH_DISP_PACKET fetch_packet,
-    input logic        fetch_valid,     // Overall valid for bundle
+    input logic  [`N-1:0]           fetch_valid,   // Overall valid for bundle
 
     // From Retire: committed updates for map table and free list
-    input RETIRE_DISP_PACKET retire_packet,
+    //input RETIRE_DISP_PACKET retire_packet,
 
     // From Complete: CDB for wake-up (though RS handles wake-up, Dispatch may use for values during rename)
-    input CDB_PACKET   cdb_broadcast,
+    //input CDB_PACKET cdb_broadcast,
 
     // From Execute/Complete: mispredict for recovery
-    input MISPRED_RECOVERY_PACKET mispred_recovery,
+    //input MISPRED_RECOVERY_PACKET mispred_recovery,
 
-    // To Fetch: stall signal if no space
-    output logic       stall_fetch,
+    // From ROB, tells us how many slots are free in ROB
+    // TODO instead of "$clog2(`ROB_SZ+1)-1", consider using the macro `ROB_IDX_BITS
+    input logic [$clog2(`ROB_SZ+1)-1:0] free_slots_rob,
 
-    // To Issue: signal new dispatches (Issue selects from RS)
-    output DISP_ISS_PACKET dispatch_packet,
-    output logic       dispatch_valid,
+    // From RS, tells us how many slots are free in the RS
+    // TODO instead of "$clog2(`ROB_SZ+1)-1", consider using the macro `ROB_IDX_BITS
+    input logic [$clog2(`ROB_SZ+1)-1:0] free_slots_rs,
+
+    // To Fetch: stall signal if no space. Used for debugging, Could just use dispatch count instead
+    output logic stall_fetch,
+
+    // number of instructions dispatched (sent to fetch stage)
+    output logic [$clog2(`N)-1:0] dispatch_count,
+
+    // // To Issue: signal new dispatches (Issue selects from RS)
+    // output DISP_ISS_PACKET dispatch_packet,
+    // output logic           dispatch_valid,
+
+    // TODO continue working on below I/O
 
     // To ROB: allocation signals (interface; full ROB module separate)
     output logic [`N-1:0] rob_alloc_valid,  // Allocate these
     output ROB_ENTRY [`N-1:0] rob_alloc_entries,  // Data to write
-    output ROB_IDX   rob_tail_update,     // New tail after alloc
 
     // To RS: allocation signals (interface; full RS module separate)
-    output logic [`N-1:0] rs_alloc_valid,   // Allocate these
+    output logic [`N-1:0] rs_alloc_valid,  // Allocate these
     output RS_ENTRY [`N-1:0] rs_alloc_entries,  // Data to write
-    output logic     rs_compact,          // Signal to compact/shift for oldest-first
+    output logic rs_compact,  // Signal to compact/shift for oldest-first
 
     // To Free List: allocations and frees (interface; full free list module separate)
-    output logic [`N-1:0] free_alloc_valid, // Request new phys regs
-    input PHYS_TAG [`N-1:0] allocated_phys, // Granted phys tags from free list
-    output logic [`N-1:0] free_add_valid,   // Add freed phys (from retire)
-    output PHYS_TAG [`N-1:0] freed_phys     // Phys to add back
+    output logic [`N-1:0] free_alloc_valid,  // Request new phys regs
+    input PHYS_TAG [`N-1:0] allocated_phys,  // Granted phys tags from free list
+    output logic [`N-1:0] free_add_valid,  // Add freed phys (from retire)
+    output PHYS_TAG [`N-1:0] freed_phys  // Phys to add back
 );
 
     // Internal structures
-    MAP_ENTRY [31:0] map_table;          // Arch reg -> phys tag (32 entries)
+    MAP_ENTRY [31:0] map_table;  // Arch reg -> phys tag (32 entries)
     MAP_ENTRY [31:0] checkpoint_map;     // Checkpoint for branches (simplified: one checkpoint)
-    logic            checkpoint_valid;   // Active checkpoint?
+    logic checkpoint_valid;  // Active checkpoint?
 
     // ROB interface signals (assume ROB is separate module, here we generate writes)
-    ROB_IDX rob_head, rob_tail;          // Maintained here or from ROB module
-    logic [`ROB_IDX_BITS:0] rob_free_count;  // Available entries (ROB_SZ - occupied)
-
-    // RS interface signals
-    logic [`RS_IDX_BITS:0] rs_free_count;    // Available entries
+    ROB_IDX rob_head, rob_tail;  // Maintained here or from ROB module
 
     // Free list interface (assume FIFO-like with head/tail)
-    logic free_list_empty;               // No free phys regs
+    logic free_list_empty;  // No free phys regs
 
     // Internal signals for dispatch bundle
-    logic [`N-1:0] disp_valid;           // Per-inst valid after checks
-    PHYS_TAG [`N-1:0] rs1_phys;          // Renamed rs1
-    PHYS_TAG [`N-1:0] rs2_phys;          // Renamed rs2
-    PHYS_TAG [`N-1:0] rd_phys;           // New phys for rd
-    PHYS_TAG [`N-1:0] prev_rd_phys;      // Prev mapping for ROB
+    logic [`N-1:0] disp_valid;  // Per-inst valid after checks
+    PHYS_TAG [`N-1:0] rs1_phys;  // Renamed rs1
+    PHYS_TAG [`N-1:0] rs2_phys;  // Renamed rs2
+    PHYS_TAG [`N-1:0] rd_phys;  // New phys for rd
+    PHYS_TAG [`N-1:0] prev_rd_phys;  // Prev mapping for ROB
     logic [`N-1:0] src1_ready;           // Src1 ready at dispatch (from map/phys reg file?)
-    logic [`N-1:0] src2_ready;           // Src2 ready
-    DATA [`N-1:0] src1_value;            // If ready, value from phys reg file
-    DATA [`N-1:0] src2_value;            // If ready
+    logic [`N-1:0] src2_ready;  // Src2 ready
+    DATA [`N-1:0] src1_value;  // If ready, value from phys reg file
+    DATA [`N-1:0] src2_value;  // If ready
 
     // Phys reg file interface (separate module; for values if ready)
     // Assume read ports: up to 2*`N for srcs
@@ -138,7 +148,7 @@ module stage_dispatch (
 
     // Stall logic: insufficient space for ALL `N insts (atomic dispatch)
     always_comb begin
-        stall_fetch = fetch_valid && (rob_free_count < `N || rs_free_count < `N || |free_alloc_valid && free_list_empty);
+        stall_fetch = fetch_valid && (free_slots_rob < `N || free_slots_rs < `N || |free_alloc_valid && free_list_empty);
     end
 
     // Dispatch logic (parallel for rename, sequential for allocation)
@@ -268,4 +278,4 @@ module stage_dispatch (
     // Update free counts (from ROB/RS modules)
     // assume inputs rob_free_count, rs_free_count from those modules
 
-endmodule // stage_dispatch
+endmodule  // stage_dispatch
