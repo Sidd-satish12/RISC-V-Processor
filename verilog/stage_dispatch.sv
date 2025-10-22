@@ -70,12 +70,13 @@ module stage_dispatch (
     //input MISPRED_RECOVERY_PACKET mispred_recovery,
 
     // From ROB, tells us how many slots are free in ROB
-    // TODO instead of "$clog2(`ROB_SZ+1)-1", consider using the macro `ROB_IDX_BITS
     input logic [$clog2(`ROB_SZ+1)-1:0] free_slots_rob,
 
     // From RS, tells us how many slots are free in the RS
-    // TODO instead of "$clog2(`ROB_SZ+1)-1", consider using the macro `ROB_IDX_BITS
-    input logic [$clog2(`ROB_SZ+1)-1:0] free_slots_rs,
+    input logic [$clog2(`RS_SZ+1)-1:0] free_slots_rs,
+
+    // From Freelist, tells us how many slots are free in the free_list
+    input logic [$clog2(`PHYS_REG_SZ_R10K+1)-1:0] free_slots_freelst;
 
     // To Fetch: stall signal if no space. Used for debugging, Could just use dispatch count instead
     output logic stall_fetch,
@@ -87,22 +88,24 @@ module stage_dispatch (
     // output DISP_ISS_PACKET dispatch_packet,
     // output logic           dispatch_valid,
 
-    // TODO continue working on below I/O
 
-    // To ROB: allocation signals (interface; full ROB module separate)
+    // TO ROB: allocation signals (interface; full ROB module separate)
     output logic [`N-1:0] rob_alloc_valid,  // Allocate these
     output ROB_ENTRY [`N-1:0] rob_alloc_entries,  // Data to write
 
-    // To RS: allocation signals (interface; full RS module separate)
+    // TO RS: allocation signals (interface; full RS module separate)
     output logic [`N-1:0] rs_alloc_valid,  // Allocate these
     output RS_ENTRY [`N-1:0] rs_alloc_entries,  // Data to write
-    output logic rs_compact,  // Signal to compact/shift for oldest-first
+    
+    // output logic rs_compact,  // Signal to compact/shift for oldest-first
 
-    // To Free List: allocations and frees (interface; full free list module separate)
+    // TO FREE LIST: allocations and frees (interface; full free list module separate)
     output logic [`N-1:0] free_alloc_valid,  // Request new phys regs
     input PHYS_TAG [`N-1:0] allocated_phys,  // Granted phys tags from free list
-    output logic [`N-1:0] free_add_valid,  // Add freed phys (from retire)
-    output PHYS_TAG [`N-1:0] freed_phys  // Phys to add back
+
+    // Should be in the retire stage
+    // output logic [`N-1:0] free_add_valid,  // Add freed phys (from retire)
+    // output PHYS_TAG [`N-1:0] freed_phys  // Phys to add back
 );
 
     // Internal structures
