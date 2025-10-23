@@ -432,6 +432,38 @@ typedef struct packed {
     logic illegal;             // Is this illegal?
 } ROB_ENTRY;
 
+// TODO below are used in dispatch, need to be moved
+typedef struct packed {
+    logic valid;  // Mispredict occurred
+    ROB_IDX rob_idx;  // ROB index of mispredicted branch (to truncate from)
+    ADDR correct_target;  // Correct target for fetch redirect
+} MISPRED_RECOVERY_PACKET;
+
+// Packet from Retire to Dispatch (for committed map updates and free list additions)
+typedef struct packed {
+    logic [`N-1:0]    valid;          // Valid commits this cycle
+    REG_IDX [`N-1:0]  arch_rds;       // Architectural destinations
+    PHYS_TAG [`N-1:0] phys_rds;       // Committed physical regs
+    PHYS_TAG [`N-1:0] prev_phys_rds;  // Previous phys to free
+} RETIRE_DISP_PACKET;
+
+typedef struct packed {
+    logic [`N-1:0]    valid;
+    ADDR [`N-1:0]     PC;
+    INST [`N-1:0]     inst;
+    REG_IDX [`N-1:0]  rs1_idx;
+    REG_IDX [`N-1:0]  rs2_idx;
+    REG_IDX [`N-1:0]  rd_idx;
+    logic [`N-1:0]    uses_rs1;
+    logic [`N-1:0]    uses_rs2;
+    logic [`N-1:0]    uses_rd;
+    ALU_OPA_SELECT [`N-1:0] opa_select;
+    ALU_OPB_SELECT [`N-1:0] opb_select;
+    OP_TYPE [`N-1:0]        op_type;
+    logic [`N-1:0]    pred_taken;
+    ADDR [`N-1:0]     pred_target;
+} FETCH_DISP_PACKET;
+
 // ////////////////////////////////
 // // ---- Datapath Packets ---- //
 // ////////////////////////////////

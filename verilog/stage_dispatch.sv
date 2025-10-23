@@ -37,36 +37,37 @@ typedef struct packed {
 // } DISP_ISS_PACKET;
 
 // Packet for mispredict recovery (from Execute/Complete to Dispatch for map/free recovery)
-typedef struct packed {
-    logic valid;  // Mispredict occurred
-    ROB_IDX rob_idx;  // ROB index of mispredicted branch (to truncate from)
-    ADDR correct_target;  // Correct target for fetch redirect
-} MISPRED_RECOVERY_PACKET;
+// move below defs to sys_defs.svh once we know they are correct
+// typedef struct packed {
+//     logic valid;  // Mispredict occurred
+//     ROB_IDX rob_idx;  // ROB index of mispredicted branch (to truncate from)
+//     ADDR correct_target;  // Correct target for fetch redirect
+// } MISPRED_RECOVERY_PACKET;
 
-// Packet from Retire to Dispatch (for committed map updates and free list additions)
-typedef struct packed {
-    logic [`N-1:0]    valid;          // Valid commits this cycle
-    REG_IDX [`N-1:0]  arch_rds;       // Architectural destinations
-    PHYS_TAG [`N-1:0] phys_rds;       // Committed physical regs
-    PHYS_TAG [`N-1:0] prev_phys_rds;  // Previous phys to free
-} RETIRE_DISP_PACKET;
+// // Packet from Retire to Dispatch (for committed map updates and free list additions)
+// typedef struct packed {
+//     logic [`N-1:0]    valid;          // Valid commits this cycle
+//     REG_IDX [`N-1:0]  arch_rds;       // Architectural destinations
+//     PHYS_TAG [`N-1:0] phys_rds;       // Committed physical regs
+//     PHYS_TAG [`N-1:0] prev_phys_rds;  // Previous phys to free
+// } RETIRE_DISP_PACKET;
 
-typedef struct packed {
-    logic [`N-1:0]    valid;
-    ADDR [`N-1:0]     PC;
-    INST [`N-1:0]     inst;
-    REG_IDX [`N-1:0]  rs1_idx;
-    REG_IDX [`N-1:0]  rs2_idx;
-    REG_IDX [`N-1:0]  rd_idx;
-    logic [`N-1:0]    uses_rs1;
-    logic [`N-1:0]    uses_rs2;
-    logic [`N-1:0]    uses_rd;
-    ALU_OPA_SELECT [`N-1:0] opa_select;
-    ALU_OPB_SELECT [`N-1:0] opb_select;
-    OP_TYPE [`N-1:0]        op_type;
-    logic [`N-1:0]    pred_taken;
-    ADDR [`N-1:0]     pred_target;
-} FETCH_DISP_PACKET;
+// typedef struct packed {
+//     logic [`N-1:0]    valid;
+//     ADDR [`N-1:0]     PC;
+//     INST [`N-1:0]     inst;
+//     REG_IDX [`N-1:0]  rs1_idx;
+//     REG_IDX [`N-1:0]  rs2_idx;
+//     REG_IDX [`N-1:0]  rd_idx;
+//     logic [`N-1:0]    uses_rs1;
+//     logic [`N-1:0]    uses_rs2;
+//     logic [`N-1:0]    uses_rd;
+//     ALU_OPA_SELECT [`N-1:0] opa_select;
+//     ALU_OPB_SELECT [`N-1:0] opb_select;
+//     OP_TYPE [`N-1:0]        op_type;
+//     logic [`N-1:0]    pred_taken;
+//     ADDR [`N-1:0]     pred_target;
+// } FETCH_DISP_PACKET;
 
 module stage_dispatch (
     input clock,  // system clock
@@ -84,7 +85,7 @@ module stage_dispatch (
     input logic [$clog2(`RS_SZ+1)-1:0] free_slots_rs,
 
     // From Freelist, tells us how many slots are free in the free_list
-    input logic [$clog2(`PHYS_REG_SZ_R10K+1)-1:0] free_slots_freelst;
+    input logic [$clog2(`PHYS_REG_SZ_R10K+1)-1:0] free_slots_freelst,
 
     // To Fetch: stall signal if no space. Used for debugging, Could just use dispatch count instead
     output logic stall_fetch,
@@ -104,7 +105,7 @@ module stage_dispatch (
 
     // TO FREE LIST: allocations and frees (interface; full free list module separate)
     output logic [`N-1:0] free_alloc_valid,  // Request new phys regs
-    input PHYS_TAG [`N-1:0] allocated_phys,  // Granted phys tags from free list
+    input PHYS_TAG [`N-1:0] allocated_phys  // Granted phys tags from free list
 
     // Should be in the retire stage
     // output logic [`N-1:0] free_add_valid,  // Add freed phys (from retire)
@@ -117,7 +118,7 @@ module stage_dispatch (
     logic checkpoint_valid;  // Active checkpoint?
 
     // ROB interface signals (assume ROB is separate module, here we generate writes)
-    ROB_IDX rob_head, rob_tail;  // Maintained here or from ROB module
+    //ROB_IDX rob_head, rob_tail;  // Maintained here or from ROB module
 
     // Free list interface (assume FIFO-like with head/tail)
     logic free_list_empty;  // No free phys regs
@@ -135,9 +136,9 @@ module stage_dispatch (
 
     // Phys reg file interface (separate module; for values if ready)
     // Assume read ports: up to 2*`N for srcs
-    output logic [2*`N-1:0] prf_read_valid;
-    output PHYS_TAG [2*`N-1:0] prf_read_tags;
-    input DATA [2*`N-1:0] prf_read_values;
+    // output logic [2*`N-1:0] prf_read_valid;
+    // output PHYS_TAG [2*`N-1:0] prf_read_tags;
+    // input DATA [2*`N-1:0] prf_read_values;
 
     // Stall insufficient space for ALL `N insts (atomic dispatch)
     // always_comb begin
@@ -152,170 +153,180 @@ module stage_dispatch (
     logic [$clog2(`N+1)-1:0] num_rds_needed;
     // logic [$clog2(`N+1)-1:0] dispatch_actual_instructions;
 
+    int max_dispatch;
+    int num_valid_from_fetch;
+    int num_can_dispatch_count;
+    int freelist_needed;
+    logic destreg_req;
 
     always_comb begin
-        num_to_dispatch = 0;
+        // Count valid instructions from fetch bundle
+        num_valid_from_fetch = 0;
         num_rds_needed = 0;
         for (int i = 0; i < `N; i++) begin
-            // if the fetch is valid
-            if (fetch_valid [i]) begin
-                num_to_dispatch ++;
-                // if the inst uses dest register
+            if (fetch_valid[i]) begin
+                num_valid_from_fetch++;
                 if (fetch_packet.uses_rd[i]) begin
-                    num_rds_needed ++;
+                    num_rds_needed++;
                 end
             end
         end
 
-        // TODO: is it all or nothing? Or is it partial dispatch?
-        // if any of the freeslots (rob, rs, free_list) is not enough, stall
-        stall_fetch = (free_slots_rob < num_to_dispatch) ||
-                      (free_slots_rs < num_to_dispatch) ||
-                      (free_slots_freelst < num_to_dispatch);
+        // Determine how many instructions we can actually dispatch this cycle
+        max_dispatch = num_valid_from_fetch;  // start with all valid
 
-        // find the minimum of those three
-        num_valid_from_fetch = 0;
-        num_can_dispatch_count = 0;
-        freelist_needed = 0;
-        logic destreg_req;
-        
-        for (int i = 0; i < `N; i++) begin
-            // if the fetch is valid
-            if (fetch_valid [i]) begin
-                num_valid_from_fetch++;
-                destreg_req = fetch_packet.uses_rd[i];
+        // Limit by available free slots in ROB, RS, and freelist (for destinations)
+        if (free_slots_rob < max_dispatch)      max_dispatch = free_slots_rob;
+        if (free_slots_rs  < max_dispatch)      max_dispatch = free_slots_rs;
+        if (free_slots_freelst < num_rds_needed) max_dispatch = free_slots_freelst;
+
+        // Actual number of instructions we will dispatch
+        num_to_dispatch = max_dispatch;
+
+        // Stall fetch if there are valid instructions but not enough resources to dispatch all
+        stall_fetch = (num_valid_from_fetch > 0) && (num_to_dispatch < num_valid_from_fetch);
+
+        // Output
+        dispatch_count = num_to_dispatch;
+
+        // for (int i = 0; i < `N; i++) begin
+        //     // if the fetch is valid
+        //     if (fetch_valid [i]) begin
+        //         num_valid_from_fetch++;
+        //         destreg_req = fetch_packet.uses_rd[i];
                 
-                // check if there's any enough resources
-                if ((num_valid_from_fetch < free_slots_rob) &&
-                    (num_valid_from_fetch < free_slots_rs) &&
-                    (~destreg_req || freelist_needed + 1 < free_slots_freelst)) begin
-                        num_can_dispatch_count++;
-                        if (destreg_req) begin
-                            freelist_needed++;
-                        end
-                    end else begin
-                        break;
-                    end
-            end
-        end
+        //         // check if there's any enough resources
+        //         if ((num_valid_from_fetch < free_slots_rob) &&
+        //             (num_valid_from_fetch < free_slots_rs) &&
+        //             (~destreg_req || freelist_needed + 1 < free_slots_freelst)) begin
+        //                 num_can_dispatch_count++;
+        //                 if (destreg_req) begin
+        //                     freelist_needed++;
+        //                 end
+        //             end else begin
+        //                 break;
+        //             end
+        //     end
+        // end
 
-        num_to_dispatch = num_can_dispatch_count;
+        //num_to_dispatch = num_can_dispatch_count;
 
         // stall if there is valid instr from fetch, and also at the same time can dispatch count < total valid fetch
         // prevent sending the same (partially dispatched bundle again)
-        stall_fetch = (num_valid_from_fetch > 0) && (num_to_dispatch < num_valid_from_fetch);
+        //stall_fetch = (num_valid_from_fetch > 0) && (num_to_dispatch < num_valid_from_fetch);
     end
 
+    // TODO Work on below do not delete (commented out for now)
 
     // Dispatch logic (parallel for rename, sequential for allocation)
-    always_comb begin
-        // Default outputs
-        disp_valid = fetch_packet.valid & {`N{!stall_fetch}};
-        dispatch_valid = |disp_valid;
+    // always_comb begin
+    //     // Default outputs
+    //     disp_valid = fetch_packet.valid & {`N{!stall_fetch}};
+    //     dispatch_valid = |disp_valid;
         
-        rob_alloc_valid = '0;
-        rs_alloc_valid = '0;
-        free_alloc_valid = '0;
-        free_add_valid = '0;
-        prf_read_valid = '0;
+    //     rob_alloc_valid = '0;
+    //     rs_alloc_valid = '0;
+    //     free_alloc_valid = '0;
+    //     free_add_valid = '0;
+    //     prf_read_valid = '0;
 
-        // Parallel: Rename srcs/dest for each inst
-        for (int i = 0; i < `N; i++) begin
-            if (disp_valid[i]) begin
-                // Lookup srcs
-                rs1_phys[i] = map_table[fetch_packet.rs1_idx[i]].phys_tag;
-                rs2_phys[i] = map_table[fetch_packet.rs2_idx[i]].phys_tag;
-                prev_rd_phys[i] = map_table[fetch_packet.rd_idx[i]].phys_tag;
+    //     // Parallel: Rename srcs/dest for each inst
+    //     for (int i = 0; i < `N; i++) begin
+    //         if (disp_valid[i]) begin
+    //             // Lookup srcs
+    //             rs1_phys[i] = map_table[fetch_packet.rs1_idx[i]].phys_tag;
+    //             rs2_phys[i] = map_table[fetch_packet.rs2_idx[i]].phys_tag;
+    //             prev_rd_phys[i] = map_table[fetch_packet.rd_idx[i]].phys_tag;
 
-                // Request new phys for rd if uses_rd
-                if (fetch_packet.uses_rd[i]) begin
-                    free_alloc_valid[i] = 1'b1;
-                    rd_phys[i] = allocated_phys[i];  // Assume granted instantly (combo)
-                end else begin
-                    rd_phys[i] = '0;  // No dest
-                end
+    //             // Request new phys for rd if uses_rd
+    //             if (fetch_packet.uses_rd[i]) begin
+    //                 free_alloc_valid[i] = 1'b1;
+    //                 rd_phys[i] = allocated_phys[i];  // Assume granted instantly (combo)
+    //             end else begin
+    //                 rd_phys[i] = '0;  // No dest
+    //             end
 
-                // Check readiness and read values if ready (assume busy table or from CDB)
-                // For simplicity: assume ready if not waiting on tag (but actual: check if producer complete)
-                // Here, placeholder: read from PRF always, set ready if value avail (but need busy bits)
-                prf_read_valid[2*i] = fetch_packet.uses_rs1[i];
-                prf_read_tags[2*i] = rs1_phys[i];
-                src1_value[i] = prf_read_values[2*i];
-                src1_ready[i] = 1'b1;  // Placeholder; actual: if !busy[rs1_phys[i]]
+    //             // Check readiness and read values if ready (assume busy table or from CDB)
+    //             // For simplicity: assume ready if not waiting on tag (but actual: check if producer complete)
+    //             // Here, placeholder: read from PRF always, set ready if value avail (but need busy bits)
+    //             prf_read_valid[2*i] = fetch_packet.uses_rs1[i];
+    //             prf_read_tags[2*i] = rs1_phys[i];
+    //             src1_value[i] = prf_read_values[2*i];
+    //             src1_ready[i] = 1'b1;  // Placeholder; actual: if !busy[rs1_phys[i]]
 
-                prf_read_valid[2*i+1] = fetch_packet.uses_rs2[i];
-                prf_read_tags[2*i+1] = rs2_phys[i];
-                src2_value[i] = prf_read_values[2*i+1];
-                src2_ready[i] = 1'b1;  // Placeholder
-            end
-        end
+    //             prf_read_valid[2*i+1] = fetch_packet.uses_rs2[i];
+    //             prf_read_tags[2*i+1] = rs2_phys[i];
+    //             src2_value[i] = prf_read_values[2*i+1];
+    //             src2_ready[i] = 1'b1;  // Placeholder
+    //         end
+    //     end
 
-        // Sequential/atomic: if no stall, allocate all
-        if (!stall_fetch && fetch_valid) begin
-            ROB_IDX new_tail = rob_tail;
-            for (int i = 0; i < `N; i++) begin
-                if (disp_valid[i]) begin
-                    // Allocate ROB
-                    rob_alloc_valid[i] = 1'b1;
-                    rob_alloc_entries[i].valid = 1'b1;
-                    rob_alloc_entries[i].PC = fetch_packet.PC[i];
-                    rob_alloc_entries[i].inst = fetch_packet.inst[i];
-                    rob_alloc_entries[i].arch_rd = fetch_packet.rd_idx[i];
-                    rob_alloc_entries[i].phys_rd = rd_phys[i];
-                    rob_alloc_entries[i].prev_phys_rd = prev_rd_phys[i];
-                    rob_alloc_entries[i].complete = 1'b0;
-                    rob_alloc_entries[i].exception = NO_ERROR;
-                    rob_alloc_entries[i].branch = (fetch_packet.op_type[i].category == CAT_BRANCH);
+    //     // Sequential/atomic: if no stall, allocate all
+    //     if (!stall_fetch && fetch_valid) begin
+    //         ROB_IDX new_tail = rob_tail;
+    //         for (int i = 0; i < `N; i++) begin
+    //             if (disp_valid[i]) begin
+    //                 // Allocate ROB
+    //                 rob_alloc_valid[i] = 1'b1;
+    //                 rob_alloc_entries[i].valid = 1'b1;
+    //                 rob_alloc_entries[i].PC = fetch_packet.PC[i];
+    //                 rob_alloc_entries[i].inst = fetch_packet.inst[i];
+    //                 rob_alloc_entries[i].arch_rd = fetch_packet.rd_idx[i];
+    //                 rob_alloc_entries[i].phys_rd = rd_phys[i];
+    //                 rob_alloc_entries[i].prev_phys_rd = prev_rd_phys[i];
+    //                 rob_alloc_entries[i].complete = 1'b0;
+    //                 rob_alloc_entries[i].exception = NO_ERROR;
+    //                 rob_alloc_entries[i].branch = (fetch_packet.op_type[i].category == CAT_BRANCH);
 
-                    // Allocate RS (priority insert from top for oldest)
-                    rs_alloc_valid[i] = 1'b1;
-                    rs_alloc_entries[i].valid = 1'b1;
-                    rs_alloc_entries[i].opa_select = fetch_packet.opa_select[i];
-                    rs_alloc_entries[i].opb_select = fetch_packet.opb_select[i];
-                    rs_alloc_entries[i].op_type = fetch_packet.op_type[i];
-                    rs_alloc_entries[i].src1_tag = rs1_phys[i];
-                    rs_alloc_entries[i].src1_ready = src1_ready[i];
-                    rs_alloc_entries[i].src1_value = src1_value[i];
-                    rs_alloc_entries[i].src2_tag = rs2_phys[i];
-                    rs_alloc_entries[i].src2_ready = src2_ready[i];
-                    rs_alloc_entries[i].src2_value = src2_value[i];
-                    rs_alloc_entries[i].dest_tag = rd_phys[i];
-                    rs_alloc_entries[i].rob_idx = new_tail;  // Current tail as idx
-                    rs_alloc_entries[i].PC = fetch_packet.PC[i];
-                    rs_alloc_entries[i].pred_taken = fetch_packet.pred_taken[i];
-                    rs_alloc_entries[i].pred_target = fetch_packet.pred_target[i];
+    //                 // Allocate RS (priority insert from top for oldest)
+    //                 rs_alloc_valid[i] = 1'b1;
+    //                 rs_alloc_entries[i].valid = 1'b1;
+    //                 rs_alloc_entries[i].opa_select = fetch_packet.opa_select[i];
+    //                 rs_alloc_entries[i].opb_select = fetch_packet.opb_select[i];
+    //                 rs_alloc_entries[i].op_type = fetch_packet.op_type[i];
+    //                 rs_alloc_entries[i].src1_tag = rs1_phys[i];
+    //                 rs_alloc_entries[i].src1_ready = src1_ready[i];
+    //                 rs_alloc_entries[i].src1_value = src1_value[i];
+    //                 rs_alloc_entries[i].src2_tag = rs2_phys[i];
+    //                 rs_alloc_entries[i].src2_ready = src2_ready[i];
+    //                 rs_alloc_entries[i].src2_value = src2_value[i];
+    //                 rs_alloc_entries[i].dest_tag = rd_phys[i];
+    //                 rs_alloc_entries[i].rob_idx = new_tail;  // Current tail as idx
+    //                 rs_alloc_entries[i].PC = fetch_packet.PC[i];
+    //                 rs_alloc_entries[i].pred_taken = fetch_packet.pred_taken[i];
+    //                 rs_alloc_entries[i].pred_target = fetch_packet.pred_target[i];
 
-                    // Update map table (after all prev in bundle)
-                    if (fetch_packet.uses_rd[i]) begin
-                        map_table[fetch_packet.rd_idx[i]].phys_tag = rd_phys[i];
-                    end
+    //                 // Update map table (after all prev in bundle)
+    //                 if (fetch_packet.uses_rd[i]) begin
+    //                     map_table[fetch_packet.rd_idx[i]].phys_tag = rd_phys[i];
+    //                 end
 
-                    // Advance tail
-                    new_tail = new_tail + 1;
-                end
-            end
-            rob_tail_update = new_tail;
-            rs_compact = 1'b1;  // Compact RS after alloc for priority
-        end
-    end
+    //                 // Advance tail
+    //                 new_tail = new_tail + 1;
+    //             end
+    //         end
+    //         rob_tail_update = new_tail;
+    //         rs_compact = 1'b1;  // Compact RS after alloc for priority
+    //     end
+    // end
 
-
+    // TODO implement below (do not delete)
 
     // Mispredict recovery: truncate ROB/RS from mispred rob_idx, restore map/free list
-    always_comb begin
-        if (mispred_recovery.valid) begin
-            // Walk ROB backwards from mispred.rob_idx to restore map and free list (add back allocated phys)
-            // Placeholder logic: for each entry from tail to mispred+1, undo map, free phys_rd
-            // Actual impl would loop over ROB entries
-            // If checkpoint: restore from checkpoint_map if branch
-        end
-    end
+    // always_comb begin
+    //     if (mispred_recovery.valid) begin
+    //         // Walk ROB backwards from mispred.rob_idx to restore map and free list (add back allocated phys)
+    //         // Placeholder logic: for each entry from tail to mispred+1, undo map, free phys_rd
+    //         // Actual impl would loop over ROB entries
+    //         // If checkpoint: restore from checkpoint_map if branch
+    //     end
+    // end
 
     // Checkpoint map on branches (simplified: one checkpoint)
-    always_ff @(posedge clock) begin
-        // On dispatch of branch, checkpoint = map_table
-        // On mispredict, map_table = checkpoint
-    end
+    // always_ff @(posedge clock) begin
+    //     // On dispatch of branch, checkpoint = map_table
+    //     // On mispredict, map_table = checkpoint
+    // end
 
     // Update free counts (from ROB/RS modules)
     // assume inputs rob_free_count, rs_free_count from those modules
