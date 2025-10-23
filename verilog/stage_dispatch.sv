@@ -186,8 +186,8 @@ module stage_dispatch (
                 destreg_req = fetch_packet.uses_rd[i];
                 
                 // check if there's any enough resources
-                if ((num_can_dispatch_count < free_slots_rob) &&
-                    (num_can_dispatch_count < free_slots_rs) &&
+                if ((num_valid_from_fetch < free_slots_rob) &&
+                    (num_valid_from_fetch < free_slots_rs) &&
                     (~destreg_req || freelist_needed + 1 < free_slots_freelst)) begin
                         num_can_dispatch_count++;
                         if (destreg_req) begin
@@ -203,7 +203,7 @@ module stage_dispatch (
 
         // stall if there is valid instr from fetch, and also at the same time can dispatch count < total valid fetch
         // prevent sending the same (partially dispatched bundle again)
-        stall_fetch = (num_valid_from_fetch > 0) && (can_dispatch_count < num_valid_from_fetch);
+        stall_fetch = (num_valid_from_fetch > 0) && (num_to_dispatch < num_valid_from_fetch);
     end
 
 
