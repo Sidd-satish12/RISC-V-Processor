@@ -1,6 +1,6 @@
 {
     "editor.formatOnSave": true,
-    "systemverilogFormatter.commandLineArguments": "--column_limit 80 --indentation_spaces 4",
+    "systemverilogFormatter.commandLineArguments": "--column_limit 130 --indentation_spaces 4",
     "editor.tabSize": 4,
     "editor.insertSpaces": true
-  }
+}
