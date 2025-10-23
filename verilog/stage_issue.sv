@@ -73,9 +73,13 @@ module stage_issue (
             end
 
             // Generate all pairwise age comparisons: comp_ij = (age_j < age_i)
+            // Use signed comparison to handle wrap-around correctly
+            // NOTE: Assumes max age difference between any two RS entries < 32 (half of 6-bit age range).
+            // If an instruction lingers in RS >32 dispatch cycles before issue, age ordering may break.
+            // With RS_SZ=16, this is unlikely under normal operation.
             for (int i = 0; i < `RS_SZ; i++) begin
                 for (int j = 0; j < `RS_SZ; j++) begin
-                    comp[i][j] = (i != j) && (age[j] < age[i]);
+                    comp[i][j] = (i != j) && ($signed(age[j] - age[i]) < 0);
                 end
             end
 
