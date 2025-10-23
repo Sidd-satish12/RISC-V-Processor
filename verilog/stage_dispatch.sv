@@ -112,8 +112,8 @@ module stage_dispatch (
 );
 
     // Internal structures
-    MAP_ENTRY [31:0] map_table;  // Arch reg -> phys tag (32 entries)
-    MAP_ENTRY [31:0] checkpoint_map;     // Checkpoint for branches (simplified: one checkpoint)
+    MAP_ENTRY [31:0] map_table;        // Arch reg -> phys tag (speculative)
+    MAP_ENTRY [31:0] map_table_next;
     logic checkpoint_valid;  // Active checkpoint?
 
     // ROB interface signals (assume ROB is separate module, here we generate writes)
@@ -139,10 +139,73 @@ module stage_dispatch (
     output PHYS_TAG [2*`N-1:0] prf_read_tags;
     input DATA [2*`N-1:0] prf_read_values;
 
-    // Stall logic: insufficient space for ALL `N insts (atomic dispatch)
+    // Stall insufficient space for ALL `N insts (atomic dispatch)
+    // always_comb begin
+    //     stall_fetch = fetch_valid && (free_slots_rob < `N || free_slots_rs < `N || |free_alloc_valid && free_list_empty);
+    // end
+
+
+
+
+    // STALL LOGIC
+    logic [$clog2(`N+1)-1:0] num_to_dispatch;
+    logic [$clog2(`N+1)-1:0] num_rds_needed;
+    // logic [$clog2(`N+1)-1:0] dispatch_actual_instructions;
+
+
     always_comb begin
-        stall_fetch = fetch_valid && (free_slots_rob < `N || free_slots_rs < `N || |free_alloc_valid && free_list_empty);
+        num_to_dispatch = 0;
+        num_rds_needed = 0;
+        for (int i = 0; i < `N; i++) begin
+            // if the fetch is valid
+            if (fetch_valid [i]) begin
+                num_to_dispatch ++;
+                // if the inst uses dest register
+                if (fetch_packet.uses_rd[i]) begin
+                    num_rds_needed ++;
+                end
+            end
+        end
+
+        // TODO: is it all or nothing? Or is it partial dispatch?
+        // if any of the freeslots (rob, rs, free_list) is not enough, stall
+        stall_fetch = (free_slots_rob < num_to_dispatch) ||
+                      (free_slots_rs < num_to_dispatch) ||
+                      (free_slots_freelst < num_to_dispatch);
+
+        // find the minimum of those three
+        num_valid_from_fetch = 0;
+        num_can_dispatch_count = 0;
+        freelist_needed = 0;
+        logic destreg_req;
+        
+        for (int i = 0; i < `N; i++) begin
+            // if the fetch is valid
+            if (fetch_valid [i]) begin
+                num_valid_from_fetch++;
+                destreg_req = fetch_packet.uses_rd[i];
+                
+                // check if there's any enough resources
+                if ((num_can_dispatch_count < free_slots_rob) &&
+                    (num_can_dispatch_count < free_slots_rs) &&
+                    (~destreg_req || freelist_needed + 1 < free_slots_freelst)) begin
+                        num_can_dispatch_count++;
+                        if (destreg_req) begin
+                            freelist_needed++;
+                        end
+                    end else begin
+                        break;
+                    end
+            end
+        end
+
+        num_to_dispatch = num_can_dispatch_count;
+
+        // stall if there is valid instr from fetch, and also at the same time can dispatch count < total valid fetch
+        // prevent sending the same (partially dispatched bundle again)
+        stall_fetch = (num_valid_from_fetch > 0) && (can_dispatch_count < num_valid_from_fetch);
     end
+
 
     // Dispatch logic (parallel for rename, sequential for allocation)
     always_comb begin
@@ -236,22 +299,7 @@ module stage_dispatch (
         end
     end
 
-    // Retire updates: free prev phys, update committed map (but map is speculative; retire uses arch map?)
-    // In R10K, there's a separate committed map table updated on retire
-    MAP_ENTRY [31:0] committed_map;  // Separate for recovery
-    always_ff @(posedge clock) begin
-        if (reset) begin
-            // Init maps, etc.
-        end else begin
-            for (int i = 0; i < `N; i++) begin
-                if (retire_packet.valid[i]) begin
-                    free_add_valid[i] = 1'b1;
-                    freed_phys[i] = retire_packet.prev_phys_rds[i];
-                    committed_map[retire_packet.arch_rds[i]].phys_tag = retire_packet.phys_rds[i];
-                end
-            end
-        end
-    end
+
 
     // Mispredict recovery: truncate ROB/RS from mispred rob_idx, restore map/free list
     always_comb begin
