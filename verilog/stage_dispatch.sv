@@ -51,6 +51,23 @@ typedef struct packed {
     PHYS_TAG [`N-1:0] prev_phys_rds;  // Previous phys to free
 } RETIRE_DISP_PACKET;
 
+typedef struct packed {
+    logic [`N-1:0]    valid;
+    ADDR [`N-1:0]     PC;
+    INST [`N-1:0]     inst;
+    REG_IDX [`N-1:0]  rs1_idx;
+    REG_IDX [`N-1:0]  rs2_idx;
+    REG_IDX [`N-1:0]  rd_idx;
+    logic [`N-1:0]    uses_rs1;
+    logic [`N-1:0]    uses_rs2;
+    logic [`N-1:0]    uses_rd;
+    ALU_OPA_SELECT [`N-1:0] opa_select;
+    ALU_OPB_SELECT [`N-1:0] opb_select;
+    OP_TYPE [`N-1:0]        op_type;
+    logic [`N-1:0]    pred_taken;
+    ADDR [`N-1:0]     pred_target;
+} FETCH_DISP_PACKET;
+
 module stage_dispatch (
     input clock,  // system clock
     input reset,  // system reset
@@ -59,15 +76,6 @@ module stage_dispatch (
     // FETCH_DISP_PACKET Undefined right now
     input FETCH_DISP_PACKET fetch_packet,
     input logic  [`N-1:0]           fetch_valid,   // Overall valid for bundle
-
-    // From Retire: committed updates for map table and free list
-    //input RETIRE_DISP_PACKET retire_packet,
-
-    // From Complete: CDB for wake-up (though RS handles wake-up, Dispatch may use for values during rename)
-    //input CDB_PACKET cdb_broadcast,
-
-    // From Execute/Complete: mispredict for recovery
-    //input MISPRED_RECOVERY_PACKET mispred_recovery,
 
     // From ROB, tells us how many slots are free in ROB
     input logic [$clog2(`ROB_SZ+1)-1:0] free_slots_rob,
@@ -83,11 +91,6 @@ module stage_dispatch (
 
     // number of instructions dispatched (sent to fetch stage)
     output logic [$clog2(`N)-1:0] dispatch_count,
-
-    // // To Issue: signal new dispatches (Issue selects from RS)
-    // output DISP_ISS_PACKET dispatch_packet,
-    // output logic           dispatch_valid,
-
 
     // TO ROB: allocation signals (interface; full ROB module separate)
     output logic [`N-1:0] rob_alloc_valid,  // Allocate these
@@ -136,19 +139,6 @@ module stage_dispatch (
     output PHYS_TAG [2*`N-1:0] prf_read_tags;
     input DATA [2*`N-1:0] prf_read_values;
 
-    // Instantiate submodules (interfaces only, no full impl)
-    // ROB module interface (would be instantiated here if full)
-    // rob #(.SZ(`ROB_SZ)) rob_0 ( .clock, .reset, .alloc_valid(rob_alloc_valid), .alloc_entries(rob_alloc_entries), ... );
-
-    // RS module interface (compacting array or priority select)
-    // rs #(.SZ(`RS_SZ)) rs_0 ( .clock, .reset, .alloc_valid(rs_alloc_valid), .alloc_entries(rs_alloc_entries), .compact(rs_compact), ... );
-
-    // Free list module interface (FIFO of free phys tags)
-    // free_list #(.SZ(`PHYS_REG_SZ_R10K - 32)) fl_0 ( .clock, .reset, .alloc_req(free_alloc_valid), .alloc_grant(allocated_phys), .free_add(free_add_valid), .free_phys(freed_phys), .empty(free_list_empty), ... );
-
-    // Phys reg file interface (for reading ready values during dispatch)
-    // phys_reg_file #(.SZ(`PHYS_REG_SZ_R10K)) prf_0 ( .clock, .reset, .read_valid(prf_read_valid), .read_tags(prf_read_tags), .read_data(prf_read_values), ... );
-
     // Stall logic: insufficient space for ALL `N insts (atomic dispatch)
     always_comb begin
         stall_fetch = fetch_valid && (free_slots_rob < `N || free_slots_rs < `N || |free_alloc_valid && free_list_empty);
@@ -159,6 +149,7 @@ module stage_dispatch (
         // Default outputs
         disp_valid = fetch_packet.valid & {`N{!stall_fetch}};
         dispatch_valid = |disp_valid;
+        
         rob_alloc_valid = '0;
         rs_alloc_valid = '0;
         free_alloc_valid = '0;
