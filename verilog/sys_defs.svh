@@ -47,9 +47,7 @@
 `define NUM_FU_ALU 3      // Enough for superscalar width
 `define NUM_FU_MULT 1     // Single pipelined multiplier
 `define NUM_FU_BRANCH 1   // Single branch resolver
-`define NUM_FU_ADDR 1     // Single address calculator for mem ops
-`define NUM_FU_LOAD xx // KEEP THIS???
-`define NUM_FU_STORE xx // KEEP THIS???
+`define NUM_FU_MEM 1     // Single address calculator for mem ops
 
 // number of mult stages (2, 4) (you likely don't need 8)
 `define MULT_STAGES 4
@@ -368,9 +366,7 @@ const OP_TYPE OP_MULT_MULHU = '{category: CAT_MULT, func: 4'h3};
 const OP_TYPE OP_LOAD_BYTE = '{category: CAT_MEM, func: 4'b0000};  // Signed byte
 const OP_TYPE OP_LOAD_HALF = '{category: CAT_MEM, func: 4'b0001};  // Signed half
 const OP_TYPE OP_LOAD_WORD = '{category: CAT_MEM, func: 4'b0010};  // Signed word
-const
-OP_TYPE
-OP_LOAD_DOUBLE = '{category: CAT_MEM, func: 4'b0011};  // Signed double (if supported)
+const OP_TYPE OP_LOAD_DOUBLE = '{category: CAT_MEM, func: 4'b0011};  // Signed double (if supported)
 const OP_TYPE OP_STORE_BYTE = '{category: CAT_MEM, func: 4'b0100};
 const OP_TYPE OP_STORE_HALF = '{category: CAT_MEM, func: 4'b0101};
 const OP_TYPE OP_STORE_WORD = '{category: CAT_MEM, func: 4'b0110};
@@ -396,23 +392,23 @@ const OP_TYPE OP_CSRRC = '{category: CAT_CSR, func: 4'h2};
 
 // RS entry structure (extended for full control signals)
 typedef struct packed {
-    logic valid;  // Entry occupied
-    ALU_OPA_SELECT opa_select;  // From decode (where is OPA coming from)
-    ALU_OPB_SELECT opb_select;  // From decode (where is OPB coming from)
-    OP_TYPE op_type;  // Which unit are we routing to in EX and what suboperation
-    PHYS_TAG src1_tag;  // Physical source 1 tag
-    logic src1_ready;  // Source 1 ready
-    DATA src1_value;  // Source 1 value if immediate
-    PHYS_TAG src2_tag;  // Physical source 2 tag
-    logic src2_ready;  // Source 2 ready
-    DATA src2_value;  // Source 2 value if immediate
-    PHYS_TAG dest_tag;  // Physical destination tag
-    ROB_IDX rob_idx;  // Associated ROB index (for flush and potential age selection)
-    logic rob_wrap; // signal to indicate wrap around in the ROB
-    ADDR PC;                   // PC for branch/debug (MIGHT merge with SRC but only if we can resolve mispredicts othersive)
+    logic          valid;        // Entry occupied
+    ALU_OPA_SELECT opa_select;   // From decode (where is OPA coming from)
+    ALU_OPB_SELECT opb_select;   // From decode (where is OPB coming from)
+    OP_TYPE        op_type;      // Which unit are we routing to in EX and what suboperation
+    PHYS_TAG       src1_tag;     // Physical source 1 tag
+    logic          src1_ready;   // Source 1 ready
+    DATA           src1_value;   // Source 1 value if immediate
+    PHYS_TAG       src2_tag;     // Physical source 2 tag
+    logic          src2_ready;   // Source 2 ready
+    DATA           src2_value;   // Source 2 value if immediate
+    PHYS_TAG       dest_tag;     // Physical destination tag
+    ROB_IDX        rob_idx;      // Associated ROB index (for flush and potential age selection)
+    logic          rob_wrap;     // signal to indicate wrap around in the ROB
+    ADDR           PC;           // PC for branch/debug (MIGHT merge with SRC but only if we can resolve mispredicts othersive)
     // Added for branches (prediction info from fetch via dispatch)
-    logic pred_taken;
-    ADDR pred_target;
+    logic          pred_taken;
+    ADDR           pred_target;
 } RS_ENTRY;
 
 // ROB entry structure
