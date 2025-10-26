@@ -74,6 +74,9 @@ module stage_dispatch_tb;
     // Test Procedure
     // ============================================================
 
+    localparam n = 4;
+
+
     initial begin
         // Wait for reset release
         @(negedge reset);
@@ -83,6 +86,7 @@ module stage_dispatch_tb;
         // Test 1: Basic Dispatch
         // -------------------------------
         $display("\n=== TEST 1: Basic Dispatch ===");
+
 
         // Initialize signals
         fetch_valid = '0;
@@ -94,7 +98,10 @@ module stage_dispatch_tb;
         // Dummy physical register allocation tags
         for (int i = 0; i < `N; i++) begin
             allocated_phys[i] = i;
+            $display("allocated physical reg: %b", allocated_phys[i]);
         end
+
+
 
         // Create a bundle of valid fetched instructions
         for (int i = 0; i < `N; i++) begin
@@ -111,8 +118,8 @@ module stage_dispatch_tb;
         // Check the results
         $display("Dispatch count: %0d", dispatch_count);
         $display("Stall Fetch: %b", stall_fetch);
-        $display("ROB Alloc Valid: %b", rob_alloc_valid);
-        $display("RS Alloc Valid:  %b", rs_alloc_valid);
+        $display("ROB Alloc Valid: %b", rob_alloc_valid); // TODO: check this later, for now since it's initialized, it's displayed as xxx
+        $display("RS Alloc Valid:  %b", rs_alloc_valid); // check this later
         $display("num_valid_from_fetch:  %b", dut.num_valid_from_fetch);
         $display("max_dispatch:  %b", dut.max_dispatch);
 
@@ -127,7 +134,280 @@ module stage_dispatch_tb;
         // -------------------------------
         
 
-        #20;
+        // -------------------------------
+        // Test 2: Invalid fetch bundle
+        // -------------------------------
+        $display("\n=== TEST 2: Inst from Fetch are not all valid ===");
+
+        // Initialize signals
+        fetch_valid = '0;
+        fetch_packet = '0;
+        free_slots_rob = `N;
+        free_slots_rs = `N;
+        free_slots_freelst = `N;
+
+        for (int i = 0; i < `N; i++) begin
+            allocated_phys[i] = i;
+            $display("allocated physical reg: %b", allocated_phys[i]);
+        end
+
+        for (int i = 0; i < `N - 1; i++) begin
+            fetch_valid[i] = 1'b1;
+            fetch_packet.valid[i] = 1'b1;
+            fetch_packet.uses_rd[i] = 1'b1;  // all use dest reg
+            fetch_packet.rs1_idx[i] = i;
+            fetch_packet.rs2_idx[i] = i+1;
+            fetch_packet.rd_idx[i]  = i+2;
+        end
+
+        @(posedge clock);
+
+        fetch_valid[`N-1] = 1'b0;
+        fetch_packet.valid[`N-1] = 1'b0;
+        fetch_packet.uses_rd[`N-1] = 1'b1;
+        fetch_packet.rs1_idx[`N-1] = `N-1;
+        fetch_packet.rs2_idx[`N-1] = `N;
+        fetch_packet.rd_idx[`N-1] = `N+1;
+
+        @(posedge clock);
+
+        $display("Dispatch count: %0d", dispatch_count);
+        $display("Stall Fetch: %b", stall_fetch);
+        $display("ROB Alloc Valid: %b", rob_alloc_valid); // TODO: check this later, for now since it's initialized, it's displayed as xxx
+        $display("RS Alloc Valid:  %b", rs_alloc_valid); // check this later
+        $display("num_valid_from_fetch:  %b", dut.num_valid_from_fetch);
+        $display("max_dispatch:  %b", dut.max_dispatch);
+
+        // Expect all N instructions to be dispatched
+        if (dispatch_count == `N - 1)
+            $display("[PASS] Dispatched %0d instructions.", dispatch_count);
+        else
+            $display("[FAIL] Unexpected dispatch behavior.");
+
+
+        // -------------------------------
+        // Test 3: Not Enough ROB, or RS, or freelist, or all of them
+        // -------------------------------
+        $display("\n=== TEST 3.1: Not enough ROB ===");
+
+
+        fetch_valid = 0;
+        fetch_packet = 0;
+        free_slots_rob = `N - 1;
+        free_slots_rs = `N;
+        free_slots_freelst = `N;
+
+        // normal physical register
+        for (int i = 0; i < `N; i++) begin
+            allocated_phys[i] = i;
+            $display("allocated physical reg: %b", allocated_phys[i]);
+        end
+
+        @(posedge clock);
+
+        // Create a bundle of valid fetched instructions
+        for (int i = 0; i < `N; i++) begin
+            fetch_valid[i] = 1'b1;
+            fetch_packet.valid[i] = 1'b1;
+            fetch_packet.uses_rd[i] = 1'b1;  // all use dest reg
+            fetch_packet.rs1_idx[i] = i;
+            fetch_packet.rs2_idx[i] = i+1;
+            fetch_packet.rd_idx[i]  = i+2;
+        end
+
+        @(posedge clock);
+
+        // Check the results
+        $display("Dispatch count: %0d", dispatch_count);
+        $display("Stall Fetch: %b", stall_fetch);
+        $display("ROB Alloc Valid: %b", rob_alloc_valid); // TODO: check this later, for now since it's initialized, it's displayed as xxx
+        $display("RS Alloc Valid:  %b", rs_alloc_valid); // check this later
+        $display("num_valid_from_fetch:  %b", dut.num_valid_from_fetch);
+        $display("max_dispatch:  %b", dut.max_dispatch);
+
+        // Rob not enough
+        if (dispatch_count == `N - 1 && stall_fetch)
+            $display("[PASS] Dispatched %0d instructions.", dispatch_count);
+        else
+            $display("[FAIL] Unexpected dispatch behavior.");
+
+
+        $display("\n=== TEST 3.2: Not enough RS ===");
+
+        fetch_valid = 0;
+        fetch_packet = 0;
+        free_slots_rob = `N;
+        free_slots_rs = `N - 1;
+        free_slots_freelst = `N;
+
+        // normal physical register
+        for (int i = 0; i < `N; i++) begin
+            allocated_phys[i] = i;
+            $display("allocated physical reg: %b", allocated_phys[i]);
+        end
+
+        @(posedge clock);
+
+        // Create a bundle of valid fetched instructions
+        for (int i = 0; i < `N; i++) begin
+            fetch_valid[i] = 1'b1;
+            fetch_packet.valid[i] = 1'b1;
+            fetch_packet.uses_rd[i] = 1'b1;  // all use dest reg
+            fetch_packet.rs1_idx[i] = i;
+            fetch_packet.rs2_idx[i] = i+1;
+            fetch_packet.rd_idx[i]  = i+2;
+        end
+
+        @(posedge clock);
+
+        // Check the results
+        $display("Dispatch count: %0d", dispatch_count);
+        $display("Stall Fetch: %b", stall_fetch);
+        $display("ROB Alloc Valid: %b", rob_alloc_valid); // TODO: check this later, for now since it's initialized, it's displayed as xxx
+        $display("RS Alloc Valid:  %b", rs_alloc_valid); // check this later
+        $display("num_valid_from_fetch:  %b", dut.num_valid_from_fetch);
+        $display("max_dispatch:  %b", dut.max_dispatch);
+
+        // Rob not enough
+        if (dispatch_count == `N - 1 && stall_fetch)
+            $display("[PASS] Dispatched %0d instructions.", dispatch_count);
+        else
+            $display("[FAIL] Unexpected dispatch behavior.");
+
+
+        $display("\n=== TEST 3.3: Not enough Free List ===");
+        fetch_valid = 0;
+        fetch_packet = 0;
+        free_slots_rob = `N;
+        free_slots_rs = `N;
+        free_slots_freelst = `N - 1;
+
+        // normal physical register
+        for (int i = 0; i < `N; i++) begin
+            allocated_phys[i] = i;
+            $display("allocated physical reg: %b", allocated_phys[i]);
+        end
+
+        @(posedge clock);
+
+        // Create a bundle of valid fetched instructions
+        for (int i = 0; i < `N; i++) begin
+            fetch_valid[i] = 1'b1;
+            fetch_packet.valid[i] = 1'b1;
+            fetch_packet.uses_rd[i] = 1'b1;  // all use dest reg
+            fetch_packet.rs1_idx[i] = i;
+            fetch_packet.rs2_idx[i] = i+1;
+            fetch_packet.rd_idx[i]  = i+2;
+        end
+
+        @(posedge clock);
+
+        // Check the results
+        $display("Dispatch count: %0d", dispatch_count);
+        $display("Stall Fetch: %b", stall_fetch);
+        $display("ROB Alloc Valid: %b", rob_alloc_valid); // TODO: check this later, for now since it's initialized, it's displayed as xxx
+        $display("RS Alloc Valid:  %b", rs_alloc_valid); // check this later
+        $display("num_valid_from_fetch:  %b", dut.num_valid_from_fetch);
+        $display("max_dispatch:  %b", dut.max_dispatch);
+
+        // Rob not enough
+        if (dispatch_count == `N - 1 && stall_fetch)
+            $display("[PASS] Dispatched %0d instructions.", dispatch_count);
+        else
+            $display("[FAIL] Unexpected dispatch behavior.");
+
+        $display("\n=== TEST 3.4: Comprehensive test ===");
+        
+
+        fetch_valid = 0;
+        fetch_packet = 0;
+        free_slots_rob = n - 3;
+        free_slots_rs = n - 2;
+        free_slots_freelst = n - 1;
+
+        // normal physical register
+        for (int i = 0; i < `N; i++) begin
+            allocated_phys[i] = i;
+            $display("allocated physical reg: %b", allocated_phys[i]);
+        end
+
+        @(posedge clock);
+
+        // Create a bundle of valid fetched instructions
+        for (int i = 0; i < `N; i++) begin
+            fetch_valid[i] = 1'b1;
+            fetch_packet.valid[i] = 1'b1;
+            fetch_packet.uses_rd[i] = 1'b1;  // all use dest reg
+            fetch_packet.rs1_idx[i] = i;
+            fetch_packet.rs2_idx[i] = i+1;
+            fetch_packet.rd_idx[i]  = i+2;
+        end
+
+        @(posedge clock);
+
+        // Check the results
+        $display("Dispatch count: %0d", dispatch_count);
+        $display("Stall Fetch: %b", stall_fetch);
+        $display("ROB Alloc Valid: %b", rob_alloc_valid); // TODO: check this later, for now since it's initialized, it's displayed as xxx
+        $display("RS Alloc Valid:  %b", rs_alloc_valid); // check this later
+        $display("num_valid_from_fetch:  %b", dut.num_valid_from_fetch);
+        $display("max_dispatch:  %b", dut.max_dispatch);
+
+        // Rob not enough
+        if (dispatch_count == n - 3 && stall_fetch)
+            $display("[PASS] Dispatched %0d instructions.", dispatch_count);
+        else
+            $display("[FAIL] Unexpected dispatch behavior.");
+        
+
+
+
+        // Test 4:
+        $display("\n=== TEST 4: Intra-Bundle Dependency ===");
+        clear_inputs();
+
+        // add x5, x1, x2  (rd=5, rs1=1, rs2=2)
+        fetch_valid[0] = 1'b1;
+        fetch_packet.rs1_idx[0] = 1;
+        fetch_packet.rs2_idx[0] = 2;
+        fetch_packet.rd_idx[0] = 5;
+        fetch_packet.uses_rd[0] = 1'b1;
+
+        // add x6, x5, x3  (rd=6, rs1=5, rs2=3)
+        fetch_valid[1] = 1'b1;
+        fetch_packet.rs1_idx[1] = 5; // Depends on inst 0
+        fetch_packet.rs2_idx[1] = 3;
+        fetch_packet.rd_idx[1] = 6;
+        fetch_packet.uses_rd[1] = 1'b1;
+        
+        fetch_valid[2] = 1'b0;
+        
+        allocated_phys = '{32, 33, 34}; // Inst 0 gets p32 (maps to x5), Inst 1 gets p33 (maps to x6)
+        rob_alloc_idxs = '{10, 11, 12}; // Dummy ROB indices
+
+        @(posedge clock);
+        
+        $display("Dispatch count: %0d", dispatch_count);
+        $display("RS[0].src1_tag: %0d, RS[0].dest_tag: %0d", rs_alloc_entries[0].src1_tag, rs_alloc_entries[0].dest_tag);
+        $display("RS[1].src1_tag: %0d, RS[1].dest_tag: %0d", rs_alloc_entries[1].src1_tag, rs_alloc_entries[1].dest_tag);
+
+        // Check: RS[0] sources (p1, p2) are from old map. RS[0] dest is p32.
+        // Check: RS[1] src1 (p32) is from new map. RS[1] dest is p33.
+        // We assume initial map is pX -> aX. So map[1]=p1, map[5]=p5
+        if (dispatch_count == 2 && rs_alloc_entries[0].dest_tag == 32 && rs_alloc_entries[1].src1_tag == 32 && rs_alloc_entries[1].dest_tag == 33)
+            $display("[PASS] Intra-bundle dependency renamed correctly.");
+        else
+            $display("[FAIL] Dependency renaming failed. RS[0].dest=%0d, RS[1].src1=%0d, RS[1].dest=%0d", rs_alloc_entries[0].dest_tag, rs_alloc_entries[1].src1_tag, rs_alloc_entries[1].dest_tag);
+
+
+
+
+
+
+        
+
+
+
         $finish;
     end
 

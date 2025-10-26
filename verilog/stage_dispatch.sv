@@ -169,13 +169,16 @@ module stage_dispatch (
                 if (fetch_packet.uses_rd[i]) begin
                     num_rds_needed++;
                 end
-            end
+            end 
         end
 
         // Determine how many instructions we can actually dispatch this cycle
         max_dispatch = num_valid_from_fetch;  // start with all valid
 
         // Limit by available free slots in ROB, RS, and freelist (for destinations)
+        // 2 approach: stall all or dispatch as much as we can
+        // 1. Stall all if there's no enough space 
+        // 2. Dispatch as much as we could <--- current
         if (free_slots_rob < max_dispatch)      max_dispatch = free_slots_rob;
         if (free_slots_rs  < max_dispatch)      max_dispatch = free_slots_rs;
         if (free_slots_freelst < num_rds_needed) max_dispatch = free_slots_freelst;
@@ -188,129 +191,106 @@ module stage_dispatch (
 
         // Output
         dispatch_count = num_to_dispatch;
+    end
 
+
+    // Dispatch logic (parallel for rename, sequential for allocation)
+    always_comb begin
+
+        // Default outputs
+        // disp_valid = fetch_packet.valid & {`N{!stall_fetch}};
+        // dispatch_valid = |disp_valid;
+        
+        // rob_alloc_valid = '0;
+        // rs_alloc_valid = '0;
+        // free_alloc_valid = '0;
+        // free_add_valid = '0;
+        // prf_read_valid = '0;
+
+        // // Parallel: Rename srcs/dest for each inst
         // for (int i = 0; i < `N; i++) begin
-        //     // if the fetch is valid
-        //     if (fetch_valid [i]) begin
-        //         num_valid_from_fetch++;
-        //         destreg_req = fetch_packet.uses_rd[i];
-                
-        //         // check if there's any enough resources
-        //         if ((num_valid_from_fetch < free_slots_rob) &&
-        //             (num_valid_from_fetch < free_slots_rs) &&
-        //             (~destreg_req || freelist_needed + 1 < free_slots_freelst)) begin
-        //                 num_can_dispatch_count++;
-        //                 if (destreg_req) begin
-        //                     freelist_needed++;
-        //                 end
-        //             end else begin
-        //                 break;
-        //             end
+        //     if (disp_valid[i]) begin
+        //         // Lookup srcs
+        //         rs1_phys[i] = map_table[fetch_packet.rs1_idx[i]].phys_tag;
+        //         rs2_phys[i] = map_table[fetch_packet.rs2_idx[i]].phys_tag;
+        //         prev_rd_phys[i] = map_table[fetch_packet.rd_idx[i]].phys_tag;
+
+        //         // Request new phys for rd if uses_rd
+        //         if (fetch_packet.uses_rd[i]) begin
+        //             free_alloc_valid[i] = 1'b1;
+        //             rd_phys[i] = allocated_phys[i];  // Assume granted instantly (combo)
+        //         end else begin
+        //             rd_phys[i] = '0;  // No dest
+        //         end
+
+        //         // Check readiness and read values if ready (assume busy table or from CDB)
+        //         // For simplicity: assume ready if not waiting on tag (but actual: check if producer complete)
+        //         // Here, placeholder: read from PRF always, set ready if value avail (but need busy bits)
+        //         prf_read_valid[2*i] = fetch_packet.uses_rs1[i];
+        //         prf_read_tags[2*i] = rs1_phys[i];
+        //         src1_value[i] = prf_read_values[2*i];
+        //         src1_ready[i] = 1'b1;  // Placeholder; actual: if !busy[rs1_phys[i]]
+
+        //         prf_read_valid[2*i+1] = fetch_packet.uses_rs2[i];
+        //         prf_read_tags[2*i+1] = rs2_phys[i];
+        //         src2_value[i] = prf_read_values[2*i+1];
+        //         src2_ready[i] = 1'b1;  // Placeholder
         //     end
         // end
 
-        //num_to_dispatch = num_can_dispatch_count;
+        // TODO: worked on code below, haven't check the above code.
 
-        // stall if there is valid instr from fetch, and also at the same time can dispatch count < total valid fetch
-        // prevent sending the same (partially dispatched bundle again)
-        //stall_fetch = (num_valid_from_fetch > 0) && (num_to_dispatch < num_valid_from_fetch);
+        // Sequential/atomic: if no stall, allocate all
+        if (!stall_fetch && fetch_valid) begin
+            ROB_IDX new_tail = rob_tail;
+            for (int i = 0; i < `N; i++) begin
+                if (disp_valid[i]) begin
+                    
+                    // ROB ALLOCATION
+                    rob_alloc_valid[i] = 1'b1;
+                    rob_alloc_entries[i].valid = 1'b1;
+                    rob_alloc_entries[i].PC = fetch_packet.PC[i];
+                    rob_alloc_entries[i].inst = fetch_packet.inst[i];
+                    rob_alloc_entries[i].arch_rd = fetch_packet.rd_idx[i];
+                    rob_alloc_entries[i].phys_rd = rd_phys[i];
+                    rob_alloc_entries[i].prev_phys_rd = prev_rd_phys[i];
+                    rob_alloc_entries[i].complete = 1'b0;
+                    rob_alloc_entries[i].exception = NO_ERROR;
+                    rob_alloc_entries[i].branch = (fetch_packet.op_type[i].category == CAT_BRANCH);
+
+                    // RS ALLOCATION
+                    rs_alloc_valid[i] = 1'b1;
+                    rs_alloc_entries[i].valid = 1'b1;
+                    rs_alloc_entries[i].opa_select = fetch_packet.opa_select[i];
+                    rs_alloc_entries[i].opb_select = fetch_packet.opb_select[i];
+                    rs_alloc_entries[i].op_type = fetch_packet.op_type[i];
+                    rs_alloc_entries[i].src1_tag = rs1_phys[i];
+                    rs_alloc_entries[i].src1_ready = src1_ready[i];
+                    rs_alloc_entries[i].src1_value = src1_value[i];
+                    rs_alloc_entries[i].src2_tag = rs2_phys[i];
+                    rs_alloc_entries[i].src2_ready = src2_ready[i];
+                    rs_alloc_entries[i].src2_value = src2_value[i];
+                    rs_alloc_entries[i].dest_tag = rd_phys[i];
+                    rs_alloc_entries[i].rob_idx = new_tail;  // Current tail as idx
+                    rs_alloc_entries[i].PC = fetch_packet.PC[i];
+                    rs_alloc_entries[i].pred_taken = fetch_packet.pred_taken[i];
+                    rs_alloc_entries[i].pred_target = fetch_packet.pred_target[i];
+
+                    // Update map table (after all prev in bundle)
+                    if (fetch_packet.uses_rd[i]) begin
+                        map_table[fetch_packet.rd_idx[i]].phys_tag = rd_phys[i];
+                    end
+
+                    // Advance tail
+                    new_tail = new_tail + 1;
+                end
+            end
+            rob_tail_update = new_tail;
+            rs_compact = 1'b1;  // Compact RS after alloc for priority
+        end
     end
 
-    // TODO Work on below do not delete (commented out for now)
-
-    // Dispatch logic (parallel for rename, sequential for allocation)
-    // always_comb begin
-    //     // Default outputs
-    //     disp_valid = fetch_packet.valid & {`N{!stall_fetch}};
-    //     dispatch_valid = |disp_valid;
-        
-    //     rob_alloc_valid = '0;
-    //     rs_alloc_valid = '0;
-    //     free_alloc_valid = '0;
-    //     free_add_valid = '0;
-    //     prf_read_valid = '0;
-
-    //     // Parallel: Rename srcs/dest for each inst
-    //     for (int i = 0; i < `N; i++) begin
-    //         if (disp_valid[i]) begin
-    //             // Lookup srcs
-    //             rs1_phys[i] = map_table[fetch_packet.rs1_idx[i]].phys_tag;
-    //             rs2_phys[i] = map_table[fetch_packet.rs2_idx[i]].phys_tag;
-    //             prev_rd_phys[i] = map_table[fetch_packet.rd_idx[i]].phys_tag;
-
-    //             // Request new phys for rd if uses_rd
-    //             if (fetch_packet.uses_rd[i]) begin
-    //                 free_alloc_valid[i] = 1'b1;
-    //                 rd_phys[i] = allocated_phys[i];  // Assume granted instantly (combo)
-    //             end else begin
-    //                 rd_phys[i] = '0;  // No dest
-    //             end
-
-    //             // Check readiness and read values if ready (assume busy table or from CDB)
-    //             // For simplicity: assume ready if not waiting on tag (but actual: check if producer complete)
-    //             // Here, placeholder: read from PRF always, set ready if value avail (but need busy bits)
-    //             prf_read_valid[2*i] = fetch_packet.uses_rs1[i];
-    //             prf_read_tags[2*i] = rs1_phys[i];
-    //             src1_value[i] = prf_read_values[2*i];
-    //             src1_ready[i] = 1'b1;  // Placeholder; actual: if !busy[rs1_phys[i]]
-
-    //             prf_read_valid[2*i+1] = fetch_packet.uses_rs2[i];
-    //             prf_read_tags[2*i+1] = rs2_phys[i];
-    //             src2_value[i] = prf_read_values[2*i+1];
-    //             src2_ready[i] = 1'b1;  // Placeholder
-    //         end
-    //     end
-
-    //     // Sequential/atomic: if no stall, allocate all
-    //     if (!stall_fetch && fetch_valid) begin
-    //         ROB_IDX new_tail = rob_tail;
-    //         for (int i = 0; i < `N; i++) begin
-    //             if (disp_valid[i]) begin
-    //                 // Allocate ROB
-    //                 rob_alloc_valid[i] = 1'b1;
-    //                 rob_alloc_entries[i].valid = 1'b1;
-    //                 rob_alloc_entries[i].PC = fetch_packet.PC[i];
-    //                 rob_alloc_entries[i].inst = fetch_packet.inst[i];
-    //                 rob_alloc_entries[i].arch_rd = fetch_packet.rd_idx[i];
-    //                 rob_alloc_entries[i].phys_rd = rd_phys[i];
-    //                 rob_alloc_entries[i].prev_phys_rd = prev_rd_phys[i];
-    //                 rob_alloc_entries[i].complete = 1'b0;
-    //                 rob_alloc_entries[i].exception = NO_ERROR;
-    //                 rob_alloc_entries[i].branch = (fetch_packet.op_type[i].category == CAT_BRANCH);
-
-    //                 // Allocate RS (priority insert from top for oldest)
-    //                 rs_alloc_valid[i] = 1'b1;
-    //                 rs_alloc_entries[i].valid = 1'b1;
-    //                 rs_alloc_entries[i].opa_select = fetch_packet.opa_select[i];
-    //                 rs_alloc_entries[i].opb_select = fetch_packet.opb_select[i];
-    //                 rs_alloc_entries[i].op_type = fetch_packet.op_type[i];
-    //                 rs_alloc_entries[i].src1_tag = rs1_phys[i];
-    //                 rs_alloc_entries[i].src1_ready = src1_ready[i];
-    //                 rs_alloc_entries[i].src1_value = src1_value[i];
-    //                 rs_alloc_entries[i].src2_tag = rs2_phys[i];
-    //                 rs_alloc_entries[i].src2_ready = src2_ready[i];
-    //                 rs_alloc_entries[i].src2_value = src2_value[i];
-    //                 rs_alloc_entries[i].dest_tag = rd_phys[i];
-    //                 rs_alloc_entries[i].rob_idx = new_tail;  // Current tail as idx
-    //                 rs_alloc_entries[i].PC = fetch_packet.PC[i];
-    //                 rs_alloc_entries[i].pred_taken = fetch_packet.pred_taken[i];
-    //                 rs_alloc_entries[i].pred_target = fetch_packet.pred_target[i];
-
-    //                 // Update map table (after all prev in bundle)
-    //                 if (fetch_packet.uses_rd[i]) begin
-    //                     map_table[fetch_packet.rd_idx[i]].phys_tag = rd_phys[i];
-    //                 end
-
-    //                 // Advance tail
-    //                 new_tail = new_tail + 1;
-    //             end
-    //         end
-    //         rob_tail_update = new_tail;
-    //         rs_compact = 1'b1;  // Compact RS after alloc for priority
-    //     end
-    // end
-
-    // TODO implement below (do not delete)
+    // TODO implement below (do not delete) 
 
     // Mispredict recovery: truncate ROB/RS from mispred rob_idx, restore map/free list
     // always_comb begin
