@@ -12,12 +12,18 @@ module freelist_test;
   // Clock & reset
   logic clock, reset_n;
 
-  // DUT ports (new minimal interface)
-  logic [$clog2(N+1)-1:0] AllocPopCount;    // how many Dispatch consumed
-  PHYS_TAG [N-1:0]        FreeReg;          // offered tags (use first AllocPopCount)
-  logic [$clog2(`PHYS_REG_SZ_R10K+1)-1:0] free_count;
-  logic [$clog2(N+1)-1:0] FreeSlotsForN;
+  // ==== DUT ports (mask-driven interface) ====
+  // From Dispatch: per-lane request (aka free_alloc_valid)
+  logic       [N-1:0]     AllocReqMask;
 
+  // Offered tags (Dispatch must only consume first pop_now entries)
+  PHYS_TAG    [N-1:0]     FreeReg;
+
+  // Availability info
+  logic [$clog2(`PHYS_REG_SZ_R10K+1)-1:0] free_count;
+  logic [$clog2(N+1)-1:0]                 FreeSlotsForN;
+
+  // Returns from Retire
   logic       [N-1:0]     RetireEN;
   PHYS_TAG    [N-1:0]     RetireReg;
 
@@ -37,6 +43,14 @@ module freelist_test;
       $fatal(1);
     end
   endtask
+
+  // Make a mask with the lowest K bits set (K in 0..N)
+  function automatic logic [N-1:0] ones_mask(input int K);
+    logic [N-1:0] m;
+    m = '0;
+    for (int i = 0; i < N && i < K; i++) m[i] = 1'b1;
+    return m;
+  endfunction
 
   // Check the first K visible tags (K = FreeSlotsForN) are valid & unique
   task automatic check_visible_unique();
@@ -62,8 +76,8 @@ module freelist_test;
     .clock,
     .reset_n,
 
-    // Dispatch-driven
-    .AllocPopCount,
+    // Dispatch mask-driven requests
+    .AllocReqMask,
     .FreeReg,
     .free_count,
     .FreeSlotsForN,
@@ -94,7 +108,7 @@ module freelist_test;
 
   initial begin
     // defaults
-    AllocPopCount        = '0;
+    AllocReqMask         = '0;
     RetireEN             = '0;
     RetireReg            = '{default: '0};
     BPRecoverEN          = 1'b0;
@@ -111,14 +125,12 @@ module freelist_test;
     // ===========================
     // 1) Drain the freelist fast
     // ===========================
-    $display("== Drain freelist (Dispatch pops all visible each cycle) ==");
-    // While there are tags visible, consume them all (up to N per cycle)
+    $display("== Drain freelist (request exactly what is visible each cycle) ==");
+    // While there are tags visible, request K = FreeSlotsForN on the lowest K lanes
     do begin
       @(negedge clock);
-        // Check the offered tags are sane & unique
         check_visible_unique();
 
-        // Capture the first tag we ever saw (lane 0)
         if (!saved_first_tag_set && FreeSlotsForN > 0) begin
           saved_first_tag     = FreeReg[0];
           saved_first_tag_set = 1;
@@ -126,8 +138,8 @@ module freelist_test;
 
         total_tags_seen += FreeSlotsForN;
 
-        // Tell freelist how many we actually consume this cycle
-        AllocPopCount = FreeSlotsForN;
+        // Request exactly the visible amount (first K lanes)
+        AllocReqMask = ones_mask(FreeSlotsForN);
 
       @(posedge clock);
       safety = safety + 1;
@@ -143,32 +155,32 @@ module freelist_test;
     $display("== Check empty after drain ==");
     @(negedge clock);
       expect_ok(FreeSlotsForN == 0, "expected FreeSlotsForN=0 after drain");
-      AllocPopCount = '0;  // nothing to pop
+      AllocReqMask = '0;  // nothing to request
     @(posedge clock);
 
     // ==================================================
     // 3) Return one tag, then consume exactly one (lane0)
     // ==================================================
     $display("== Return one and re-allocate to lane 0 ==");
-    // Push a return this cycle; don't pop yet
+    // Push a return this cycle; don't request in the same cycle
     @(negedge clock);
       RetireEN  = '0;
       RetireReg = '{default: '0};
       RetireEN[0]  = 1'b1;
       RetireReg[0] = saved_first_tag;
-      AllocPopCount = '0;   // do not consume in same cycle as return
+      AllocReqMask = '0;   // do not consume in same cycle as return
     @(posedge clock);
 
-    // Now take exactly one; it should be the returned tag at FreeReg[0]
+    // Now request exactly one; it should be the returned tag at FreeReg[0]
     @(negedge clock);
       expect_ok(FreeSlotsForN >= 1, "expected at least 1 tag visible after return");
       expect_ok(FreeReg[0] == saved_first_tag,
         $sformatf("lane0 isn't the returned tag (got %0d exp %0d)", FreeReg[0], saved_first_tag));
-      AllocPopCount = 1;
-      RetireEN      = '0;
+      AllocReqMask = ones_mask(1);
+      RetireEN     = '0;
     @(posedge clock);
 
-    $display("=== PASS: freelist Dispatch-driven behavior OK ===");
+    $display("=== PASS: freelist mask-driven behavior OK ===");
     $display("@@@ Passed");
     $finish;
   end

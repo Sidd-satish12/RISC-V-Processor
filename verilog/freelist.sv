@@ -2,9 +2,11 @@
 `include "sys_defs.svh"
 
 // -------------------------------------------------------------
-// Minimal N-way freelist (Dispatch-driven)
-// - Freelist exposes next up to N tags and availability counters.
-// - Dispatch sends AllocPopCount = how many tags it actually took.
+// Minimal N-way freelist (mask-driven)
+// - Dispatch provides AllocReqMask[N]: which lanes need a tag.
+// - Freelist exposes next up to N tags in FreeReg[0..N-1].
+//   Dispatch must only consume the first pop_now tags, where
+//     pop_now = min(popcount(AllocReqMask), FreeSlotsForN).
 // - Retire returns up to N old tags.
 // - Optional reseed on mispredict (from Retire) using arch map.
 // -------------------------------------------------------------
@@ -18,10 +20,10 @@ module freelist #(
   input  logic                             reset_n,
 
   // ---- DISPATCH ----
-  // How many tags Dispatch actually consumed this cycle (0..N)
-  input  logic [$clog2(N+1)-1:0]           AllocPopCount,
-  // Up to N tags available to take (use first AllocPopCount entries)
-  output PHYS_TAG    [N-1:0]               FreeReg,
+  // Per-lane request mask from Dispatch (aka free_alloc_valid)
+  input  logic [N-1:0]                     AllocReqMask,
+  // Up to N tags visible (Dispatch MUST only use first pop_now entries)
+  output PHYS_TAG [N-1:0]                  FreeReg,
   // Availability info
   output logic [$clog2(PR_COUNT+1)-1:0]    free_count,     // total free
   output logic [$clog2(N+1)-1:0]           FreeSlotsForN,  // min(N, free_count)
@@ -44,13 +46,18 @@ module freelist #(
   logic [PTRW-1:0]         head, tail;
   logic [$clog2(PR_COUNT+1)-1:0] count;  // 0..DEPTH
 
+  // ---- helper ----
+  function automatic int popcount(input logic [N-1:0] v);
+    int s=0; for (int i=0;i<N;i++) s+=v[i]; return s;
+  endfunction
+
   // ---- Combinational: expose next tags + counters ----
   always_comb begin
     // Counters for external use
     free_count    = count;
     FreeSlotsForN = (count >= N) ? N[$clog2(N+1)-1:0] : count[$clog2(N+1)-1:0];
 
-    // Show the next up to N tags without mutating state
+    // Next up to N tags (Dispatch should only use first pop_now entries)
     for (int i = 0; i < N; i++) begin
       if (DEPTH > 0 && i < FreeSlotsForN)
         FreeReg[i] = queue[(head + i) % DEPTH];
@@ -61,10 +68,11 @@ module freelist #(
 
   // ---- Sequential: update FIFO on reset / recovery / normal ----
   always_ff @(posedge clock or negedge reset_n) begin
-    // Temps declared before any statements (VCS-friendly)
+    // Temps declared up-front (tool-friendly)
     logic [PR_COUNT-1:0]             used;
     int unsigned                     w;
     int unsigned                     pushed;
+    logic [$clog2(N+1)-1:0]          req_count;
     logic [$clog2(N+1)-1:0]          pop_now;
 
     if (!reset_n) begin
@@ -97,7 +105,7 @@ module freelist #(
 
     // Normal operation
     end else begin
-      // 1) Push returns (append at tail in-lane order)
+      // 1) Push returns (append in-lane order)
       pushed = 0;
       if (DEPTH > 0) begin
         for (int i=0; i<N; i++) begin
@@ -109,9 +117,10 @@ module freelist #(
         tail <= (tail + pushed) % DEPTH;
       end
 
-      // 2) Pop what dispatch consumed (Dispatch decides)
-      // Safety cap: cannot pop more than available
-      pop_now = (AllocPopCount <= FreeSlotsForN) ? AllocPopCount : FreeSlotsForN;
+      // 2) Pop what Dispatch requested (bounded by availability)
+      req_count = popcount(AllocReqMask);
+      pop_now   = (req_count <= FreeSlotsForN) ? req_count : FreeSlotsForN;
+
       if (DEPTH > 0) head <= (head + pop_now) % DEPTH;
 
       // 3) Single count update = pushes - pops
