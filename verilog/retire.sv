@@ -1,4 +1,4 @@
-// retire.sv — simple version
+// retire.sv
 `timescale 1ns/1ps
 `include "sys_defs.svh"
 
@@ -8,7 +8,7 @@ module retire #(
   parameter int PHYS_REGS  = `PHYS_REG_SZ_R10K,
   localparam  int PRW      = (PHYS_REGS <= 2) ? 1 : $clog2(PHYS_REGS)
 )(
-  input  logic                         clock,
+  input  logic             2            clock,
   input  logic                         reset,
 
   // From ROB: head window (N-1 = oldest, 0 = youngest)
