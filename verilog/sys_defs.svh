@@ -172,6 +172,12 @@ typedef struct packed {
     DATA data;
 } CDB_ENTRY;
 
+// CDB request
+typedef struct packed {
+    logic valid;
+    PHYS_TAG tags;
+} CDB_REQUEST;
+
 ///////////////////////////////
 // ---- Exception Codes ---- //
 ///////////////////////////////

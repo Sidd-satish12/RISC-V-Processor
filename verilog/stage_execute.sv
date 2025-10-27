@@ -8,20 +8,20 @@ module stage_execute (
     input RS_ENTRY [`N-1:0] issued_entries,
 
     // Input from CDB
-    input  ,  // For operand bypass from completing instructions 
+    input DATA cdb_forwarding,  
 
     // To PRF for operand reads (up to 2 per issued instruction)
-    output logic [2*`N-1:0] prf_rd_en,
-    output PHYS_TAG [2*`N-1:0] prf_rd_tag,
-    input DATA [2*`N-1:0] prf_rd_data, // physical register file read data
+    output logic [2*`N-1:0] prf_read_en,
+    output PHYS_TAG [2*`N-1:0] prf_read_tag,
+    input DATA [2*`N-1:0] prf_read_data, // physical register file read data
 
-    // Interface to D-cache for memory operations (IGNORE FOR NOW)
-    output MEM_COMMAND proc2Dcache_command [`NUM_FU_MEM-1:0],
-    output ADDR proc2Dcache_addr [`NUM_FU_MEM-1:0],
-    output DATA proc2Dcache_data [`NUM_FU_MEM-1:0],  // For stores
-    output MEM_SIZE proc2Dcache_size [`NUM_FU_MEM-1:0],
-    input logic [`NUM_FU_MEM-1:0] Dcache_valid,
-    input DATA [`NUM_FU_MEM-1:0] Dcache_data,  // For loads
+    // // Interface to D-cache for memory operations (IGNORE FOR NOW)
+    // output MEM_COMMAND proc2Dcache_command [`NUM_FU_MEM-1:0],
+    // output ADDR proc2Dcache_addr [`NUM_FU_MEM-1:0],
+    // output DATA proc2Dcache_data [`NUM_FU_MEM-1:0],  // For stores
+    // output MEM_SIZE proc2Dcache_size [`NUM_FU_MEM-1:0],
+    // input logic [`NUM_FU_MEM-1:0] Dcache_valid,
+    // input DATA [`NUM_FU_MEM-1:0] Dcache_data,  // For loads
 
     // Outputs to issue stage: FU availability
     output logic [`NUM_FU_ALU-1:0] alu_avail,
