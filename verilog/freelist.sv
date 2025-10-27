@@ -87,7 +87,7 @@ module freelist #(
     end else if (BPRecoverEN) begin
       used = '0;
       if (EXCLUDE_ZERO) used[0] = 1'b1;
-      for (int r=0; r<ARCH_COUNT; r++) used[ archi_maptable[r] ] <= 1'b1;
+      for (int r=0; r<ARCH_COUNT; r++) used[ archi_maptable[r] ] = 1'b1;
 
       w = 0;
       if (DEPTH > 0) begin
