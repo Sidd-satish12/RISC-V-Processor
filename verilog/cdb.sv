@@ -34,7 +34,7 @@ always_comb begin
     cdb_next = '0;
     for (int i = 0; i < `N; i++) begin
         for (int j = 0; j < `NUM_FU_TOTAL; j++) begin
-            cdb_next[i] |= {$bits(CDB_ENTRY){gnt_bus[i][j]}} & fu_outputs[j];
+            cdb_next[i] |= gnt_bus[i][j] ? fu_outputs[j] : '0;
         end
     end
 end
