@@ -92,15 +92,12 @@ module retire #(
         if (!e.complete)     break;   // in-order: stop at first incomplete
 
         // If this instruction writes a dest, update precise map and return Told
-        if (e.has_dest) begin
+        if (e.arch_rd != '0) begin
           Arch_Retire_EN[w] = 1'b1;
-          Arch_Retire_AR[w] = e.dest_ar;
-          Arch_Tnew_in[w]   = e.Tnew;
-
-          if (e.dest_ar != '0) begin
-            FL_RetireEN[w]  = 1'b1;
-            FL_RetireReg[w] = e.Told;
-          end
+          Arch_Retire_AR[w] = e.arch_rd;
+          Arch_Tnew_in[w]   = e.phys_rd;
+          FL_RetireEN[w]    = 1'b1;
+          FL_RetireReg[w]   = e.prev_phys_rd;
         end
         // Branch with no dest retires silently.
       end

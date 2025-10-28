@@ -417,6 +417,7 @@ typedef struct packed {
     logic valid;               // Entry occupied
     ADDR PC;                   // PC of instruction
     INST inst;                 // Full instruction
+    ROB_IDX rob_idx;
     REG_IDX arch_rd;           // Architectural destination reg
     PHYS_TAG phys_rd;          // Assigned physical dest reg
     PHYS_TAG prev_phys_rd;     // Previous physical mapping (for free on commit)

@@ -221,7 +221,10 @@ build/regfile.cov:  $(REGFILE_FILES)
 synth/regfile.vg:   $(REGFILE_FILES)
 
 # TODO: add any files required for the RETIRE module
-RETIRE_FILES = verilog/sys_defs.svh
+RETIRE_FILES = verilog/sys_defs.svh \
+               verilog/rob.sv \
+               verilog/map_table.sv \
+               verilog/freelist.sv
 build/retire.simv: $(RETIRE_FILES)
 build/retire.cov:  $(RETIRE_FILES)
 synth/retire.vg:   $(RETIRE_FILES)
