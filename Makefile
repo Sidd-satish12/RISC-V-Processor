@@ -190,7 +190,7 @@ GREP = grep -E --color=auto
 # ---- Modules to Test ---- #
 
 # TODO: add more modules here
-MODULES = cpu mult rob rs regfile
+MODULES = cpu mult rob rs regfile retire
 
 # TODO: update this if you add more header files
 ALL_HEADERS = $(CPU_HEADERS)
@@ -219,6 +219,13 @@ REGFILE_FILES = verilog/sys_defs.svh verilog/ISA.svh
 build/regfile.simv: $(REGFILE_FILES)
 build/regfile.cov:  $(REGFILE_FILES)
 synth/regfile.vg:   $(REGFILE_FILES)
+
+# TODO: add any files required for the RETIRE module
+RETIRE_FILES = verilog/sys_defs.svh
+build/retire.simv: $(RETIRE_FILES)
+build/retire.cov:  $(RETIRE_FILES)
+synth/retire.vg:   $(RETIRE_FILES)
+
 
 #################################
 # ---- Main CPU Definition ---- #

@@ -8,7 +8,7 @@ module retire #(
   parameter int PHYS_REGS  = `PHYS_REG_SZ_R10K,
   localparam  int PRW      = (PHYS_REGS <= 2) ? 1 : $clog2(PHYS_REGS)
 )(
-  input  logic             2            clock,
+  input  logic                         clock,
   input  logic                         reset,
 
   // From ROB: head window (N-1 = oldest, 0 = youngest)
@@ -39,6 +39,13 @@ module retire #(
   // Combinational retire / recovery
   // -------------------------------
   always_comb begin
+    // ---- Decls first (tool-friendly) ----
+    logic     recover;
+    ROB_ENTRY h;               // oldest head entry (for mispred check)
+    ROB_ENTRY e;               // iterator entry for normal retire walk
+    logic     mispred_dir, mispred_tgt, mispred;
+    int       w;               // loop index
+
     // defaults
     rob_mispredict  = 1'b0;
     rob_mispred_idx = '0;
@@ -51,49 +58,52 @@ module retire #(
     FL_RetireEN     = '0;
     FL_RetireReg    = '0;
 
-    // 1) Check the oldest entry (head) for mispredict
-    if (head_valids[N-1]) begin
-      ROB_ENTRY h = head_entries[N-1];
+    recover         = 1'b0;
+    mispred_dir     = 1'b0;
+    mispred_tgt     = 1'b0;
+    mispred         = 1'b0;
+    h               = '0;
+    e               = '0;
 
+    // Detect mispredict on the oldest visible head
+    if (head_valids[N-1]) begin
+      h = head_entries[N-1];
       if (h.branch) begin
-        // mismatch if direction differs OR (taken && target differs)
-        logic mispred_dir = (h.pred_taken  != h.branch_taken);
-        logic mispred_tgt = (h.branch_taken && (h.pred_target != h.branch_target));
-        logic mispred     = (mispred_dir || mispred_tgt);
+        mispred_dir = (h.pred_taken  != h.branch_taken);
+        mispred_tgt = (h.branch_taken && (h.pred_target != h.branch_target));
+        mispred     = (mispred_dir || mispred_tgt);
 
         if (mispred) begin
           rob_mispredict  = 1'b1;
           rob_mispred_idx = h.rob_idx;
           BPRecoverEN     = 1'b1;
-
-          // On recovery cycle: do not return Told or update precise map here.
-          // Freelist should reseed from archi_maptable at BPRecoverEN (in its own module).
-          // Stop here.
-          return;
+          recover         = 1'b1;   // block normal retire work this cycle
         end
       end
     end
 
-    // 2) Normal retire path (no mispredict at head)
-    //    Walk oldest→youngest; stop at first incomplete.
-    for (int w = N-1; w >= 0; w--) begin
-      if (!head_valids[w])   continue;
+    // Normal retire path only if no recovery this cycle
+    if (!recover) begin
+      // Walk oldest→youngest; stop at first incomplete
+      for (w = N-1; w >= 0; w--) begin
+        if (!head_valids[w]) continue;
 
-      ROB_ENTRY e = head_entries[w];
-      if (!e.complete)       break;    // in-order: stop
+        e = head_entries[w];
+        if (!e.complete)     break;   // in-order: stop at first incomplete
 
-      // If this instruction writes a dest, update precise map and return Told
-      if (e.has_dest) begin
-        Arch_Retire_EN[w]   = 1'b1;
-        Arch_Retire_AR[w]   = e.dest_ar;
-        Arch_Tnew_in[w]     = e.Tnew;
+        // If this instruction writes a dest, update precise map and return Told
+        if (e.has_dest) begin
+          Arch_Retire_EN[w] = 1'b1;
+          Arch_Retire_AR[w] = e.dest_ar;
+          Arch_Tnew_in[w]   = e.Tnew;
 
-        if (e.dest_ar != '0) begin
-          FL_RetireEN[w]    = 1'b1;
-          FL_RetireReg[w]   = e.Told;
+          if (e.dest_ar != '0) begin
+            FL_RetireEN[w]  = 1'b1;
+            FL_RetireReg[w] = e.Told;
+          end
         end
+        // Branch with no dest retires silently.
       end
-      // If it's a branch with no dest, just retires silently.
     end
   end
 
