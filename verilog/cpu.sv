@@ -61,19 +61,44 @@ module cpu (
     // Outputs from ID stage and ID/EX Pipeline Register
     ISSUE_EXECUTE_PACKET issue_execute_packet, issue_execute_register;
 
-    // RS wires
-    // From dispatch to RS
-    logic [`N-1:0]          rs_alloc_valid;
-    RS_ENTRY [`N-1:0]       rs_alloc_entries;
+    // RS wires - separate for each functional unit category
+    // RS sizes: 2x the number of functional units per category
+    localparam RS_ALU_SZ = 2 * `NUM_FU_ALU;      // 6 entries
+    localparam RS_MULT_SZ = 2 * `NUM_FU_MULT;    // 2 entries
+    localparam RS_BRANCH_SZ = 2 * `NUM_FU_BRANCH; // 2 entries
+    localparam RS_MEM_SZ = 2 * `NUM_FU_MEM;      // 2 entries
 
-    // From issue to RS (for clearing issued entries)
-    logic [`NUM_FU_TOTAL-1:0]   rs_clear_valid;
-    RS_IDX [`NUM_FU_TOTAL-1:0]  rs_clear_idxs;
+    // From dispatch to RS (ALU)
+    logic [`N-1:0]          rs_alu_alloc_valid;
+    RS_ENTRY [`N-1:0]       rs_alu_alloc_entries;
+    logic [`NUM_FU_ALU-1:0] rs_alu_clear_valid;
+    RS_IDX [`NUM_FU_ALU-1:0] rs_alu_clear_idxs;
+    RS_ENTRY [RS_ALU_SZ-1:0] rs_alu_entries;
+    logic [$clog2(RS_ALU_SZ+1)-1:0] rs_alu_free_count;
 
-    // From RS to issue/dispatch
-    RS_ENTRY [`RS_SZ-1:0]   rs_entries;
-    logic [$clog2(`RS_SZ+1)-1:0] rs_free_count;
+    // From dispatch to RS (MULT)
+    logic [`N-1:0]          rs_mult_alloc_valid;
+    RS_ENTRY [`N-1:0]       rs_mult_alloc_entries;
+    logic [`NUM_FU_MULT-1:0] rs_mult_clear_valid;
+    RS_IDX [`NUM_FU_MULT-1:0] rs_mult_clear_idxs;
+    RS_ENTRY [RS_MULT_SZ-1:0] rs_mult_entries;
+    logic [$clog2(RS_MULT_SZ+1)-1:0] rs_mult_free_count;
 
+    // From dispatch to RS (BRANCH)
+    logic [`N-1:0]          rs_branch_alloc_valid;
+    RS_ENTRY [`N-1:0]       rs_branch_alloc_entries;
+    logic [`NUM_FU_BRANCH-1:0] rs_branch_clear_valid;
+    RS_IDX [`NUM_FU_BRANCH-1:0] rs_branch_clear_idxs;
+    RS_ENTRY [RS_BRANCH_SZ-1:0] rs_branch_entries;
+    logic [$clog2(RS_BRANCH_SZ+1)-1:0] rs_branch_free_count;
+
+    // From dispatch to RS (MEM)
+    logic [`N-1:0]          rs_mem_alloc_valid;
+    RS_ENTRY [`N-1:0]       rs_mem_alloc_entries;
+    logic [`NUM_FU_MEM-1:0] rs_mem_clear_valid;
+    RS_IDX [`NUM_FU_MEM-1:0] rs_mem_clear_idxs;
+    RS_ENTRY [RS_MEM_SZ-1:0] rs_mem_entries;
+    logic [$clog2(RS_MEM_SZ+1)-1:0] rs_mem_free_count;
 
     // CDB wires
     logic [`NUM_FU_BRANCH-1:0] cdb_branch_requests;
@@ -233,32 +258,128 @@ module cpu (
 
     //////////////////////////////////////////////////
     //                                              //
-    //           Reservation Station (RS)           //
+    //           Reservation Stations (RS)          //
     //                                              //
     //////////////////////////////////////////////////
 
-    rs rs_0 (
+    // RS for ALU operations (6 entries, 3 clear ports)
+    rs #(
+        .ALLOC_WIDTH(`N),
+        .RS_SIZE(RS_ALU_SZ),
+        .CLEAR_WIDTH(`NUM_FU_ALU),
+        .CDB_WIDTH(`CDB_SZ)
+    ) rs_alu (
         // Inputs
         .clock (clock),
         .reset (reset),
 
         // From dispatch: allocation signals
-        .alloc_valid  (rs_alloc_valid),
-        .alloc_entries(rs_alloc_entries),
+        .alloc_valid  (rs_alu_alloc_valid),
+        .alloc_entries(rs_alu_alloc_entries),
 
         // From complete: CDB broadcasts for operand wakeup
         .early_tag_broadcast(early_tag_broadcast),
 
         // From issue: clear signals for issued entries
-        .clear_valid (rs_clear_valid),
-        .clear_idxs  (rs_clear_idxs),
+        .clear_valid (rs_alu_clear_valid),
+        .clear_idxs  (rs_alu_clear_idxs),
 
         // From execute: mispredict flush signal
         .mispredict  (mispredict),
 
         // Outputs to issue/dispatch
-        .entries    (rs_entries),
-        .free_count (rs_free_count)
+        .entries    (rs_alu_entries),
+        .free_count (rs_alu_free_count)
+    );
+
+    // RS for MULT operations (2 entries, 1 clear port)
+    rs #(
+        .ALLOC_WIDTH(`N),
+        .RS_SIZE(RS_MULT_SZ),
+        .CLEAR_WIDTH(`NUM_FU_MULT),
+        .CDB_WIDTH(`CDB_SZ)
+    ) rs_mult (
+        // Inputs
+        .clock (clock),
+        .reset (reset),
+
+        // From dispatch: allocation signals
+        .alloc_valid  (rs_mult_alloc_valid),
+        .alloc_entries(rs_mult_alloc_entries),
+
+        // From complete: CDB broadcasts for operand wakeup
+        .early_tag_broadcast(early_tag_broadcast),
+
+        // From issue: clear signals for issued entries
+        .clear_valid (rs_mult_clear_valid),
+        .clear_idxs  (rs_mult_clear_idxs),
+
+        // From execute: mispredict flush signal
+        .mispredict  (mispredict),
+
+        // Outputs to issue/dispatch
+        .entries    (rs_mult_entries),
+        .free_count (rs_mult_free_count)
+    );
+
+    // RS for BRANCH operations (2 entries, 1 clear port)
+    rs #(
+        .ALLOC_WIDTH(`N),
+        .RS_SIZE(RS_BRANCH_SZ),
+        .CLEAR_WIDTH(`NUM_FU_BRANCH),
+        .CDB_WIDTH(`CDB_SZ)
+    ) rs_branch (
+        // Inputs
+        .clock (clock),
+        .reset (reset),
+
+        // From dispatch: allocation signals
+        .alloc_valid  (rs_branch_alloc_valid),
+        .alloc_entries(rs_branch_alloc_entries),
+
+        // From complete: CDB broadcasts for operand wakeup
+        .early_tag_broadcast(early_tag_broadcast),
+
+        // From issue: clear signals for issued entries
+        .clear_valid (rs_branch_clear_valid),
+        .clear_idxs  (rs_branch_clear_idxs),
+
+        // From execute: mispredict flush signal
+        .mispredict  (mispredict),
+
+        // Outputs to issue/dispatch
+        .entries    (rs_branch_entries),
+        .free_count (rs_branch_free_count)
+    );
+
+    // RS for MEM operations (2 entries, 1 clear port)
+    rs #(
+        .ALLOC_WIDTH(`N),
+        .RS_SIZE(RS_MEM_SZ),
+        .CLEAR_WIDTH(`NUM_FU_MEM),
+        .CDB_WIDTH(`CDB_SZ)
+    ) rs_mem (
+        // Inputs
+        .clock (clock),
+        .reset (reset),
+
+        // From dispatch: allocation signals
+        .alloc_valid  (rs_mem_alloc_valid),
+        .alloc_entries(rs_mem_alloc_entries),
+
+        // From complete: CDB broadcasts for operand wakeup
+        .early_tag_broadcast(early_tag_broadcast),
+
+        // From issue: clear signals for issued entries
+        .clear_valid (rs_mem_clear_valid),
+        .clear_idxs  (rs_mem_clear_idxs),
+
+        // From execute: mispredict flush signal
+        .mispredict  (mispredict),
+
+        // Outputs to issue/dispatch
+        .entries    (rs_mem_entries),
+        .free_count (rs_mem_free_count)
     );
 
     //////////////////////////////////////////////////
