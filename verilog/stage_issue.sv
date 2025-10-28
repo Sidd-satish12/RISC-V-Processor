@@ -39,6 +39,12 @@ module stage_issue (
         .gnt_bus()
     );
 
+    // find all ready instructions
+    // using a mux map each ready instruction to its particular category
+    // using a parking lot at each area of the pipeline register allocate instructions
+    // by category select which ones will go into the S/E register
+    // based on the amount of availiable FU's the next cycle
+
     // Combinational logic for issue selection
     always_comb begin
         clear_valid = '0;
