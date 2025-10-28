@@ -57,10 +57,13 @@ module rob (
   // Head (oldest) and tail (next allocation) pointers
   ROB_IDX head, tail;
   ROB_IDX head_next, tail_next;
-  ROB_IDX idx1, idx3, idx4;
+  ROB_IDX idx1, idx4;
+
+  // Signal from rob_update_packet that used to indicate the idx that is ready to complete (EX -> C)
+  ROB_IDX rob_complete_update_idx;
 
 
-  // Combinational: compute free slots
+  // Combinational OUTPUT (free_slots): compute free slots
   logic [$clog2(`ROB_SZ):0] valid_count;
   always_comb begin
     valid_count = 0;
@@ -74,7 +77,7 @@ module rob (
   end
 
 
-  // Combinational: assign allocation indices starting from tail
+  // Combinational OUTPUT (alloc_idxs): assign allocation indices starting from tail
   always_comb begin
     ROB_IDX current_idx = tail;
     for (int i = 0; i < `N; i++) begin
@@ -101,6 +104,8 @@ module rob (
   ROB_ENTRY [`ROB_SZ-1:0] rob_next;
   logic [(ALLOC_CNT_WIDTH-1):0] alloc_cnt;
   // logic [(ALLOC_CNT_WIDTH-1):0] retire_cnt;
+  
+  
   always_comb begin
     // default vals
     rob_next  = rob_array;
@@ -114,7 +119,7 @@ module rob (
       // No need to invalidate entries explicitly; overwriting on future alloc suffices
     end else begin
 
-      // Retire: advance head, invalidate retired entries
+      // RETIRE STAGE: advance head, invalidate retired entries
       for (int i = 0; i < `N; i++) begin
         if (rob_array[head_next].valid && rob_array[head_next].complete) begin
           head_entries[i] = rob_array[head_next];
@@ -129,15 +134,16 @@ module rob (
       // Updates from Complete: set complete, value, and branch info
       for (int i = 0; i < `N; i++) begin
         if (rob_update_packet.valid[i]) begin
-          idx3 = rob_update_packet.idx[i];
-          rob_next[idx3].complete = 1'b1;
-          // FIGURE OUT WHAT BELOW LINE MEANS
+          rob_complete_update_idx = rob_update_packet.idx[i];
+          rob_next[rob_complete_update_idx].complete = 1'b1;
+          
+          // for debug purposes
           // rob_next[idx].value = rob_update_packet.values[i];
 
           // Branching WIP
-          if (rob_next[idx3].branch) begin
-            rob_next[idx3].branch_taken  = rob_update_packet.branch_taken[i];
-            rob_next[idx3].branch_target = rob_update_packet.branch_targets[i];
+          if (rob_next[rob_complete_update_idx].branch) begin
+            rob_next[rob_complete_update_idx].branch_taken  = rob_update_packet.branch_taken[i];
+            rob_next[rob_complete_update_idx].branch_target = rob_update_packet.branch_targets[i];
           end
         end
       end
@@ -146,7 +152,6 @@ module rob (
       // ### ALLOCATION (Dispatch entries in order): write new entries at alloc_idxs
       for (int i = 0; i < `N; i++) begin
         if (alloc_valid[i]) begin
-          //idx2 = alloc_idxs[i];
           rob_next[(tail+i)%`ROB_SZ] = rob_entry_packet[i];
           rob_next[(tail+i)%`ROB_SZ].valid = 1'b1;
           rob_next[(tail+i)%`ROB_SZ].complete = 1'b0;
