@@ -12,44 +12,49 @@
 `include "sys_defs.svh"
 
 
-module rs (
+module rs #(
+    parameter ALLOC_WIDTH = `N,              // Number of allocation entries per cycle
+    parameter RS_SIZE = `RS_SZ,              // Reservation station size
+    parameter CLEAR_WIDTH = `NUM_FU_TOTAL,   // Number of clear ports (functional units)
+    parameter CDB_WIDTH = `CDB_SZ            // Number of CDB broadcast ports
+) (
     input clock,  // system clock
     input reset,  // system reset
 
     // From dispatch: allocation signals
-    input logic [`N-1:0] alloc_valid,       // Valid allocations this cycle
-    input RS_ENTRY [`N-1:0] alloc_entries,  // N way allocating entries
+    input logic [ALLOC_WIDTH-1:0] alloc_valid,       // Valid allocations this cycle
+    input RS_ENTRY [ALLOC_WIDTH-1:0] alloc_entries,  // N way allocating entries
 
     // From complete: CDB broadcasts for operand wakeup
-    input CDB_EARLY_TAG_ENTRY [`N-1:0] early_tag_broadcast;
+    input CDB_EARLY_TAG_ENTRY [CDB_WIDTH-1:0] early_tag_broadcast,
 
     // From issue: clear signals for issued entries
-    input logic  [`NUM_FU_TOTAL-1:0] clear_valid,  // Valid clears this cycle
-    input RS_IDX [`NUM_FU_TOTAL-1:0] clear_idxs,   // RS indices to clear
+    input logic  [CLEAR_WIDTH-1:0] clear_valid,  // Valid clears this cycle
+    input RS_IDX [CLEAR_WIDTH-1:0] clear_idxs,   // RS indices to clear
 
     // From execute: mispredict flush signal
     input logic   mispredict,      // Mispredict detected (flush speculative)
     // input ROB_IDX mispred_rob_idx, ROB index of mispredicted branch used for EARLY BRANCH RESOLUTION
 
     // Outputs to issue/dispatch
-    output RS_ENTRY [`RS_SZ-1:0] entries,  // Full RS entries for issue selection
-    output logic [$clog2(`RS_SZ+1)-1:0] free_count // Number of free entries (for dispatch stall)
+    output RS_ENTRY [RS_SIZE-1:0] entries,  // Full RS entries for issue selection
+    output logic [$clog2(RS_SIZE+1)-1:0] free_count // Number of free entries (for dispatch stall)
 
     // ALU request to CDB aribiter for early tag broadcast
     // needs to send requests when there are instructions that have
     // destination register and are being issued in the next cycle
-    output alu_requests
+    // output alu_requests
 );
 
     // Internal storage: array of RS entries
-    RS_ENTRY [`RS_SZ-1:0] rs_array, rs_array_next;
+    RS_ENTRY [RS_SIZE-1:0] rs_array, rs_array_next;
 
     // Priority selector module that take turns dispatches to highest and lowest index entries in RS
-    logic [`N-1:0][`RS_SZ-1:0] granted_entries;
-    logic [`RS_SZ-1:0] free_mask;
+    logic [ALLOC_WIDTH-1:0][RS_SIZE-1:0] granted_entries;
+    logic [RS_SIZE-1:0] free_mask;
     psel_gen #(
-        .WIDTH(`RS_SZ),
-        .REQS(`N)
+        .WIDTH(RS_SIZE),
+        .REQS(ALLOC_WIDTH)
     ) priority_selector (
         .req(free_mask),
         .gnt(), // will need for back propagation
@@ -59,9 +64,9 @@ module rs (
 
     // Free Mask (which entries are free for the next cycle)
     always_comb begin
-        free_mask = `RS_SZ'b0;
+        free_mask = RS_SIZE'b0;
 
-        for (int i = 0; i < `RS_SZ; i++) begin
+        for (int i = 0; i < RS_SIZE; i++) begin
             free_mask[i] = !rs_array[i].valid;  // 1 for free slots
         end
     end
@@ -71,15 +76,15 @@ module rs (
         rs_array_next = rs_array;
 
         // Clear valid bits for entires that are being issued
-        for (int i = 0; i < `N; i++) begin
+        for (int i = 0; i < CLEAR_WIDTH; i++) begin
             if (clear_valid[i]) begin
                 rs_array_next[clear_idxs[i]].valid = 1'b0;
             end
         end
 
         // Allocating new RS entires from dispatch
-        for (int i = 0; i < `N; i++) begin
-            for (int j = 0; j < `RS_SZ; j++) begin
+        for (int i = 0; i < ALLOC_WIDTH; i++) begin
+            for (int j = 0; j < RS_SIZE; j++) begin
                 if (granted_entries[i][j] && alloc_valid[i]) begin
                     rs_array_next[j] = alloc_entries[i];
                 end
@@ -87,16 +92,16 @@ module rs (
         end
 
         // Wakeup operands via CDB (associative tag match)
-        for (int i = 0; i < `RS_SZ; i++) begin
-            for (int j = 0; j < `CDB_SZ; j++) begin
+        for (int i = 0; i < RS_SIZE; i++) begin
+            for (int j = 0; j < CDB_WIDTH; j++) begin
                 if (rs_array_next[i].valid &&
-                    cdb_broadcast.valid[j] &&
+                    early_tag_broadcast[j].valid &&
                     rs_array_next[i].src1_tag == early_tag_broadcast[j].tag) begin
                     rs_array_next[i].src1_ready = 1'b1;
                 end
 
                 if (rs_array_next[i].valid &&
-                    cdb_broadcast.valid[j] &&
+                    early_tag_broadcast[j].valid &&
                     rs_array_next[i].src2_tag == early_tag_broadcast[j].tag) begin
                     rs_array_next[i].src2_ready = 1'b1;
                 end
@@ -106,17 +111,17 @@ module rs (
     end
 
     // RS Output logic
-    logic [$clog2(`RS_SZ+1)-1:0] effective_free, next_effective_free;
+    logic [$clog2(RS_SIZE+1)-1:0] effective_free, next_effective_free;
     assign next_effective_free = effective_free + $countones(clear_valid) - $countones(alloc_valid);
-    assign free_count = (effective_free > `N) ? `N : effective_free;  // Capped at N to reduce interconnect
+    assign free_count = (effective_free > ALLOC_WIDTH) ? ALLOC_WIDTH : effective_free;  // Capped at ALLOC_WIDTH to reduce interconnect
     assign entries = rs_array;
 
     always_ff @(posedge clock) begin
         if (reset | mispredict) begin
-            effective_free <=`RS_SZ;
+            effective_free <= RS_SIZE;
             rs_array <= '0;
         end else begin
-            effective_free <=next_effective_free;
+            effective_free <= next_effective_free;
             rs_array <= rs_array_next;
         end
     end
