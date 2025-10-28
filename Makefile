@@ -190,7 +190,7 @@ GREP = grep -E --color=auto
 # ---- Modules to Test ---- #
 
 # TODO: add more modules here
-MODULES = cpu mult rob rs regfile retire
+MODULES = cpu mult rob rs regfile retire map_table
 
 # TODO: update this if you add more header files
 ALL_HEADERS = $(CPU_HEADERS)
@@ -225,6 +225,12 @@ RETIRE_FILES = verilog/sys_defs.svh
 build/retire.simv: $(RETIRE_FILES)
 build/retire.cov:  $(RETIRE_FILES)
 synth/retire.vg:   $(RETIRE_FILES)
+
+
+MAP_TABLE_FILES =
+build/map_table.simv: $(MAP_TABLE_FILES)
+build/map_table.cov:  $(MAP_TABLE_FILES)
+synth/map_table.vg:   $(MAP_TABLE_FILES)
 
 
 #################################
