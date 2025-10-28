@@ -21,7 +21,7 @@ module rs (
     input RS_ENTRY [`N-1:0] alloc_entries,  // N way allocating entries
 
     // From complete: CDB broadcasts for operand wakeup
-    input CDB_EARLY_TAG_PACKET cdb_broadcast,
+    input CDB_EARLY_TAG_ENTRY [`N-1:0] early_tag_broadcast;
 
     // From issue: clear signals for issued entries
     input logic  [`NUM_FU_TOTAL-1:0] clear_valid,  // Valid clears this cycle
@@ -91,13 +91,13 @@ module rs (
             for (int j = 0; j < `CDB_SZ; j++) begin
                 if (rs_array_next[i].valid &&
                     cdb_broadcast.valid[j] &&
-                    rs_array_next[i].src1_tag == cdb_broadcast.tags[j]) begin
+                    rs_array_next[i].src1_tag == early_tag_broadcast[j].tag) begin
                     rs_array_next[i].src1_ready = 1'b1;
                 end
 
                 if (rs_array_next[i].valid &&
                     cdb_broadcast.valid[j] &&
-                    rs_array_next[i].src2_tag == cdb_broadcast.tags[j]) begin
+                    rs_array_next[i].src2_tag == early_tag_broadcast[j].tag) begin
                     rs_array_next[i].src2_ready = 1'b1;
                 end
             end
