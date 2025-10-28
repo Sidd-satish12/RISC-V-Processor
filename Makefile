@@ -190,7 +190,7 @@ GREP = grep -E --color=auto
 # ---- Modules to Test ---- #
 
 # TODO: add more modules here
-MODULES = cpu mult rob rs regfile retire map_table
+MODULES = cpu mult rob rs regfile retire map_table freelist
 
 # TODO: update this if you add more header files
 ALL_HEADERS = $(CPU_HEADERS)
@@ -231,6 +231,15 @@ MAP_TABLE_FILES =
 build/map_table.simv: $(MAP_TABLE_FILES)
 build/map_table.cov:  $(MAP_TABLE_FILES)
 synth/map_table.vg:   $(MAP_TABLE_FILES)
+
+
+# ---- freelist testbench deps ---- #
+FREELIST_FILES = verilog/sys_defs.svh
+build/freelist.simv: $(FREELIST_FILES)
+build/freelist.cov:  $(FREELIST_FILES)
+synth/freelist.vg:   $(FREELIST_FILES)
+
+
 
 
 #################################
