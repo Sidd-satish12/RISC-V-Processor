@@ -24,8 +24,8 @@ module rs (
     input CDB_EARLY_TAG_PACKET cdb_broadcast,
 
     // From issue: clear signals for issued entries
-    input logic  [`N-1:0] clear_valid,  // Valid clears this cycle
-    input RS_IDX [`N-1:0] clear_idxs,   // RS indices to clear
+    input logic  [`NUM_FU_TOTAL-1:0] clear_valid,  // Valid clears this cycle
+    input RS_IDX [`NUM_FU_TOTAL-1:0] clear_idxs,   // RS indices to clear
 
     // From execute: mispredict flush signal
     input logic   mispredict,      // Mispredict detected (flush speculative)
