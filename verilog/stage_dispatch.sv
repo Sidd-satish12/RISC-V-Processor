@@ -70,80 +70,87 @@ typedef struct packed {
 // } FETCH_DISP_PACKET;
 
 module stage_dispatch (
-    input clock,  // system clock
-    input reset,  // system reset
+    input  logic clock,
+    input  logic reset,
 
+    // ======================
     // From Fetch: partially decoded bundle
-    // FETCH_DISP_PACKET Undefined right now
-    input FETCH_DISP_PACKET fetch_packet,
-    input logic  [`N-1:0]           fetch_valid,   // Overall valid for bundle
+    // ======================
+    input  FETCH_DISP_PACKET fetch_packet,
+    input  logic [`N-1:0]           fetch_valid,   // Overall valid for bundle
 
-    // From ROB, tells us how many slots are free in ROB
-    input logic [$clog2(`ROB_SZ+1)-1:0] free_slots_rob,
+    // ======================
+    // From ROB/RS/Freelist
+    // ======================
+    input  logic [$clog2(`ROB_SZ+1)-1:0]          free_slots_rob,
+    input  logic [$clog2(`RS_SZ+1)-1:0]           free_slots_rs,
+    input  logic [$clog2(`PHYS_REG_SZ_R10K+1)-1:0] free_slots_freelst,
+    // input from ROB (for RS allocations)
+    input ROB_IDX [`N-1:0] rob_alloc_idxs,
 
-    // From RS, tells us how many slots are free in the RS
-    input logic [$clog2(`RS_SZ+1)-1:0] free_slots_rs,
 
-    // From Freelist, tells us how many slots are free in the free_list
-    input logic [$clog2(`PHYS_REG_SZ_R10K+1)-1:0] free_slots_freelst,
-
-    // To Fetch: stall signal if no space. Used for debugging, Could just use dispatch count instead
+    // ======================
+    // To Fetch
+    // ======================
     output logic stall_fetch,
-
-    // number of instructions dispatched (sent to fetch stage)
     output logic [$clog2(`N)-1:0] dispatch_count,
 
-    // TO ROB: allocation signals (interface; full ROB module separate)
-    output logic [`N-1:0] rob_alloc_valid,  // Allocate these
-    output ROB_ENTRY [`N-1:0] rob_alloc_entries,  // Data to write
+    // ======================
+    // TO ROB
+    // ======================
+    output logic [`N-1:0] rob_alloc_valid,
+    output ROB_ENTRY [`N-1:0] rob_entry_packet,
 
-    // TO RS: allocation signals (interface; full RS module separate)
-    output logic [`N-1:0] rs_alloc_valid,  // Allocate these
-    output RS_ENTRY [`N-1:0] rs_alloc_entries,  // Data to write
+    // ======================
+    // TO RS
+    // ======================
+    output logic [`N-1:0] rs_alloc_valid,
+    output RS_ENTRY [`N-1:0] rs_alloc_entries,
     
-    // output logic rs_compact,  // Signal to compact/shift for oldest-first
+    // ======================
+    // TO FREE LIST
+    // ======================
+    output logic [`N-1:0] free_alloc_valid,
+    input  PHYS_TAG [`N-1:0] allocated_phys,
 
-    // TO FREE LIST: allocations and frees (interface; full free list module separate)
-    output logic [`N-1:0] free_alloc_valid,  // Request new phys regs
-    input PHYS_TAG [`N-1:0] allocated_phys  // Granted phys tags from free list
+    // ======================
+    // TO MAP TABLE
+    // ======================
+    output logic [`N-1:0][`PHYS_TAG_BITS-1:0]                 maptable_new_pr,  // New physical register for each instruction
+    output logic [`N-1:0][$clog2(`PHYS_REG_SZ_R10K - `ROB_SZ) - 1:0]  maptable_new_ar,  // Architectural destination register index
+    output  logic [N-1:0][$clog2(`PHYS_REG_SZ_R10K - `ROB_SZ) - 1:0]  reg1_ar,
+    output  logic [N-1:0][$clog2(`PHYS_REG_SZ_R10K - `ROB_SZ) - 1:0]  reg2_ar,
 
-    // Should be in the retire stage
-    // output logic [`N-1:0] free_add_valid,  // Add freed phys (from retire)
-    // output PHYS_TAG [`N-1:0] freed_phys  // Phys to add back
+    // ======================
+    // FROM MAP TABLE 
+    // ======================
+    input  logic [`N-1:0][`PHYS_TAG_BITS-1:0] Told_in,        // Old physical register mapping (Told)
+    input logic [`N-1:0][`PHYS_TAG_BITS-1:0]                 reg1_tag,
+    input logic [`N-1:0][`PHYS_TAG_BITS-1:0]                 reg2_tag,
+    input logic [`N-1:0]                          reg1_ready,
+    input logic [`N-1:0]                          reg2_ready
+
+    
 );
 
     // Internal structures
-    MAP_ENTRY [31:0] map_table;        // Arch reg -> phys tag (speculative)
-    MAP_ENTRY [31:0] map_table_next;
-    logic checkpoint_valid;  // Active checkpoint?
-
-    // ROB interface signals (assume ROB is separate module, here we generate writes)
-    //ROB_IDX rob_head, rob_tail;  // Maintained here or from ROB module
+    //MAP_ENTRY [31:0] map_table;        // Arch reg -> phys tag (speculative)
+    //MAP_ENTRY [31:0] map_table_next;
+    //logic checkpoint_valid;  // Active checkpoint?
 
     // Free list interface (assume FIFO-like with head/tail)
-    logic free_list_empty;  // No free phys regs
+    //logic free_list_empty;  // No free phys regs
 
     // Internal signals for dispatch bundle
-    logic [`N-1:0] disp_valid;  // Per-inst valid after checks
-    PHYS_TAG [`N-1:0] rs1_phys;  // Renamed rs1
-    PHYS_TAG [`N-1:0] rs2_phys;  // Renamed rs2
-    PHYS_TAG [`N-1:0] rd_phys;  // New phys for rd
-    PHYS_TAG [`N-1:0] prev_rd_phys;  // Prev mapping for ROB
-    logic [`N-1:0] src1_ready;           // Src1 ready at dispatch (from map/phys reg file?)
-    logic [`N-1:0] src2_ready;  // Src2 ready
-    DATA [`N-1:0] src1_value;  // If ready, value from phys reg file
-    DATA [`N-1:0] src2_value;  // If ready
-
-    // Phys reg file interface (separate module; for values if ready)
-    // Assume read ports: up to 2*`N for srcs
-    // output logic [2*`N-1:0] prf_read_valid;
-    // output PHYS_TAG [2*`N-1:0] prf_read_tags;
-    // input DATA [2*`N-1:0] prf_read_values;
-
-    // Stall insufficient space for ALL `N insts (atomic dispatch)
-    // always_comb begin
-    //     stall_fetch = fetch_valid && (free_slots_rob < `N || free_slots_rs < `N || |free_alloc_valid && free_list_empty);
-    // end
+    //logic [`N-1:0] disp_valid;  // Per-inst valid after checks
+    // PHYS_TAG [`N-1:0] rs1_phys;  // Renamed rs1
+    // //PHYS_TAG [`N-1:0] rs2_phys;  // Renamed rs2
+    // PHYS_TAG [`N-1:0] rd_phys;  // New phys for rd
+    // PHYS_TAG [`N-1:0] prev_rd_phys;  // Prev mapping for ROB
+    // logic [`N-1:0] src1_ready;           // Src1 ready at dispatch (from map/phys reg file?)
+    // logic [`N-1:0] src2_ready;  // Src2 ready
+    // DATA [`N-1:0] src1_value;  // If ready, value from phys reg file
+    // DATA [`N-1:0] src2_value;  // If ready
 
 
 
@@ -193,122 +200,73 @@ module stage_dispatch (
         dispatch_count = num_to_dispatch;
     end
 
-
-    // Dispatch logic (parallel for rename, sequential for allocation)
     always_comb begin
+        rob_alloc_valid   = '0;
+        rs_alloc_valid    = '0;
+        free_alloc_valid  = '0;
+        maptable_new_pr   = '0;
+        maptable_new_ar   = '0;
+        reg1_ar           = '0;
+        reg2_ar           = '0;
+        for(int i = 0; i < dispatch_count; i++) begin
+            maptable_new_pr[i] = allocated_phys[i];             // from freelist
+            maptable_new_ar[i] = fetch_packet.rd_idx[i];        // architectural dest register
+            reg1_ar[i]         = fetch_packet.rs1_idx[i];
+            reg2_ar[i]         = fetch_packet.rs2_idx[i];
 
-        // Default outputs
-        // disp_valid = fetch_packet.valid & {`N{!stall_fetch}};
-        // dispatch_valid = |disp_valid;
-        
-        // rob_alloc_valid = '0;
-        // rs_alloc_valid = '0;
-        // free_alloc_valid = '0;
-        // free_add_valid = '0;
-        // prf_read_valid = '0;
+            // ==================================================
+            // 2. ROB Entry Construction
+            // ==================================================
+            rob_alloc_valid[i] = fetch_valid[i];
 
-        // // Parallel: Rename srcs/dest for each inst
-        // for (int i = 0; i < `N; i++) begin
-        //     if (disp_valid[i]) begin
-        //         // Lookup srcs
-        //         rs1_phys[i] = map_table[fetch_packet.rs1_idx[i]].phys_tag;
-        //         rs2_phys[i] = map_table[fetch_packet.rs2_idx[i]].phys_tag;
-        //         prev_rd_phys[i] = map_table[fetch_packet.rd_idx[i]].phys_tag;
+            rob_entry_packet[i].valid          = fetch_valid[i];
+            rob_entry_packet[i].PC             = fetch_packet.PC[i];
+            rob_entry_packet[i].inst           = fetch_packet.inst[i];
+            rob_entry_packet[i].arch_rd        = fetch_packet.rd_idx[i];
+            rob_entry_packet[i].phys_rd        = maptable_new_pr[i];
+            rob_entry_packet[i].prev_phys_rd   = Told_in[i];              // old physical reg from Map Table
+            rob_entry_packet[i].value          = '0;
+            rob_entry_packet[i].complete       = 1'b0;
+            rob_entry_packet[i].exception      = NO_ERROR;
+            rob_entry_packet[i].branch         = (fetch_packet.op_type[i] == CAT_BRANCH);
+            rob_entry_packet[i].branch_target  = '0;
+            rob_entry_packet[i].branch_taken   = 1'b0;
+            rob_entry_packet[i].pred_target    = fetch_packet.pred_target[i];
+            rob_entry_packet[i].pred_taken     = fetch_packet.pred_taken[i];
+            rob_entry_packet[i].halt           = 1'b0;
+            rob_entry_packet[i].illegal        = 1'b0;
 
-        //         // Request new phys for rd if uses_rd
-        //         if (fetch_packet.uses_rd[i]) begin
-        //             free_alloc_valid[i] = 1'b1;
-        //             rd_phys[i] = allocated_phys[i];  // Assume granted instantly (combo)
-        //         end else begin
-        //             rd_phys[i] = '0;  // No dest
-        //         end
+            // ==================================================
+            // 3. RS Entry Construction
+            // ==================================================
+            rs_alloc_valid[i] = fetch_valid[i];
 
-        //         // Check readiness and read values if ready (assume busy table or from CDB)
-        //         // For simplicity: assume ready if not waiting on tag (but actual: check if producer complete)
-        //         // Here, placeholder: read from PRF always, set ready if value avail (but need busy bits)
-        //         prf_read_valid[2*i] = fetch_packet.uses_rs1[i];
-        //         prf_read_tags[2*i] = rs1_phys[i];
-        //         src1_value[i] = prf_read_values[2*i];
-        //         src1_ready[i] = 1'b1;  // Placeholder; actual: if !busy[rs1_phys[i]]
+            rs_alloc_entries[i].valid        = fetch_valid[i];
+            rs_alloc_entries[i].op_type      = fetch_packet.op_type[i];
+            rs_alloc_entries[i].opa_select   = fetch_packet.opa_select[i];
+            rs_alloc_entries[i].opb_select   = fetch_packet.opb_select[i];
 
-        //         prf_read_valid[2*i+1] = fetch_packet.uses_rs2[i];
-        //         prf_read_tags[2*i+1] = rs2_phys[i];
-        //         src2_value[i] = prf_read_values[2*i+1];
-        //         src2_ready[i] = 1'b1;  // Placeholder
-        //     end
-        // end
+            rs_alloc_entries[i].src1_tag     = reg1_tag[i];         // From map table lookup
+            rs_alloc_entries[i].src1_ready   = reg1_ready[i];       // From map table or CDB
+            //rs_alloc_entries[i].src1_value   = fetch_packet.src1_value[i]; // If immediate/literal
 
-        // TODO: worked on code below, haven't check the above code.
+            rs_alloc_entries[i].src2_tag     = reg2_tag[i];         // From map table lookup
+            rs_alloc_entries[i].src2_ready   = reg2_ready[i];       // From map table or CDB
+            //rs_alloc_entries[i].src2_value   = fetch_packet.src2_value[i]; // If immediate/literal
 
-        // Sequential/atomic: if no stall, allocate all
-        if (!stall_fetch && fetch_valid) begin
-            ROB_IDX new_tail = rob_tail;
-            for (int i = 0; i < `N; i++) begin
-                if (disp_valid[i]) begin
-                    
-                    // ROB ALLOCATION
-                    rob_alloc_valid[i] = 1'b1;
-                    rob_alloc_entries[i].valid = 1'b1;
-                    rob_alloc_entries[i].PC = fetch_packet.PC[i];
-                    rob_alloc_entries[i].inst = fetch_packet.inst[i];
-                    rob_alloc_entries[i].arch_rd = fetch_packet.rd_idx[i];
-                    rob_alloc_entries[i].phys_rd = rd_phys[i];
-                    rob_alloc_entries[i].prev_phys_rd = prev_rd_phys[i];
-                    rob_alloc_entries[i].complete = 1'b0;
-                    rob_alloc_entries[i].exception = NO_ERROR;
-                    rob_alloc_entries[i].branch = (fetch_packet.op_type[i].category == CAT_BRANCH);
+            rs_alloc_entries[i].dest_tag     = maptable_new_pr[i];  // From free list (new PR)
+            rs_alloc_entries[i].rob_idx      = rob_alloc_idxs[i];   // From ROB allocation
 
-                    // RS ALLOCATION
-                    rs_alloc_valid[i] = 1'b1;
-                    rs_alloc_entries[i].valid = 1'b1;
-                    rs_alloc_entries[i].opa_select = fetch_packet.opa_select[i];
-                    rs_alloc_entries[i].opb_select = fetch_packet.opb_select[i];
-                    rs_alloc_entries[i].op_type = fetch_packet.op_type[i];
-                    rs_alloc_entries[i].src1_tag = rs1_phys[i];
-                    rs_alloc_entries[i].src1_ready = src1_ready[i];
-                    rs_alloc_entries[i].src1_value = src1_value[i];
-                    rs_alloc_entries[i].src2_tag = rs2_phys[i];
-                    rs_alloc_entries[i].src2_ready = src2_ready[i];
-                    rs_alloc_entries[i].src2_value = src2_value[i];
-                    rs_alloc_entries[i].dest_tag = rd_phys[i];
-                    rs_alloc_entries[i].rob_idx = new_tail;  // Current tail as idx
-                    rs_alloc_entries[i].PC = fetch_packet.PC[i];
-                    rs_alloc_entries[i].pred_taken = fetch_packet.pred_taken[i];
-                    rs_alloc_entries[i].pred_target = fetch_packet.pred_target[i];
+            rs_alloc_entries[i].PC           = fetch_packet.PC[i];  // For branch/debug
+            rs_alloc_entries[i].pred_taken   = fetch_packet.pred_taken[i];
+            rs_alloc_entries[i].pred_target  = fetch_packet.pred_target[i];
 
-                    // Update map table (after all prev in bundle)
-                    if (fetch_packet.uses_rd[i]) begin
-                        map_table[fetch_packet.rd_idx[i]].phys_tag = rd_phys[i];
-                    end
-
-                    // Advance tail
-                    new_tail = new_tail + 1;
-                end
-            end
-            rob_tail_update = new_tail;
-            rs_compact = 1'b1;  // Compact RS after alloc for priority
+            // ==================================================
+            // 4. Free List Consumption
+            // ==================================================
+            free_alloc_valid[i] = fetch_valid[i];
         end
     end
-
-    // TODO implement below (do not delete) 
-
-    // Mispredict recovery: truncate ROB/RS from mispred rob_idx, restore map/free list
-    // always_comb begin
-    //     if (mispred_recovery.valid) begin
-    //         // Walk ROB backwards from mispred.rob_idx to restore map and free list (add back allocated phys)
-    //         // Placeholder logic: for each entry from tail to mispred+1, undo map, free phys_rd
-    //         // Actual impl would loop over ROB entries
-    //         // If checkpoint: restore from checkpoint_map if branch
-    //     end
-    // end
-
-    // Checkpoint map on branches (simplified: one checkpoint)
-    // always_ff @(posedge clock) begin
-    //     // On dispatch of branch, checkpoint = map_table
-    //     // On mispredict, map_table = checkpoint
-    // end
-
-    // Update free counts (from ROB/RS modules)
-    // assume inputs rob_free_count, rs_free_count from those modules
+    
 
 endmodule  // stage_dispatch
