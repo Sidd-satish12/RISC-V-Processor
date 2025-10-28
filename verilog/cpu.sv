@@ -51,12 +51,29 @@ module cpu (
     //                Pipeline Wires                //
     //                                              //
     //////////////////////////////////////////////////
+    // NOTE: organize this section by the module that outputs referenced wires
+
+    logic                   mispredict;
 
     // Pipeline register enables
     logic issue_execute_enable;
 
     // Outputs from ID stage and ID/EX Pipeline Register
     ISSUE_EXECUTE_PACKET issue_execute_packet, issue_execute_register;
+
+    // RS wires
+    // From dispatch to RS
+    logic [`N-1:0]          rs_alloc_valid;
+    RS_ENTRY [`N-1:0]       rs_alloc_entries;
+
+    // From issue to RS (for clearing issued entries)
+    logic [`NUM_FU_TOTAL-1:0]   rs_clear_valid;
+    RS_IDX [`NUM_FU_TOTAL-1:0]  rs_clear_idxs;
+
+    // From RS to issue/dispatch
+    RS_ENTRY [`RS_SZ-1:0]   rs_entries;
+    logic [$clog2(`RS_SZ+1)-1:0] rs_free_count;
+
 
     // CDB wires
     logic [`NUM_FU_BRANCH-1:0] cdb_branch_requests;
@@ -70,7 +87,7 @@ module cpu (
     logic [`NUM_FU_MULT-1:0]   cdb_mult_grants;
 
     CDB_ENTRY [`NUM_FU_TOTAL-1:0] cdb_fu_outputs;
-    CDB_EARLY_TAG_ENTRY [`N-1:0]  cdb_early_tags;
+    CDB_EARLY_TAG_ENTRY [`N-1:0] early_tag_broadcast;
     CDB_ENTRY [`N-1:0]             cdb_output;
 
     //////////////////////////////////////////////////
@@ -220,21 +237,29 @@ module cpu (
     //                                              //
     //////////////////////////////////////////////////
 
-    assign issue_execute_enable = '1;
+    rs rs_0 (
+        // Inputs
+        .clock (clock),
+        .reset (reset),
 
-    always_ff @(posedge clock) begin
-        if (reset) begin
-            // TODO make sure this is the correct way to reset the register
-            issue_execute_register <= '0;
-        end else if (issue_execute_enable) begin
-            issue_execute_register <= issue_execute_packet;
-        end
-    end
+        // From dispatch: allocation signals
+        .alloc_valid  (rs_alloc_valid),
+        .alloc_entries(rs_alloc_entries),
 
-    // debug outputs
-    assign id_ex_NPC_dbg   = id_ex_reg.NPC;
-    assign id_ex_inst_dbg  = id_ex_reg.inst;
-    assign id_ex_valid_dbg = id_ex_reg.valid;
+        // From complete: CDB broadcasts for operand wakeup
+        .early_tag_broadcast(early_tag_broadcast),
+
+        // From issue: clear signals for issued entries
+        .clear_valid (rs_clear_valid),
+        .clear_idxs  (rs_clear_idxs),
+
+        // From execute: mispredict flush signal
+        .mispredict  (mispredict),
+
+        // Outputs to issue/dispatch
+        .entries    (rs_entries),
+        .free_count (rs_free_count)
+    );
 
     //////////////////////////////////////////////////
     //                                              //
