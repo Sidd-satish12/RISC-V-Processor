@@ -305,30 +305,60 @@ typedef enum logic [3:0] {
     OPB_IS_J_IMM = 4'h5
 } ALU_OPB_SELECT;
 
-// // ALU function code
-// typedef enum logic [3:0] {
-//     ALU_ADD     = 4'h0,
-//     ALU_SUB     = 4'h1,
-//     ALU_SLT     = 4'h2,
-//     ALU_SLTU    = 4'h3,
-//     ALU_AND     = 4'h4,
-//     ALU_OR      = 4'h5,
-//     ALU_XOR     = 4'h6,
-//     ALU_SLL     = 4'h7,
-//     ALU_SRL     = 4'h8,
-//     ALU_SRA     = 4'h9
-// } ALU_FUNC;
+////////////////////////////////////////
+// ----      Major Structures    ---- //
+////////////////////////////////////////
 
-// // MULT funct3 code
-// // we don't include division or rem options
-// typedef enum logic [2:0] {
-//     M_MUL,
-//     M_MULH,
-//     M_MULHSU,
-//     M_MULHU
-// } MULT_FUNC;
+// ALU function code
+typedef enum logic [3:0] {
+    ADD,
+    SUB,
+    SLT,
+    SLTU,
+    AND,
+    OR,
+    XOR,
+    SLL,
+    SRL,
+    SRA,
+    CSRRW,
+    CSRRS,
+    CSRRC
+} ALU_FUNC;
 
-// Category enum (3 bits, matches your [6:4])
+// MULT funct3 code
+// we don't include division or rem options
+typedef enum logic [2:0] {
+    MUL,
+    MULH,
+    MULHSU,
+    MULHU
+} MULT_FUNC;
+
+typedef enum logic [3:0] {
+    LOAD_BYTE,
+    LOAD_HALF,
+    LOAD_WORD,
+    LOAD_DOUBLE,
+    STORE_BYTE,
+    STORE_HALF,
+    STORE_WORD,
+    STORE_DOUBLE,
+    LOAD_BYTE_U,
+    LOAD_HALF_U
+} MEM_FUNC;
+
+typedef enum logic [3:0] {
+    EQ,
+    NE,
+    LT,
+    GE,
+    LTU,
+    GEU,
+    JAL,
+    JALR
+} BRANCH_FUNC;
+
 typedef enum logic [2:0] {
     CAT_ALU = 3'b000,
     CAT_MULT = 3'b001,
@@ -342,6 +372,51 @@ typedef struct packed {
     logic [3:0] func;      // 4 bits for sub-op (e.g., ADD=4'h0, MUL=4'h0, BYTE=4'h0)
 } OP_TYPE;
 
+// Constants for specific ops (assign struct values)
+const OP_TYPE OP_ALU_ADD = '{category: CAT_ALU, func: ADD};
+const OP_TYPE OP_ALU_SUB = '{category: CAT_ALU, func: SUB};
+const OP_TYPE OP_ALU_SLT = '{category: CAT_ALU, func: SLT};
+const OP_TYPE OP_ALU_SLTU = '{category: CAT_ALU, func: SLTU};
+const OP_TYPE OP_ALU_AND = '{category: CAT_ALU, func: AND};
+const OP_TYPE OP_ALU_OR = '{category: CAT_ALU, func: OR};
+const OP_TYPE OP_ALU_XOR = '{category: CAT_ALU, func: XOR};
+const OP_TYPE OP_ALU_SLL = '{category: CAT_ALU, func: SLL};
+const OP_TYPE OP_ALU_SRL = '{category: CAT_ALU, func: SRL};
+const OP_TYPE OP_ALU_SRA = '{category: CAT_ALU, func: SRA};
+
+// CSR operations
+const OP_TYPE OP_CSRRW = '{category: CAT_ALU, func: CSRRW};
+const OP_TYPE OP_CSRRS = '{category: CAT_ALU, func: CSRRS};
+const OP_TYPE OP_CSRRC = '{category: CAT_ALU, func: CSRRC};
+
+// Multiply operations
+const OP_TYPE OP_MULT_MUL = '{category: CAT_MULT, func: MUL};
+const OP_TYPE OP_MULT_MULH = '{category: CAT_MULT, func: MULH};
+const OP_TYPE OP_MULT_MULHSU = '{category: CAT_MULT, func: MULHSU};
+const OP_TYPE OP_MULT_MULHU = '{category: CAT_MULT, func: MULHU};
+
+// Memory operations (func[3]=1 for unsigned loads, func[2:0] for size)
+const OP_TYPE OP_LOAD_BYTE = '{category: CAT_MEM, func: LOAD_BYTE};  // Signed byte
+const OP_TYPE OP_LOAD_HALF = '{category: CAT_MEM, func: LOAD_HALF};  // Signed half
+const OP_TYPE OP_LOAD_WORD = '{category: CAT_MEM, func: LOAD_WORD};  // Signed word
+const OP_TYPE OP_LOAD_DOUBLE = '{category: CAT_MEM, func: LOAD_DOUBLE};  // Signed double
+const OP_TYPE OP_STORE_BYTE = '{category: CAT_MEM, func: STORE_BYTE};
+const OP_TYPE OP_STORE_HALF = '{category: CAT_MEM, func: STORE_HALF};
+const OP_TYPE OP_STORE_WORD = '{category: CAT_MEM, func: STORE_WORD};
+const OP_TYPE OP_STORE_DOUBLE = '{category: CAT_MEM, func: STORE_DOUBLE};
+const OP_TYPE OP_LOAD_BYTE_U = '{category: CAT_MEM, func: LOAD_BYTE_U};  // Unsigned byte
+const OP_TYPE OP_LOAD_HALF_U = '{category: CAT_MEM, func: LOAD_HALF_U};  // Unsigned half
+
+// Branch operations
+const OP_TYPE OP_BR_EQ = '{category: CAT_BRANCH, func: EQ};
+const OP_TYPE OP_BR_NE = '{category: CAT_BRANCH, func: NE};
+const OP_TYPE OP_BR_LT = '{category: CAT_BRANCH, func: LT};
+const OP_TYPE OP_BR_GE = '{category: CAT_BRANCH, func: GE};
+const OP_TYPE OP_BR_LTU = '{category: CAT_BRANCH, func: LTU};
+const OP_TYPE OP_BR_GEU = '{category: CAT_BRANCH, func: GEU};
+const OP_TYPE OP_JAL = '{category: CAT_BRANCH, func: JAL};
+const OP_TYPE OP_JALR = '{category: CAT_BRANCH, func: JALR};
+
 // for ROB via Complete
 typedef struct packed {
     logic [`N-1:0]   valid;           // Valid updates this cycle
@@ -350,53 +425,6 @@ typedef struct packed {
     logic [`N-1:0]   branch_taken;    // Resolved taken/not taken (if branch)
     ADDR [`N-1:0]    branch_targets;  // Resolved branch targets (if branch)
 } ROB_UPDATE_PACKET;
-
-
-// Constants for specific ops (assign struct values)
-const OP_TYPE OP_ALU_ADD = '{category: CAT_ALU, func: 4'h0};
-const OP_TYPE OP_ALU_SUB = '{category: CAT_ALU, func: 4'h1};
-const OP_TYPE OP_ALU_SLT = '{category: CAT_ALU, func: 4'h2};
-const OP_TYPE OP_ALU_SLTU = '{category: CAT_ALU, func: 4'h3};
-const OP_TYPE OP_ALU_AND = '{category: CAT_ALU, func: 4'h4};
-const OP_TYPE OP_ALU_OR = '{category: CAT_ALU, func: 4'h5};
-const OP_TYPE OP_ALU_XOR = '{category: CAT_ALU, func: 4'h6};
-const OP_TYPE OP_ALU_SLL = '{category: CAT_ALU, func: 4'h7};
-const OP_TYPE OP_ALU_SRL = '{category: CAT_ALU, func: 4'h8};
-const OP_TYPE OP_ALU_SRA = '{category: CAT_ALU, func: 4'h9};
-
-// Multiply operations
-const OP_TYPE OP_MULT_MUL = '{category: CAT_MULT, func: 4'h0};
-const OP_TYPE OP_MULT_MULH = '{category: CAT_MULT, func: 4'h1};
-const OP_TYPE OP_MULT_MULHSU = '{category: CAT_MULT, func: 4'h2};
-const OP_TYPE OP_MULT_MULHU = '{category: CAT_MULT, func: 4'h3};
-
-// Memory operations (func[3]=1 for unsigned loads, func[2:0] for size)
-const OP_TYPE OP_LOAD_BYTE = '{category: CAT_MEM, func: 4'b0000};  // Signed byte
-const OP_TYPE OP_LOAD_HALF = '{category: CAT_MEM, func: 4'b0001};  // Signed half
-const OP_TYPE OP_LOAD_WORD = '{category: CAT_MEM, func: 4'b0010};  // Signed word
-const OP_TYPE OP_LOAD_DOUBLE = '{category: CAT_MEM, func: 4'b0011};  // Signed double (if supported)
-const OP_TYPE OP_STORE_BYTE = '{category: CAT_MEM, func: 4'b0100};
-const OP_TYPE OP_STORE_HALF = '{category: CAT_MEM, func: 4'b0101};
-const OP_TYPE OP_STORE_WORD = '{category: CAT_MEM, func: 4'b0110};
-const OP_TYPE OP_STORE_DOUBLE = '{category: CAT_MEM, func: 4'b0111};
-// Unsigned loads (bit 3=1 for unsigned)
-const OP_TYPE OP_LOAD_BYTE_U = '{category: CAT_MEM, func: 4'b1000};  // Unsigned byte
-const OP_TYPE OP_LOAD_HALF_U = '{category: CAT_MEM, func: 4'b1001};  // Unsigned half
-
-// Branch operations
-const OP_TYPE OP_BR_EQ = '{category: CAT_BRANCH, func: 4'h0};
-const OP_TYPE OP_BR_NE = '{category: CAT_BRANCH, func: 4'h1};
-const OP_TYPE OP_BR_LT = '{category: CAT_BRANCH, func: 4'h2};
-const OP_TYPE OP_BR_GE = '{category: CAT_BRANCH, func: 4'h3};
-const OP_TYPE OP_BR_LTU = '{category: CAT_BRANCH, func: 4'h4};
-const OP_TYPE OP_BR_GEU = '{category: CAT_BRANCH, func: 4'h5};
-const OP_TYPE OP_JAL = '{category: CAT_BRANCH, func: 4'h6};
-const OP_TYPE OP_JALR = '{category: CAT_BRANCH, func: 4'h7};
-
-// CSR operations
-const OP_TYPE OP_CSRRW = '{category: CAT_ALU, func: 4'h0};
-const OP_TYPE OP_CSRRS = '{category: CAT_ALU, func: 4'h1};
-const OP_TYPE OP_CSRRC = '{category: CAT_ALU, func: 4'h2};
 
 // RS entry structure (extended for full control signals)
 typedef struct packed {
@@ -438,112 +466,5 @@ typedef struct packed {
     logic          halt;           // Is this a halt?
     logic          illegal;        // Is this illegal?
 } ROB_ENTRY;
-
-// ////////////////////////////////
-// // ---- Datapath Packets ---- //
-// ////////////////////////////////
-
-// /**
-//  * Packets are used to move many variables between modules with
-//  * just one datatype, but can be cumbersome in some circumstances.
-//  *
-//  * Define new ones in project 4 at your own discretion
-//  */
-
-// /**
-//  * IF_ID Packet:
-//  * Data exchanged from the IF to the ID stage
-//  */
-// typedef struct packed {
-//     INST  inst;
-//     ADDR  PC;
-//     ADDR  NPC; // PC + 4
-//     logic valid;
-// } IF_ID_PACKET;
-
-// /**
-//  * ID_EX Packet:
-//  * Data exchanged from the ID to the EX stage
-//  */
-// typedef struct packed {
-//     INST inst;
-//     ADDR PC;
-//     ADDR NPC; // PC + 4
-
-//     DATA rs1_value; // reg A value
-//     DATA rs2_value; // reg B value
-
-//     ALU_OPA_SELECT opa_select; // ALU opa mux select (ALU_OPA_xxx *)
-//     ALU_OPB_SELECT opb_select; // ALU opb mux select (ALU_OPB_xxx *)
-
-//     REG_IDX  dest_reg_idx;  // destination (writeback) register index
-//     ALU_FUNC alu_func;      // ALU function select (ALU_xxx *)
-//     logic    mult;          // Is inst a multiply instruction?
-//     logic    rd_mem;        // Does inst read memory?
-//     logic    wr_mem;        // Does inst write memory?
-//     logic    cond_branch;   // Is inst a conditional branch?
-//     logic    uncond_branch; // Is inst an unconditional branch?
-//     logic    halt;          // Is this a halt?
-//     logic    illegal;       // Is this instruction illegal?
-//     logic    csr_op;        // Is this a CSR operation? (we only used this as a cheap way to get return code)
-
-//     logic    valid;
-// } ID_EX_PACKET;
-
-// /**
-//  * EX_MEM Packet:
-//  * Data exchanged from the EX to the MEM stage
-//  */
-// typedef struct packed {
-//     DATA alu_result;
-//     ADDR NPC;
-
-//     logic    take_branch; // Is this a taken branch?
-//     // Pass-through from decode stage
-//     DATA     rs2_value;
-//     logic    rd_mem;
-//     logic    wr_mem;
-//     REG_IDX  dest_reg_idx;
-//     logic    halt;
-//     logic    illegal;
-//     logic    csr_op;
-//     logic    rd_unsigned; // Whether proc2Dmem_data is signed or unsigned
-//     MEM_SIZE mem_size;
-//     logic    valid;
-// } EX_MEM_PACKET;
-
-// /**
-//  * MEM_WB Packet:
-//  * Data exchanged from the MEM to the WB stage
-//  *
-//  * Does not include data sent from the MEM stage to memory
-//  */
-// typedef struct packed {
-//     DATA    result;
-//     ADDR    NPC;
-//     REG_IDX dest_reg_idx; // writeback destination (ZERO_REG if no writeback)
-//     logic   take_branch;
-//     logic   halt;    // not used by wb stage
-//     logic   illegal; // not used by wb stage
-//     logic   valid;
-// } MEM_WB_PACKET;
-
-// /**
-//  * Commit Packet:
-//  * This is an output of the processor and used in the testbench for counting
-//  * committed instructions
-//  *
-//  * It also acts as a "WB_PACKET", and can be reused in the final project with
-//  * some slight changes
-//  */
-// typedef struct packed {
-//     ADDR    NPC;
-//     DATA    data;
-//     REG_IDX reg_idx;
-//     logic   halt;
-//     logic   illegal;
-//     logic   valid;
-// } COMMIT_PACKET;
-
 
 `endif  // __SYS_DEFS_SVH__
