@@ -39,11 +39,6 @@ module rs #(
     // Outputs to issue/dispatch
     output RS_ENTRY [RS_SIZE-1:0] entries,  // Full RS entries for issue selection
     output logic [$clog2(RS_SIZE+1)-1:0] free_count // Number of free entries (for dispatch stall)
-
-    // ALU request to CDB aribiter for early tag broadcast
-    // needs to send requests when there are instructions that have
-    // destination register and are being issued in the next cycle
-    // output alu_requests
 );
 
     // Internal storage: array of RS entries
