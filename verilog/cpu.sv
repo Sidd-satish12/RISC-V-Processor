@@ -53,7 +53,7 @@ module cpu (
     //////////////////////////////////////////////////
 
     // Pipeline register enables
-    logic if_id_enable, id_ex_enable, ex_mem_enable, mem_wb_enable;
+    logic if_id_enable, issue_execute_enable, ex_mem_enable, mem_wb_enable;
 
     // From IF stage to memory
     MEM_COMMAND Imem_command; // Command sent to memory
@@ -63,7 +63,7 @@ module cpu (
     IF_ID_PACKET if_packet, if_id_reg;
 
     // Outputs from ID stage and ID/EX Pipeline Register
-    ID_EX_PACKET id_packet, id_ex_reg;
+    ISSUE_EXECUTE_PACKET issue_execute_packet, issue_execute_register;
 
     // Outputs from EX-Stage and EX/MEM Pipeline Register
     EX_MEM_PACKET ex_packet, ex_mem_reg;
@@ -137,7 +137,7 @@ module cpu (
 
     //////////////////////////////////////////////////
     //                                              //
-    //                  IF-Stage                    //
+    //                  Fetch-Stage                 //
     //                                              //
     //////////////////////////////////////////////////
 
@@ -149,7 +149,7 @@ module cpu (
         .take_branch   (ex_mem_reg.take_branch),
         .branch_target (ex_mem_reg.alu_result),
         .Imem_data     (mem2proc_data),
-        
+
         .Imem2proc_transaction_tag(mem2proc_transaction_tag),
         .Imem2proc_data_tag       (mem2proc_data_tag),
 
@@ -166,7 +166,7 @@ module cpu (
 
     //////////////////////////////////////////////////
     //                                              //
-    //            IF/ID Pipeline Register           //
+    //       Fetch/Dispatch Pipeline Register       //
     //                                              //
     //////////////////////////////////////////////////
 
@@ -190,7 +190,7 @@ module cpu (
 
     //////////////////////////////////////////////////
     //                                              //
-    //                  ID-Stage                    //
+    //                Dispatch-Stage                //
     //                                              //
     //////////////////////////////////////////////////
 
@@ -209,36 +209,18 @@ module cpu (
 
     //////////////////////////////////////////////////
     //                                              //
-    //            ID/EX Pipeline Register           //
+    //             Reorder Buffer (ROB)             //
     //                                              //
     //////////////////////////////////////////////////
 
-    assign id_ex_enable = !load_stall;
+    assign issue_execute_enable = '1;
 
     always_ff @(posedge clock) begin
         if (reset) begin
-            id_ex_reg <= '{
-                `NOP, // we can't simply assign 0 because NOP is non-zero
-                32'b0, // PC
-                32'b0, // NPC
-                32'b0, // rs1 select
-                32'b0, // rs2 select
-                OPA_IS_RS1,
-                OPB_IS_RS2,
-                `ZERO_REG,
-                ALU_ADD,
-                1'b0, // mult
-                1'b0, // rd_mem
-                1'b0, // wr_mem
-                1'b0, // cond
-                1'b0, // uncond
-                1'b0, // halt
-                1'b0, // illegal
-                1'b0, // csr_op
-                1'b0  // valid
-            };
-        end else if (id_ex_enable) begin
-            id_ex_reg <= id_packet;
+            // TODO make sure this is the correct way to reset the register
+            issue_execute_register <= '0;
+        end else if (issue_execute_enable) begin
+            issue_execute_register <= issue_execute_packet;
         end
     end
 
@@ -249,7 +231,29 @@ module cpu (
 
     //////////////////////////////////////////////////
     //                                              //
-    //                  EX-Stage                    //
+    //           Reservation Station (RS)           //
+    //                                              //
+    //////////////////////////////////////////////////
+
+    assign issue_execute_enable = '1;
+
+    always_ff @(posedge clock) begin
+        if (reset) begin
+            // TODO make sure this is the correct way to reset the register
+            issue_execute_register <= '0;
+        end else if (issue_execute_enable) begin
+            issue_execute_register <= issue_execute_packet;
+        end
+    end
+
+    // debug outputs
+    assign id_ex_NPC_dbg   = id_ex_reg.NPC;
+    assign id_ex_inst_dbg  = id_ex_reg.inst;
+    assign id_ex_valid_dbg = id_ex_reg.valid;
+
+    //////////////////////////////////////////////////
+    //                                              //
+    //                 Issue Stage                  //
     //                                              //
     //////////////////////////////////////////////////
 
@@ -263,109 +267,49 @@ module cpu (
 
     //////////////////////////////////////////////////
     //                                              //
-    //           EX/MEM Pipeline Register           //
+    //              Execute Stage                    //
     //                                              //
     //////////////////////////////////////////////////
 
-    assign ex_mem_enable = !load_stall;
-
-    always_ff @(posedge clock) begin
-        if (reset) begin
-            ex_mem_inst_dbg <= `NOP; // debug output
-            ex_mem_reg      <= 0;    // the defaults can all be zero!
-        end else if (ex_mem_enable) begin
-            ex_mem_inst_dbg <= id_ex_inst_dbg; // debug output, just forwarded from ID
-            ex_mem_reg      <= ex_packet;
-        end
-    end
-
-    // debug outputs
-    assign ex_mem_NPC_dbg   = ex_mem_reg.NPC;
-    assign ex_mem_valid_dbg = ex_mem_reg.valid;
-
-    //////////////////////////////////////////////////
-    //                                              //
-    //                 MEM-Stage                    //
-    //                                              //
-    //////////////////////////////////////////////////
-
-    // New address if:
-    // 1) Previous instruction wasn't a load
-    // 2) Load address changed
-    logic valid_load;
-    assign valid_load = ex_mem_reg.valid && ex_mem_reg.rd_mem; 
-    assign new_load = valid_load && !rd_mem_q;
-
-    assign mem_tag_match = outstanding_mem_tag == mem2proc_data_tag;
-    assign load_stall    = new_load || (valid_load && !mem_tag_match);
-
-    assign Dmem_command_filtered = new_load || ex_mem_reg.wr_mem ? Dmem_command : MEM_NONE;
-
-    always_ff @(posedge clock) begin
-        if (reset) begin
-            rd_mem_q            <= 1'b0;
-            outstanding_mem_tag <= '0;
-        end else begin
-            rd_mem_q            <= valid_load;
-            outstanding_mem_tag <= new_load      ? mem2proc_transaction_tag : 
-                                   mem_tag_match ? '0 : outstanding_mem_tag;
-        end
-    end
-
-    stage_mem stage_mem_0 (
-        // Inputs
-        .ex_mem_reg      (ex_mem_reg),
-        .Dmem_load_data  (mem2proc_data),
-
-        // Outputs
-        .mem_packet      (mem_packet),
-        .Dmem_command    (Dmem_command),
-        .Dmem_size       (Dmem_size),
-        .Dmem_addr       (Dmem_addr),
-        .Dmem_store_data (Dmem_store_data)
-    );
-
-    //////////////////////////////////////////////////
-    //                                              //
-    //           MEM/WB Pipeline Register           //
-    //                                              //
-    //////////////////////////////////////////////////
-
-    assign mem_wb_enable = 1'b1; // always enabled
-
-    always_ff @(posedge clock) begin
-        if (reset || load_stall) begin
-            mem_wb_inst_dbg <= `NOP; // debug output
-            mem_wb_reg      <= 0;    // the defaults can all be zero!
-        end else if (mem_wb_enable) begin
-            mem_wb_inst_dbg <= ex_mem_inst_dbg; // debug output, just forwarded from EX
-            mem_wb_reg      <= mem_packet;
-        end
-    end
-
-    // debug outputs
-    assign mem_wb_NPC_dbg   = mem_wb_reg.NPC;
-    assign mem_wb_valid_dbg = mem_wb_reg.valid;
-
-    //////////////////////////////////////////////////
-    //                                              //
-    //                  WB-Stage                    //
-    //                                              //
-    //////////////////////////////////////////////////
-
-    stage_wb stage_wb_0 (
+    stage_ex stage_ex_0 (
         // Input
-        .mem_wb_reg (mem_wb_reg), // doesn't use all of these
+        .id_ex_reg (id_ex_reg),
 
         // Output
-        .wb_packet (wb_packet)
+        .ex_packet (ex_packet)
     );
 
-    // This signal is solely used by if_valid for the initial stalling behavior
-    always_ff @(posedge clock) begin
-        if (reset) wb_valid <= 0;
-        else       wb_valid <= mem_wb_reg.valid;
-    end
+    //////////////////////////////////////////////////
+    //                                              //
+    //            Physical Register File            //
+    //                                              //
+    //////////////////////////////////////////////////
+
+    //////////////////////////////////////////////////
+    //                                              //
+    //                    CDB                       //
+    //                                              //
+    //////////////////////////////////////////////////
+
+    cdb cdb_0 (
+        .clock (clock),
+        .reset (reset),
+
+
+    );
+
+    //////////////////////////////////////////////////
+    //                                              //
+    //              Complete Stage                  //
+    //                                              //
+    //////////////////////////////////////////////////
+
+
+    //////////////////////////////////////////////////
+    //                                              //
+    //                Retire Stage                  //
+    //                                              //
+    //////////////////////////////////////////////////
 
     //////////////////////////////////////////////////
     //                                              //
