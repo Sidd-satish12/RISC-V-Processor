@@ -48,33 +48,47 @@ module rob (
     input ROB_IDX mispred_idx  // ROB index of mispredicted branch (truncate after this)
 );
 
-  localparam ALLOC_CNT_WIDTH = $clog2(`N);
+  localparam ALLOC_CNT_WIDTH = $clog2(`N+1); 
+  
   // Internal storage: circular buffer of entries
   ROB_ENTRY [`ROB_SZ-1:0] rob_array;
-
-  logic [ALLOC_CNT_WIDTH - 1:0] retire_count;
 
   // Head (oldest) and tail (next allocation) pointers
   ROB_IDX head, tail;
   ROB_IDX head_next, tail_next;
   ROB_IDX idx1, idx4;
+  ROB_IDX idx_alloc;
+  ROB_IDX idx_retire;
+  ROB_IDX idx_hw;
 
   // Signal from rob_update_packet that used to indicate the idx that is ready to complete (EX -> C)
   ROB_IDX rob_complete_update_idx;
 
+  // =========================================================================
+  // *** CHANGE: free_slots computed from head/tail (pointer-based).
+  //     This makes post-flush accounting correct immediately without
+  //     having to clear .valid on every truncated entry.
+  // =========================================================================
+  logic [$clog2(`ROB_SZ+1)-1:0] inflight;
+  always_comb begin
+    if (tail >= head) inflight = tail - head;
+    else              inflight = `ROB_SZ - (head - tail);
+    free_slots = `ROB_SZ - inflight;
+  end
+
 
   // Combinational OUTPUT (free_slots): compute free slots
-  logic [$clog2(`ROB_SZ):0] valid_count;
-  always_comb begin
-    valid_count = 0;
-    for (int i = 0; i < `ROB_SZ; i++) begin
-      if (rob_array[i].valid) begin
-        valid_count = valid_count + 1;
-      end
-    end
+  // logic [$clog2(`ROB_SZ):0] valid_count;
+  // always_comb begin
+  //   valid_count = 0;
+  //   for (int i = 0; i < `ROB_SZ; i++) begin
+  //     if (rob_array[i].valid) begin
+  //       valid_count = valid_count + 1;
+  //     end
+  //   end
 
-    free_slots = `ROB_SZ - valid_count;
-  end
+  //   free_slots = `ROB_SZ - valid_count;
+  // end
 
 
   // Combinational OUTPUT (alloc_idxs): assign allocation indices starting from tail
@@ -85,6 +99,19 @@ module rob (
       if (alloc_valid[i]) begin
         current_idx = (current_idx + 1) % `ROB_SZ;
       end
+    end
+  end
+
+  // =========================================================================
+  // *** CHANGE: Unconditional head window view for Retire.
+  //     - Always expose next up to N entries, ordered [N-1]=oldest .. [0]=youngest.
+  //     - Valid bit indicates whether that slot lies in [head, tail) window.
+  // =========================================================================
+  always_comb begin
+    for (int i = 0; i < `N; i++) begin         // i=0 is FIFO-oldest
+      idx_hw = (head + i) % `ROB_SZ;
+      head_entries[`N-1 - i] = rob_array[idx_hw];     // map to requested order
+      head_valids [`N-1 - i] = (i < inflight) && rob_array[idx_hw].valid; // valid if inside head..tail
     end
   end
 
@@ -103,15 +130,14 @@ module rob (
   // Next state logic (combinational)
   ROB_ENTRY [`ROB_SZ-1:0] rob_next;
   logic [(ALLOC_CNT_WIDTH-1):0] alloc_cnt;
-  // logic [(ALLOC_CNT_WIDTH-1):0] retire_cnt;
-
-
+  
+  
   always_comb begin
     // default vals
     rob_next  = rob_array;
     head_next = head;
     tail_next = tail;
-    head_valids = 0;
+//   head_valids = 0;
 
     // Priority: handle mispredict flush (WIP)
     if (mispredict) begin
@@ -119,14 +145,25 @@ module rob (
       // No need to invalidate entries explicitly; overwriting on future alloc suffices
     end else begin
 
-      // RETIRE STAGE: advance head, invalidate retired entries
+      // ---------------------------------------------------------------------
+      // *** RETIRE ADVANCE (in-order):
+      // Walk from head while entries are inside the window AND complete.
+      // Invalidate those entries and bump head.
+      // NOTE: head_entries/head_valids are NOT driven here; they are the
+      //       read-only window above. This block only updates state.
+      // ---------------------------------------------------------------------
       for (int i = 0; i < `N; i++) begin
-        if (rob_array[head_next].valid && rob_array[head_next].complete) begin
-          head_entries[i] = rob_array[head_next];
-          head_valids[i] = 1'b1;
-          rob_next[head_next].valid = 1'b0; // invalidate ROB entry (clears it)
+        // Stop if no more in-flight
+        if (i >= inflight) break;
+
+        idx_retire = (head_next + i) % `ROB_SZ;
+        if (rob_array[idx_retire].valid && rob_array[idx_retire].complete) begin
+          rob_next[idx_retire].valid    = 1'b0;   // clear when retiring
+          rob_next[idx_retire].complete = 1'b0;   // optional: clear complete bit
+          // do not write head_entries here
           head_next = (head_next + 1) % `ROB_SZ;
         end else begin
+          // hit first incomplete → stop committing this cycle
           break;
         end
       end
@@ -136,7 +173,8 @@ module rob (
         if (rob_update_packet.valid[i]) begin
           rob_complete_update_idx = rob_update_packet.idx[i];
           rob_next[rob_complete_update_idx].complete = 1'b1;
-
+          $display("[%0t] ROB: mark complete idx=%0d  branch=%0d  taken=%0d tgt=%h", $time, rob_complete_update_idx, rob_next[rob_complete_update_idx].branch, rob_update_packet.branch_taken[i], rob_update_packet.branch_targets[i]);
+          
           // for debug purposes
           // rob_next[idx].value = rob_update_packet.values[i];
 
@@ -149,13 +187,21 @@ module rob (
       end
 
 
-      // ### ALLOCATION (Dispatch entries in order): write new entries at alloc_idxs
+      // ---------------------------------------------------------------------
+      // ALLOCATION (Dispatch): write new entries at (tail + i) for valid lanes
+      // *** CHANGE: also stamp rob_idx inside each entry so Retire can echo it.
+      // ---------------------------------------------------------------------
       for (int i = 0; i < `N; i++) begin
         if (alloc_valid[i]) begin
-          rob_next[(tail+i)%`ROB_SZ] = rob_entry_packet[i];
-          rob_next[(tail+i)%`ROB_SZ].valid = 1'b1;
-          rob_next[(tail+i)%`ROB_SZ].complete = 1'b0;
-          rob_next[(tail+i)%`ROB_SZ].exception = NO_ERROR;
+          idx_alloc = (tail + i) % `ROB_SZ;
+
+          rob_next[idx_alloc]             = rob_entry_packet[i];
+          rob_next[idx_alloc].valid       = 1'b1;
+          rob_next[idx_alloc].complete    = 1'b0;
+          rob_next[idx_alloc].exception   = NO_ERROR;
+
+          // *** CHANGE: record the entry’s own ROB index (used by Retire on mispredict)
+          rob_next[idx_alloc].rob_idx     = idx_alloc;
         end
       end
       // ### ADVANCE TAIL: advance tail by number allocated
@@ -174,6 +220,7 @@ module rob (
       tail <= 0;
       for (int i = 0; i < `ROB_SZ; i++) begin
         rob_array[i].valid <= 1'b0;
+        rob_array[i].complete <= 1'b0;
       end
     end else begin
       head <= head_next;
