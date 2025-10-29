@@ -3,58 +3,184 @@
 module stage_issue (
     input clock,
     input reset,
-
-    // All RS entries (from RS module)
-    input RS_ENTRY [`RS_SZ-1:0] entries,
-
-    // signal not to take anything from the RS this cycle
     input logic mispredict,
 
-    // Inputs from CBD arbiter indicating available FUs next cycle
-    input logic [`NUM_FU_BRANCH-1:0] branch_grants,
-    input logic [`NUM_FU_ALU-1:0] alu_grants,
-    input logic [`NUM_FU_MEM-1:0] mem_grants,
-    // Input from EX indicating availiable MULT next cycle
-    input logic [`NUM_FU_MULT-1:0] mult_grants,
+    input RS_BANKS rs_banks,                                  // Structured RS entries
+    input FU_GRANTS fu_grants,                                // FU availability (structured)
 
-    // Outputs to RS for clearing issued entries on the next cycle
-    output logic  [`NUM_FU_TOTAL-1:0] clear_valid,
-    output RS_IDX [`NUM_FU_TOTAL-1:0] clear_idxs,
-
-    // Outputs to issue-execute pipeline register
-    output logic [`NUM_FU_TOTAL-1:0] issue_valid,
-    output RS_ENTRY [`NUM_FU_TOTAL-1:0] issued_entries
+    output ISSUE_CLEAR issue_clear,                           // Clear signals (structured)
+    output ISSUE_ENTRIES issue_entries                        // To EX stage (structured)
 );
 
-    logic [`RS_SZ-1:0] ready;
-    OP_CATEGORY [`RS_SZ-1:0] cat;
+    // Helper: Check if RS entry is ready
+    function automatic logic is_ready(RS_ENTRY entry);
+        return entry.valid && entry.src1_ready && entry.src2_ready;
+    endfunction
 
-    psel_gen #(
-        .WIDTH(`NUM_FU_TOTAL),
-        .REQS(`NUM_FU_TOTAL)
-    ) instruction_selector (
-        // Priority on the request bus alternates between highest and lowest
-        .req(),
-        .gnt(),
-        .gnt_bus()
+    // Internal state (structured)
+    ISSUE_ENTRIES issue_register, issue_register_next;
+
+    // Ready signals for each RS bank
+    logic [`RS_ALU_SZ-1:0]    rs_ready_alu;
+    logic [`RS_MULT_SZ-1:0]   rs_ready_mult;
+    logic [`RS_BRANCH_SZ-1:0] rs_ready_branch;
+    logic [`RS_MEM_SZ-1:0]    rs_ready_mem;
+
+    // Grant outputs from allocators
+    logic [`NUM_FU_ALU-1:0][`RS_ALU_SZ-1:0] grants_alu;
+    logic [`NUM_FU_MULT-1:0][`RS_MULT_SZ-1:0] grants_mult;
+    logic [`NUM_FU_BRANCH-1:0][`RS_BRANCH_SZ-1:0] grants_branch;
+    logic [`NUM_FU_MEM-1:0][`RS_MEM_SZ-1:0] grants_mem;
+
+    // Compute ready signals for each bank
+    always_comb begin
+        for (int i = 0; i < `RS_ALU_SZ; i++) begin
+            rs_ready_alu[i] = is_ready(rs_banks.alu[i]);
+        end
+        for (int i = 0; i < `RS_MULT_SZ; i++) begin
+            rs_ready_mult[i] = is_ready(rs_banks.mult[i]);
+        end
+        for (int i = 0; i < `RS_BRANCH_SZ; i++) begin
+            rs_ready_branch[i] = is_ready(rs_banks.branch[i]);
+        end
+        for (int i = 0; i < `RS_MEM_SZ; i++) begin
+            rs_ready_mem[i] = is_ready(rs_banks.mem[i]);
+        end
+    end
+
+    // Allocators for each FU category
+    allocator #(.NUM_RESOURCES(`RS_ALU_SZ), .NUM_REQUESTS(`NUM_FU_ALU)) alu_allocator (
+        .reset(reset | mispredict), .clock(clock),
+        .req(rs_ready_alu),
+        .clear(fu_grants.alu),
+        .grant(grants_alu)
     );
 
-    // find all ready instructions in your respective RS
-    // using a parking lot at each area of the pipeline register allocate instructions
-    // by category select which ones will go into the S/E register
-    // based on the amount of availiable FU's the next cycle
+    allocator #(.NUM_RESOURCES(`RS_MULT_SZ), .NUM_REQUESTS(`NUM_FU_MULT)) mult_allocator (
+        .reset(reset | mispredict), .clock(clock),
+        .req(rs_ready_mult),
+        .clear(fu_grants.mult),
+        .grant(grants_mult)
+    );
 
-    // Combinational logic for issue selection
+    allocator #(.NUM_RESOURCES(`RS_BRANCH_SZ), .NUM_REQUESTS(`NUM_FU_BRANCH)) branch_allocator (
+        .reset(reset | mispredict), .clock(clock),
+        .req(rs_ready_branch),
+        .clear(fu_grants.branch),
+        .grant(grants_branch)
+    );
+
+    allocator #(.NUM_RESOURCES(`RS_MEM_SZ), .NUM_REQUESTS(`NUM_FU_MEM)) mem_allocator (
+        .reset(reset | mispredict), .clock(clock),
+        .req(rs_ready_mem),
+        .clear(fu_grants.mem),
+        .grant(grants_mem)
+    );
+
+    // Generate clear signals (grant to index conversion)
+    // Note: clear indices contain local RS bank indices since each RS module
+    // maintains its own entry array. The RS modules handle their own indexing.
     always_comb begin
-        clear_valid = '0;
-        clear_idxs = '0;
-        issue_valid = '0;
-        issued_entries = '0;
+        issue_clear = '0;
 
-        if (reset || mispredict) begin
-            // No issue on reset or mispredict
+        // ALU - use local ALU RS indices
+        for (int fu = 0; fu < `NUM_FU_ALU; fu++) begin
+            for (int rs = 0; rs < `RS_ALU_SZ; rs++) begin
+                if (grants_alu[fu][rs]) begin
+                    issue_clear.valid_alu[fu] = 1'b1;
+                    issue_clear.idxs_alu[fu] = RS_IDX'(rs);
+                end
+            end
+        end
+
+        // MULT - use local MULT RS indices
+        for (int fu = 0; fu < `NUM_FU_MULT; fu++) begin
+            for (int rs = 0; rs < `RS_MULT_SZ; rs++) begin
+                if (grants_mult[fu][rs]) begin
+                    issue_clear.valid_mult[fu] = 1'b1;
+                    issue_clear.idxs_mult[fu] = RS_IDX'(rs);
+                end
+            end
+        end
+
+        // BRANCH - use local BRANCH RS indices
+        for (int fu = 0; fu < `NUM_FU_BRANCH; fu++) begin
+            for (int rs = 0; rs < `RS_BRANCH_SZ; rs++) begin
+                if (grants_branch[fu][rs]) begin
+                    issue_clear.valid_branch[fu] = 1'b1;
+                    issue_clear.idxs_branch[fu] = RS_IDX'(rs);
+                end
+            end
+        end
+
+        // MEM - use local MEM RS indices
+        for (int fu = 0; fu < `NUM_FU_MEM; fu++) begin
+            for (int rs = 0; rs < `RS_MEM_SZ; rs++) begin
+                if (grants_mem[fu][rs]) begin
+                    issue_clear.valid_mem[fu] = 1'b1;
+                    issue_clear.idxs_mem[fu] = RS_IDX'(rs);
+                end
+            end
+        end
+    end
+
+    // Update issue register from granted RS entries
+    always_comb begin
+        issue_register_next = issue_register;
+
+        // ALU - use structured ALU bank
+        for (int fu = 0; fu < `NUM_FU_ALU; fu++) begin
+            if (fu_grants.alu[fu]) begin
+                for (int rs = 0; rs < `RS_ALU_SZ; rs++) begin
+                    if (grants_alu[fu][rs]) begin
+                        issue_register_next.alu[fu] = rs_banks.alu[rs];
+                    end
+                end
+            end
+        end
+
+        // MULT - use structured MULT bank
+        for (int fu = 0; fu < `NUM_FU_MULT; fu++) begin
+            if (fu_grants.mult[fu]) begin
+                for (int rs = 0; rs < `RS_MULT_SZ; rs++) begin
+                    if (grants_mult[fu][rs]) begin
+                        issue_register_next.mult[fu] = rs_banks.mult[rs];
+                    end
+                end
+            end
+        end
+
+        // BRANCH - use structured BRANCH bank
+        for (int fu = 0; fu < `NUM_FU_BRANCH; fu++) begin
+            if (fu_grants.branch[fu]) begin
+                for (int rs = 0; rs < `RS_BRANCH_SZ; rs++) begin
+                    if (grants_branch[fu][rs]) begin
+                        issue_register_next.branch[fu] = rs_banks.branch[rs];
+                    end
+                end
+            end
+        end
+
+        // MEM - use structured MEM bank
+        for (int fu = 0; fu < `NUM_FU_MEM; fu++) begin
+            if (fu_grants.mem[fu]) begin
+                for (int rs = 0; rs < `RS_MEM_SZ; rs++) begin
+                    if (grants_mem[fu][rs]) begin
+                        issue_register_next.mem[fu] = rs_banks.mem[rs];
+                    end
+                end
+            end
+        end
+    end
+
+    // Output assignment
+    assign issue_entries = issue_register;
+
+    always_ff @(posedge clock) begin
+        if (reset | mispredict) begin
+            issue_register <= '0;
         end else begin
-
+            issue_register <= issue_register_next;
         end
     end
 
