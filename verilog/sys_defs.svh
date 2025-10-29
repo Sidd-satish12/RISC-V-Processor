@@ -51,6 +51,19 @@
 `define NUM_FU_MEM 1     // Single address calculator for mem ops
 `define NUM_FU_TOTAL (`NUM_FU_ALU + `NUM_FU_MULT + `NUM_FU_BRANCH + `NUM_FU_MEM)
 
+// reservation station sizes per FU type
+`define RS_ALU_SZ (2 * `NUM_FU_ALU)      // 6 entries for ALU
+`define RS_MULT_SZ (2 * `NUM_FU_MULT)    // 2 entries for MULT
+`define RS_BRANCH_SZ (2 * `NUM_FU_BRANCH) // 2 entries for BRANCH
+`define RS_MEM_SZ (2 * `NUM_FU_MEM)      // 2 entries for MEM
+
+// FU category indices (for array indexing)
+`define FU_CAT_ALU 0
+`define FU_CAT_MULT 1
+`define FU_CAT_BRANCH 2
+`define FU_CAT_MEM 3
+`define NUM_FU_CATEGORIES 4
+
 // number of mult stages (2, 4) (you likely don't need 8)
 `define MULT_STAGES 4
 
@@ -438,6 +451,42 @@ typedef struct packed {
     logic          pred_taken;
     ADDR           pred_target;
 } RS_ENTRY;
+
+// Structured RS banks grouping by functional unit type
+typedef struct packed {
+    RS_ENTRY [`RS_ALU_SZ-1:0]    alu;
+    RS_ENTRY [`RS_MULT_SZ-1:0]   mult;
+    RS_ENTRY [`RS_BRANCH_SZ-1:0] branch;
+    RS_ENTRY [`RS_MEM_SZ-1:0]    mem;
+} RS_BANKS;
+
+// FU grant signals grouped by functional unit type
+typedef struct packed {
+    logic [`NUM_FU_ALU-1:0]    alu;
+    logic [`NUM_FU_MULT-1:0]   mult;
+    logic [`NUM_FU_BRANCH-1:0] branch;
+    logic [`NUM_FU_MEM-1:0]    mem;
+} FU_GRANTS;
+
+// Issue clear signals grouped by functional unit type
+typedef struct packed {
+    logic [`NUM_FU_ALU-1:0]       valid_alu;
+    RS_IDX [`NUM_FU_ALU-1:0]      idxs_alu;
+    logic [`NUM_FU_MULT-1:0]      valid_mult;
+    RS_IDX [`NUM_FU_MULT-1:0]     idxs_mult;
+    logic [`NUM_FU_BRANCH-1:0]    valid_branch;
+    RS_IDX [`NUM_FU_BRANCH-1:0]   idxs_branch;
+    logic [`NUM_FU_MEM-1:0]       valid_mem;
+    RS_IDX [`NUM_FU_MEM-1:0]      idxs_mem;
+} ISSUE_CLEAR;
+
+// Issue entries grouped by functional unit type
+typedef struct packed {
+    RS_ENTRY [`NUM_FU_ALU-1:0]    alu;
+    RS_ENTRY [`NUM_FU_MULT-1:0]   mult;
+    RS_ENTRY [`NUM_FU_BRANCH-1:0] branch;
+    RS_ENTRY [`NUM_FU_MEM-1:0]    mem;
+} ISSUE_ENTRIES;
 
 // ROB entry structure
 typedef struct packed {
