@@ -74,7 +74,7 @@ module cpu (
     logic [`NUM_FU_ALU-1:0] rs_alu_clear_valid;
     RS_IDX [`NUM_FU_ALU-1:0] rs_alu_clear_idxs;
     RS_ENTRY [RS_ALU_SZ-1:0] rs_alu_entries;
-    logic [$clog2(RS_ALU_SZ+1)-1:0] rs_alu_free_count;
+    logic [`N-1:0][RS_ALU_SZ-1:0] rs_alu_granted_entries;
 
     // From dispatch to RS (MULT)
     logic [`N-1:0]          rs_mult_alloc_valid;
@@ -82,7 +82,7 @@ module cpu (
     logic [`NUM_FU_MULT-1:0] rs_mult_clear_valid;
     RS_IDX [`NUM_FU_MULT-1:0] rs_mult_clear_idxs;
     RS_ENTRY [RS_MULT_SZ-1:0] rs_mult_entries;
-    logic [$clog2(RS_MULT_SZ+1)-1:0] rs_mult_free_count;
+    logic [`N-1:0][RS_MULT_SZ-1:0] rs_mult_granted_entries;
 
     // From dispatch to RS (BRANCH)
     logic [`N-1:0]          rs_branch_alloc_valid;
@@ -90,7 +90,7 @@ module cpu (
     logic [`NUM_FU_BRANCH-1:0] rs_branch_clear_valid;
     RS_IDX [`NUM_FU_BRANCH-1:0] rs_branch_clear_idxs;
     RS_ENTRY [RS_BRANCH_SZ-1:0] rs_branch_entries;
-    logic [$clog2(RS_BRANCH_SZ+1)-1:0] rs_branch_free_count;
+    logic [`N-1:0][RS_BRANCH_SZ-1:0] rs_branch_granted_entries;
 
     // From dispatch to RS (MEM)
     logic [`N-1:0]          rs_mem_alloc_valid;
@@ -98,7 +98,7 @@ module cpu (
     logic [`NUM_FU_MEM-1:0] rs_mem_clear_valid;
     RS_IDX [`NUM_FU_MEM-1:0] rs_mem_clear_idxs;
     RS_ENTRY [RS_MEM_SZ-1:0] rs_mem_entries;
-    logic [$clog2(RS_MEM_SZ+1)-1:0] rs_mem_free_count;
+    logic [`N-1:0][RS_MEM_SZ-1:0] rs_mem_granted_entries;
 
     // CDB wires
     logic [`NUM_FU_BRANCH-1:0] cdb_branch_requests;
@@ -288,8 +288,8 @@ module cpu (
         .mispredict  (mispredict),
 
         // Outputs to issue/dispatch
-        .entries    (rs_alu_entries),
-        .free_count (rs_alu_free_count)
+        .entries        (rs_alu_entries),
+        .granted_entries(rs_alu_granted_entries)
     );
 
     // RS for MULT operations (2 entries, 1 clear port)
@@ -318,8 +318,8 @@ module cpu (
         .mispredict  (mispredict),
 
         // Outputs to issue/dispatch
-        .entries    (rs_mult_entries),
-        .free_count (rs_mult_free_count)
+        .entries        (rs_mult_entries),
+        .granted_entries(rs_mult_granted_entries)
     );
 
     // RS for BRANCH operations (2 entries, 1 clear port)
@@ -348,8 +348,8 @@ module cpu (
         .mispredict  (mispredict),
 
         // Outputs to issue/dispatch
-        .entries    (rs_branch_entries),
-        .free_count (rs_branch_free_count)
+        .entries        (rs_branch_entries),
+        .granted_entries(rs_branch_granted_entries)
     );
 
     // RS for MEM operations (2 entries, 1 clear port)
@@ -378,8 +378,8 @@ module cpu (
         .mispredict  (mispredict),
 
         // Outputs to issue/dispatch
-        .entries    (rs_mem_entries),
-        .free_count (rs_mem_free_count)
+        .entries        (rs_mem_entries),
+        .granted_entries(rs_mem_granted_entries)
     );
 
     //////////////////////////////////////////////////
