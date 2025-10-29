@@ -50,7 +50,7 @@ module map_table #(
   typedef logic [PRW-1:0] PR_TAG;
 
   // live state
-  PR_TAG map_array        [ARCH_COUNT];   // AR -> PR
+  PR_TAG [ARCH_COUNT] map_array;   // AR -> PR
   logic  ready_array      [ARCH_COUNT];   // AR ready?
 
   // next-state pipeline (stage N = current, stage 0 = after all updates)
@@ -155,7 +155,12 @@ module map_table #(
   // Told = start-of-cycle map value for each renamed AR
   always_comb begin
     for (int lane = N-1; lane >= 0; lane--)
-      told_next[lane] = map_array[told_ar[lane]];
+      told_next[lane] = map_array[maptable_new_ar[lane]];
+  end
+
+  always_comb begin
+    for (int lane = 0; lane < N; lane++)
+        Told_out[lane] = map_array[ told_ar[lane] ];
   end
 
   always_ff @(posedge clock) begin
@@ -166,7 +171,7 @@ module map_table #(
     end
   end
 
-  assign Told_out = told_q;
+  //assign Told_out = told_q;
 
   // operand lookups (see effects of older lanes + CDB)
   always_comb begin

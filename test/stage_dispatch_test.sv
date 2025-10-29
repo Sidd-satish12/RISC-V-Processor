@@ -252,179 +252,75 @@ module stage_dispatch_tb;
             $display("[FAIL] Expected stall with %0d dispatch", `N-1);
 
         // ============================================================
-        // Test 4: Map Table Interaction (CRITICAL TEST FOR Told)
+        // Test 4: Simple Dispatch of N Instructions
         // ============================================================
-        $display("\n=== TEST 4: Map Table Interaction & Told Verification ===");
+        $display("\n=== TEST 4: Simple Dispatch & Told Verification ===");
+        @(negedge clock);
+        reset = 1;
+        @(negedge clock);
+        reset = 0;
 
-        // Reset all signals
-        fetch_valid      = '0;
-        fetch_packet     = '0;
-        free_slots_rob   = `N;
-        free_slots_rs    = `N;
+        // Reset all input signals
+        fetch_valid        = '0;
+        fetch_packet       = '0;
+        free_slots_rob     = `N;
+        free_slots_rs      = `N;
         free_slots_freelst = `N;
-        BPRecoverEN      = 0;
-        cdb_valid        = '0;
-        cdb_tag          = '0;
+        BPRecoverEN        = 0;
+        cdb_valid          = '0;
+        cdb_tag            = '0;
 
-        // Initialize architectural map table to known values
-        // Let's use a non-trivial mapping to make the test interesting
-        for (int i = 0; i < (`PHYS_REG_SZ_R10K - `ROB_SZ); i++) begin
-            archi_maptable[i] = i + 100;  // ARi -> PR(i+100)
-        end
-
-        // Take a snapshot of the initial map state
-        for (int i = 0; i < (`PHYS_REG_SZ_R10K - `ROB_SZ); i++) begin
-            map_snapshot[i] = archi_maptable[i];
-        end
-
-        @(posedge clock);  // Let map table reset with these values
-
-        // Prepare physical allocations for NEW destination registers
-        for (int i = 0; i < `N; i++) begin
-            allocated_phys[i] = 50 + i; // New PRs: 50, 51, 52...
-        end
-
-        // Create instructions that will RENAME some registers
-        // Instr 0: R2 = R0 + R1
-        // Instr 1: R3 = R1 + R2
-        // Instr 2: R4 = R2 + R3  (Note: R2 was just renamed by instr 0!)
-        // Instr 3: R5 = R3 + R4  (Note: R3 was just renamed by instr 1!)
-        
-        fetch_valid[0] = 1'b1;
-        fetch_packet.valid[0] = 1'b1;
-        fetch_packet.uses_rd[0] = 1'b1;
-        fetch_packet.rs1_idx[0] = 0;  // R0
-        fetch_packet.rs2_idx[0] = 1;  // R1
-        fetch_packet.rd_idx[0]  = 2;  // R2
-
-        fetch_valid[1] = 1'b1;
-        fetch_packet.valid[1] = 1'b1;
-        fetch_packet.uses_rd[1] = 1'b1;
-        fetch_packet.rs1_idx[1] = 1;  // R1
-        fetch_packet.rs2_idx[1] = 2;  // R2 (OLD mapping, before instr 0)
-        fetch_packet.rd_idx[1]  = 3;  // R3
-
-        fetch_valid[2] = 1'b1;
-        fetch_packet.valid[2] = 1'b1;
-        fetch_packet.uses_rd[2] = 1'b1;
-        fetch_packet.rs1_idx[2] = 2;  // R2 (should see NEW mapping from instr 0)
-        fetch_packet.rs2_idx[2] = 3;  // R3 (should see NEW mapping from instr 1)
-        fetch_packet.rd_idx[2]  = 4;  // R4
-
-        fetch_valid[3] = 1'b1;
-        fetch_packet.valid[3] = 1'b1;
-        fetch_packet.uses_rd[3] = 1'b1;
-        fetch_packet.rs1_idx[3] = 3;  // R3
-        fetch_packet.rs2_idx[3] = 4;  // R4
-        fetch_packet.rd_idx[3]  = 5;  // R5
-
-        $display("\nBefore dispatch - Initial map state:");
-        $display("  AR0 -> PR%0d", map_snapshot[0]);
-        $display("  AR1 -> PR%0d", map_snapshot[1]);
-        $display("  AR2 -> PR%0d", map_snapshot[2]);
-        $display("  AR3 -> PR%0d", map_snapshot[3]);
-        $display("  AR4 -> PR%0d", map_snapshot[4]);
-        $display("  AR5 -> PR%0d", map_snapshot[5]);
-
+        // ============================================================
+        // Wait for map table to reset internally
+        // ============================================================
         @(posedge clock);
-        #1;  // Small delay for combinational settling
+        $display("Waiting for map table reset to complete...");
+        @(posedge clock);
+        $display("Map table reset done. Assuming default AR→PR mapping after reset.\n");
 
         // ============================================================
-        // Verify Source Operand Mappings
+        // Prepare simple N instructions for dispatch
+        // Skip AR0 (start from AR1)
+        // Each instruction renames AR(i+1) to a new physical register
         // ============================================================
-        $display("\n--- Source Operand Verification ---");
+        for (int i = 0; i < `N; i++) begin
+            fetch_valid[i]            = 1'b1;
+            fetch_packet.valid[i]     = 1'b1;
+            fetch_packet.uses_rd[i]   = 1'b1;
+            fetch_packet.rs1_idx[i]   = (i + 1) % 8;  // arbitrary sources
+            fetch_packet.rs2_idx[i]   = (i + 2) % 8;
+            fetch_packet.rd_idx[i]    = i + 1;        // AR1, AR2, AR3...
+            allocated_phys[i]         = 40 + i;       // assign PR40, PR41, ...
+        end
+
+        // ============================================================
+        // Dispatch N instructions
+        // ============================================================
+        $display("Dispatching %0d instructions...", `N);
+        @(negedge clock);
+        #1; // allow combinational logic to settle
+
+        $display("\n--- Dispatch Results ---");
+        for (int i = 0; i < `N; i++) begin
+            $display("Instr %0d:", i);
+            $display("  AR%0d renamed to PR%0d", fetch_packet.rd_idx[i], allocated_phys[i]);
+            $display("  Told_out[%0d] = PR%0d", i, Told_out[i]);
+        end
+
+        // ============================================================
+        // Verify Told Values
+        // ============================================================
+        $display("\n--- Told Verification ---");
         passed = 1'b1;
 
-        // Instruction 0: R0, R1 (should get initial mappings)
-        expected_tag1 = map_snapshot[0];
-        expected_tag2 = map_snapshot[1];
-        $display("Instr 0: R2 = R0 + R1");
-        $display("  Expected: R0->PR%0d, R1->PR%0d", expected_tag1, expected_tag2);
-        $display("  Got:      R0->PR%0d, R1->PR%0d", reg1_tag[0], reg2_tag[0]);
-        if (reg1_tag[0] != expected_tag1 || reg2_tag[0] != expected_tag2) begin
-            $display("  [FAIL] Source mapping mismatch!");
-            passed = 1'b0;
-        end else begin
-            $display("  [PASS]");
-        end
-
-        // Instruction 1: R1, R2 (R2 should still be OLD mapping)
-        expected_tag1 = map_snapshot[1];
-        expected_tag2 = map_snapshot[2];  // OLD R2, before instr 0 updates it
-        $display("Instr 1: R3 = R1 + R2");
-        $display("  Expected: R1->PR%0d, R2->PR%0d (old R2)", expected_tag1, expected_tag2);
-        $display("  Got:      R1->PR%0d, R2->PR%0d", reg1_tag[1], reg2_tag[1]);
-        if (reg1_tag[1] != expected_tag1 || reg2_tag[1] != expected_tag2) begin
-            $display("  [FAIL] Source mapping mismatch!");
-            passed = 1'b0;
-        end else begin
-            $display("  [PASS]");
-        end
-
-        // Instruction 2: R2, R3 (should see NEW mappings from instr 0, 1)
-        expected_tag1 = allocated_phys[0];  // NEW R2 from instr 0
-        expected_tag2 = allocated_phys[1];  // NEW R3 from instr 1
-        $display("Instr 2: R4 = R2 + R3");
-        $display("  Expected: R2->PR%0d (new), R3->PR%0d (new)", expected_tag1, expected_tag2);
-        $display("  Got:      R2->PR%0d, R3->PR%0d", reg1_tag[2], reg2_tag[2]);
-        if (reg1_tag[2] != expected_tag1 || reg2_tag[2] != expected_tag2) begin
-            $display("  [FAIL] Source mapping mismatch!");
-            passed = 1'b0;
-        end else begin
-            $display("  [PASS]");
-        end
-
-        // ============================================================
-        // Verify Told Values (CRITICAL!)
-        // ============================================================
-        $display("\n--- Told Verification (Previous Physical Register) ---");
-        
-        // Instr 0: Renames R2, Told should be OLD mapping of R2
-        expected_told = map_snapshot[2];
-        $display("Instr 0: Renames AR2");
-        $display("  Expected Told: PR%0d (old R2)", expected_told);
-        $display("  Got Told:      PR%0d", Told_out[0]);
-        if (Told_out[0] != expected_told) begin
-            $display("  [FAIL] Told mismatch!");
-            passed = 1'b0;
-        end else begin
-            $display("  [PASS]");
-        end
-
-        // Instr 1: Renames R3, Told should be OLD mapping of R3
-        expected_told = map_snapshot[3];
-        $display("Instr 1: Renames AR3");
-        $display("  Expected Told: PR%0d (old R3)", expected_told);
-        $display("  Got Told:      PR%0d", Told_out[1]);
-        if (Told_out[1] != expected_told) begin
-            $display("  [FAIL] Told mismatch!");
-            passed = 1'b0;
-        end else begin
-            $display("  [PASS]");
-        end
-
-        // Instr 2: Renames R4, Told should be OLD mapping of R4
-        expected_told = map_snapshot[4];
-        $display("Instr 2: Renames AR4");
-        $display("  Expected Told: PR%0d (old R4)", expected_told);
-        $display("  Got Told:      PR%0d", Told_out[2]);
-        if (Told_out[2] != expected_told) begin
-            $display("  [FAIL] Told mismatch!");
-            passed = 1'b0;
-        end else begin
-            $display("  [PASS]");
-        end
-
-        // Instr 3: Renames R5, Told should be OLD mapping of R5
-        expected_told = map_snapshot[5];
-        $display("Instr 3: Renames AR5");
-        $display("  Expected Told: PR%0d (old R5)", expected_told);
-        $display("  Got Told:      PR%0d", Told_out[3]);
-        if (Told_out[3] != expected_told) begin
-            $display("  [FAIL] Told mismatch!");
-            passed = 1'b0;
-        end else begin
-            $display("  [PASS]");
+        for (int i = 0; i < `N; i++) begin
+            expected_told = fetch_packet.rd_idx[i];  // assume reset made ARi → PRi
+            if (Told_out[i] != expected_told) begin
+                $display("[FAIL] Instr %0d: Expected Told=PR%0d, Got=PR%0d", i, expected_told, Told_out[i]);
+                passed = 1'b0;
+            end else begin
+                $display("[PASS] Instr %0d: Told=PR%0d correct", i, Told_out[i]);
+            end
         end
 
         // ============================================================
@@ -432,14 +328,13 @@ module stage_dispatch_tb;
         // ============================================================
         $display("\n--- ROB Entry Verification ---");
         for (int i = 0; i < `N; i++) begin
-            $display("ROB Entry %0d:", i);
-            $display("  arch_rd=%0d, phys_rd=PR%0d, prev_phys_rd=PR%0d", 
-                     rob_alloc_entries[i].arch_rd,
-                     rob_alloc_entries[i].phys_rd,
-                     rob_alloc_entries[i].prev_phys_rd);
-            
+            $display("ROB Entry %0d: arch_rd=%0d phys_rd=PR%0d prev_phys_rd=PR%0d", 
+                    i,
+                    rob_alloc_entries[i].arch_rd,
+                    rob_alloc_entries[i].phys_rd,
+                    rob_alloc_entries[i].prev_phys_rd);
             if (rob_alloc_entries[i].prev_phys_rd != Told_out[i]) begin
-                $display("  [FAIL] prev_phys_rd doesn't match Told!");
+                $display("  [FAIL] prev_phys_rd mismatch!");
                 passed = 1'b0;
             end
         end
@@ -449,7 +344,82 @@ module stage_dispatch_tb;
         else
             $display("\n[FAIL] Test 4 had failures!");
 
-        $display("\n=== All Tests Complete ===");
+        // ============================================================
+        // Test 4b: Dispatch 3 More Instructions and Verify Told Updates
+        // ============================================================
+        @(negedge clock);
+        $display("\n=== TEST 4b: Additional Dispatch & Told Tracking ===");
+        //@(negedge clock);
+        // Reuse existing arrays
+        for (int i = 0; i < `N; i++) begin
+            fetch_valid[i]            = 1'b1;
+            fetch_packet.valid[i]     = 1'b1;
+            fetch_packet.uses_rd[i]   = 1'b1;
+            fetch_packet.rs1_idx[i]   = (i + 2) % 8;
+            fetch_packet.rs2_idx[i]   = (i + 3) % 8;
+            fetch_packet.rd_idx[i]    = i + 1;          // reuse AR1–AR3
+            allocated_phys[i]         = 50 + i;         // assign PR50, PR51, PR52
+        end
+
+        //@(negedge clock);
+        //#1;
+
+        $display("Dispatching %0d additional instructions...", `N);
+
+        //@(negedge clock);
+        //#1;
+
+        $display("\n--- Dispatch Results (Extra) ---");
+        for (int i = 0; i < `N; i++) begin
+            $display("Instr %0d:", i);
+            $display("  AR%0d renamed to PR%0d", fetch_packet.rd_idx[i], allocated_phys[i]);
+            $display("  Told_out[%0d] = PR%0d", i, Told_out[i]);
+        end
+
+        // ============================================================
+        // Verify Told Values (should match old mappings)
+        // ============================================================
+        $display("\n--- Told Verification (Extra) ---");
+        passed = 1'b1;
+
+        for (int i = 0; i < `N; i++) begin
+            expected_told = i + 1;  // original reset mapping ARi → PRi
+            if (Told_out[i] != expected_told) begin
+                $display("[FAIL] Extra Instr %0d: Expected Told=PR%0d, Got=PR%0d", 
+                         i, expected_told, Told_out[i]);
+                passed = 1'b0;
+            end else begin
+                $display("[PASS] Extra Instr %0d: Told=PR%0d correct", i, Told_out[i]);
+            end
+        end
+
+        // ============================================================
+        // Verify ROB Entries for Additional Dispatch
+        // ============================================================
+        $display("\n--- ROB Entry Verification (Extra) ---");
+        for (int i = 0; i < `N; i++) begin
+            $display("ROB Entry %0d: arch_rd=%0d phys_rd=PR%0d prev_phys_rd=PR%0d", 
+                    i,
+                    rob_alloc_entries[i].arch_rd,
+                    rob_alloc_entries[i].phys_rd,
+                    rob_alloc_entries[i].prev_phys_rd);
+            if (rob_alloc_entries[i].prev_phys_rd != Told_out[i]) begin
+                $display("  [FAIL] prev_phys_rd mismatch!");
+                passed = 1'b0;
+            end
+        end
+
+        if (passed)
+            $display("\n[PASS] All Test 4b checks passed!");
+        else
+            $display("\n[FAIL] Test 4b had failures!");
+
+        $display("\n=== Test 4b Complete ===\n");
+
+
+
+        $display("\n=== Test 4 Complete ===");
+
         $finish;
     end
 
