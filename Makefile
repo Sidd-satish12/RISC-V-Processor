@@ -227,7 +227,7 @@ build/freelist.cov:  $(FREELIST_FILES)
 synth/freelist.vg:   $(FREELIST_FILES)
 
 
-MAP_TABLE_FILES =
+MAP_TABLE_FILES = verilog/sys_defs.svh
 build/map_table.simv: $(MAP_TABLE_FILES)
 build/map_table.cov:  $(MAP_TABLE_FILES)
 synth/map_table.vg:   $(MAP_TABLE_FILES)

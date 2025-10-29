@@ -39,7 +39,7 @@ module map_table #(
   output logic [N-1:0]                          reg2_ready,
 
   // Told = old physical mapping of each renamed AR
-  input  logic [N-1:0][$clog2(ARCH_COUNT)-1:0]  told_ar,
+  //input  logic [N-1:0][$clog2(ARCH_COUNT)-1:0]  told_ar,
   output logic [N-1:0][PRW-1:0]                 Told_out
 
 `ifdef TEST_MODE
@@ -50,7 +50,7 @@ module map_table #(
   typedef logic [PRW-1:0] PR_TAG;
 
   // live state
-  PR_TAG [ARCH_COUNT] map_array;   // AR -> PR
+  PR_TAG  map_array       [ARCH_COUNT];   // AR -> PR
   logic  ready_array      [ARCH_COUNT];   // AR ready?
 
   // next-state pipeline (stage N = current, stage 0 = after all updates)
@@ -158,10 +158,12 @@ module map_table #(
       told_next[lane] = map_array[maptable_new_ar[lane]];
   end
 
-  always_comb begin
-    for (int lane = 0; lane < N; lane++)
-        Told_out[lane] = map_array[ told_ar[lane] ];
-  end
+  // always_comb begin
+  //   for (int lane = 0; lane < N; lane++)
+  //       Told_out[lane] = map_array[ told_ar[lane] ];
+  // end
+
+  assign Told_out = told_next;
 
   always_ff @(posedge clock) begin
     if (reset) begin
@@ -170,8 +172,6 @@ module map_table #(
       told_q <= told_next;
     end
   end
-
-  //assign Told_out = told_q;
 
   // operand lookups (see effects of older lanes + CDB)
   always_comb begin
