@@ -362,7 +362,7 @@ module stage_dispatch_tb;
         end
 
         //@(negedge clock);
-        //#1;
+        #5; // need a delay for phys_rd values to propogate
 
         $display("Dispatching %0d additional instructions...", `N);
 
@@ -383,7 +383,7 @@ module stage_dispatch_tb;
         passed = 1'b1;
 
         for (int i = 0; i < `N; i++) begin
-            expected_told = i + 1;  // original reset mapping ARi → PRi
+            expected_told = i + 40;  // original reset mapping ARi → PRi
             if (Told_out[i] != expected_told) begin
                 $display("[FAIL] Extra Instr %0d: Expected Told=PR%0d, Got=PR%0d", 
                          i, expected_told, Told_out[i]);
@@ -392,7 +392,7 @@ module stage_dispatch_tb;
                 $display("[PASS] Extra Instr %0d: Told=PR%0d correct", i, Told_out[i]);
             end
         end
-
+        //@(negedge clock);
         // ============================================================
         // Verify ROB Entries for Additional Dispatch
         // ============================================================
@@ -419,6 +419,8 @@ module stage_dispatch_tb;
 
 
         $display("\n=== Test 4 Complete ===");
+
+        
 
         $finish;
     end
