@@ -62,43 +62,37 @@ module cpu (
     ISSUE_EXECUTE_PACKET issue_execute_packet, issue_execute_register;
 
     // RS wires - separate for each functional unit category
-    // RS sizes: 2x the number of functional units per category
-    localparam RS_ALU_SZ = 2 * `NUM_FU_ALU;      // 6 entries
-    localparam RS_MULT_SZ = 2 * `NUM_FU_MULT;    // 2 entries
-    localparam RS_BRANCH_SZ = 2 * `NUM_FU_BRANCH; // 2 entries
-    localparam RS_MEM_SZ = 2 * `NUM_FU_MEM;      // 2 entries
-
     // From dispatch to RS (ALU)
     logic [`N-1:0]          rs_alu_alloc_valid;
     RS_ENTRY [`N-1:0]       rs_alu_alloc_entries;
     logic [`NUM_FU_ALU-1:0] rs_alu_clear_valid;
     RS_IDX [`NUM_FU_ALU-1:0] rs_alu_clear_idxs;
-    RS_ENTRY [RS_ALU_SZ-1:0] rs_alu_entries;
-    logic [`N-1:0][RS_ALU_SZ-1:0] rs_alu_granted_entries;
+    RS_ENTRY [`RS_ALU_SZ-1:0] rs_alu_entries;
+    logic [`N-1:0][`RS_ALU_SZ-1:0] rs_alu_granted_entries;
 
     // From dispatch to RS (MULT)
     logic [`N-1:0]          rs_mult_alloc_valid;
     RS_ENTRY [`N-1:0]       rs_mult_alloc_entries;
     logic [`NUM_FU_MULT-1:0] rs_mult_clear_valid;
     RS_IDX [`NUM_FU_MULT-1:0] rs_mult_clear_idxs;
-    RS_ENTRY [RS_MULT_SZ-1:0] rs_mult_entries;
-    logic [`N-1:0][RS_MULT_SZ-1:0] rs_mult_granted_entries;
+    RS_ENTRY [`RS_MULT_SZ-1:0] rs_mult_entries;
+    logic [`N-1:0][`RS_MULT_SZ-1:0] rs_mult_granted_entries;
 
     // From dispatch to RS (BRANCH)
     logic [`N-1:0]          rs_branch_alloc_valid;
     RS_ENTRY [`N-1:0]       rs_branch_alloc_entries;
     logic [`NUM_FU_BRANCH-1:0] rs_branch_clear_valid;
     RS_IDX [`NUM_FU_BRANCH-1:0] rs_branch_clear_idxs;
-    RS_ENTRY [RS_BRANCH_SZ-1:0] rs_branch_entries;
-    logic [`N-1:0][RS_BRANCH_SZ-1:0] rs_branch_granted_entries;
+    RS_ENTRY [`RS_BRANCH_SZ-1:0] rs_branch_entries;
+    logic [`N-1:0][`RS_BRANCH_SZ-1:0] rs_branch_granted_entries;
 
     // From dispatch to RS (MEM)
     logic [`N-1:0]          rs_mem_alloc_valid;
     RS_ENTRY [`N-1:0]       rs_mem_alloc_entries;
     logic [`NUM_FU_MEM-1:0] rs_mem_clear_valid;
     RS_IDX [`NUM_FU_MEM-1:0] rs_mem_clear_idxs;
-    RS_ENTRY [RS_MEM_SZ-1:0] rs_mem_entries;
-    logic [`N-1:0][RS_MEM_SZ-1:0] rs_mem_granted_entries;
+    RS_ENTRY [`RS_MEM_SZ-1:0] rs_mem_entries;
+    logic [`N-1:0][`RS_MEM_SZ-1:0] rs_mem_granted_entries;
 
     // CDB wires
     logic [`NUM_FU_BRANCH-1:0] cdb_branch_requests;
@@ -265,7 +259,7 @@ module cpu (
     // RS for ALU operations (6 entries, 3 clear ports)
     rs #(
         .ALLOC_WIDTH(`N),
-        .RS_SIZE(RS_ALU_SZ),
+        .RS_SIZE(`RS_ALU_SZ),
         .CLEAR_WIDTH(`NUM_FU_ALU),
         .CDB_WIDTH(`CDB_SZ)
     ) rs_alu (
@@ -295,7 +289,7 @@ module cpu (
     // RS for MULT operations (2 entries, 1 clear port)
     rs #(
         .ALLOC_WIDTH(`N),
-        .RS_SIZE(RS_MULT_SZ),
+        .RS_SIZE(`RS_MULT_SZ),
         .CLEAR_WIDTH(`NUM_FU_MULT),
         .CDB_WIDTH(`CDB_SZ)
     ) rs_mult (
@@ -325,7 +319,7 @@ module cpu (
     // RS for BRANCH operations (2 entries, 1 clear port)
     rs #(
         .ALLOC_WIDTH(`N),
-        .RS_SIZE(RS_BRANCH_SZ),
+        .RS_SIZE(`RS_BRANCH_SZ),
         .CLEAR_WIDTH(`NUM_FU_BRANCH),
         .CDB_WIDTH(`CDB_SZ)
     ) rs_branch (
@@ -355,7 +349,7 @@ module cpu (
     // RS for MEM operations (2 entries, 1 clear port)
     rs #(
         .ALLOC_WIDTH(`N),
-        .RS_SIZE(RS_MEM_SZ),
+        .RS_SIZE(`RS_MEM_SZ),
         .CLEAR_WIDTH(`NUM_FU_MEM),
         .CDB_WIDTH(`CDB_SZ)
     ) rs_mem (
@@ -398,13 +392,55 @@ module cpu (
 
     //////////////////////////////////////////////////
     //                                              //
-    //              Execute Stage                    //
+    //                 Issue Stage                  //
     //                                              //
     //////////////////////////////////////////////////
 
-    stage_issue stage_issue_0 (
+    // Issue stage structured inputs/outputs
+    ISSUE_ENTRIES issue_entries;
+    ISSUE_CLEAR issue_clear;
 
+    // Create structured RS banks from individual RS module outputs
+    RS_BANKS rs_banks;
+    assign rs_banks.alu    = rs_alu_entries;
+    assign rs_banks.mult   = rs_mult_entries;
+    assign rs_banks.branch = rs_branch_entries;
+    assign rs_banks.mem    = rs_mem_entries;
+
+    // Create structured FU grants from CDB outputs
+    FU_GRANTS fu_grants;
+    assign fu_grants.alu    = cdb_alu_grants;
+    assign fu_grants.mult   = cdb_mult_grants;
+    assign fu_grants.branch = cdb_branch_grants;
+    assign fu_grants.mem    = cdb_mem_grants;
+
+    stage_issue stage_issue_0 (
+        .clock(clock),
+        .reset(reset),
+        .mispredict(mispredict),
+
+        // RS entries (structured)
+        .rs_banks(rs_banks),
+
+        // FU availability grants (structured)
+        .fu_grants(fu_grants),
+
+        // Clear signals (structured)
+        .issue_clear(issue_clear),
+
+        // Issue outputs (structured)
+        .issue_entries(issue_entries)
     );
+
+    // Extract clear signals from structured output for RS modules
+    assign rs_alu_clear_valid = issue_clear.valid_alu;
+    assign rs_alu_clear_idxs = issue_clear.idxs_alu;
+    assign rs_mult_clear_valid = issue_clear.valid_mult;
+    assign rs_mult_clear_idxs = issue_clear.idxs_mult;
+    assign rs_branch_clear_valid = issue_clear.valid_branch;
+    assign rs_branch_clear_idxs = issue_clear.idxs_branch;
+    assign rs_mem_clear_valid = issue_clear.valid_mem;
+    assign rs_mem_clear_idxs = issue_clear.idxs_mem;
 
     //////////////////////////////////////////////////
     //                                              //
