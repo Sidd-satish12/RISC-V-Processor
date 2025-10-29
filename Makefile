@@ -96,7 +96,7 @@
 # there should be no need to change anything for project 3
 
 # this is a global clock period variable used in the tcl script and referenced in testbenches
-export CLOCK_PERIOD = 30.0
+export CLOCK_PERIOD = 8.0
 
 # the Verilog Compiler command and arguments
 VCS = module load vcs/2023.12-SP2-1 && \
@@ -190,7 +190,7 @@ GREP = grep -E --color=auto
 # ---- Modules to Test ---- #
 
 # TODO: add more modules here
-MODULES = cpu mult rob rs regfile
+MODULES = cpu mult rob rs regfile retire map_table freelist
 
 # TODO: update this if you add more header files
 ALL_HEADERS = $(CPU_HEADERS)
@@ -219,6 +219,39 @@ REGFILE_FILES = verilog/sys_defs.svh verilog/ISA.svh
 build/regfile.simv: $(REGFILE_FILES)
 build/regfile.cov:  $(REGFILE_FILES)
 synth/regfile.vg:   $(REGFILE_FILES)
+
+# TODO: add any files required for the RETIRE module
+RETIRE_FILES = verilog/sys_defs.svh \
+               verilog/rob.sv \
+               verilog/map_table.sv \
+               verilog/freelist.sv
+build/retire.simv: $(RETIRE_FILES)
+build/retire.cov:  $(RETIRE_FILES)
+synth/retire.vg:   $(RETIRE_FILES)
+
+
+MAP_TABLE_FILES =
+build/map_table.simv: $(MAP_TABLE_FILES)
+build/map_table.cov:  $(MAP_TABLE_FILES)
+synth/map_table.vg:   $(MAP_TABLE_FILES)
+
+
+# ---- freelist testbench deps ---- #
+FREELIST_FILES = verilog/sys_defs.svh
+build/freelist.simv: $(FREELIST_FILES)
+build/freelist.cov:  $(FREELIST_FILES)
+synth/freelist.vg:   $(FREELIST_FILES)
+
+
+# ---- complete testbench deps ---- #
+COMPLETE_FILES = verilog/sys_defs.svh
+build/complete.simv: $(COMPLETE_FILES)
+build/complete.cov:  $(COMPLETE_FILES)
+synth/complete.vg:   $(COMPLETE_FILES)
+
+
+
+
 
 #################################
 # ---- Main CPU Definition ---- #
