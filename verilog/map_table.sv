@@ -39,6 +39,7 @@ module map_table #(
   output logic [N-1:0]                          reg2_ready,
 
   // Told = old physical mapping of each renamed AR
+  input  logic [N-1:0][$clog2(ARCH_COUNT)-1:0]  told_ar,
   output logic [N-1:0][PRW-1:0]                 Told_out
 
 `ifdef TEST_MODE
@@ -154,7 +155,7 @@ module map_table #(
   // Told = start-of-cycle map value for each renamed AR
   always_comb begin
     for (int lane = N-1; lane >= 0; lane--)
-      told_next[lane] = map_array[ maptable_new_ar[lane] ];
+      told_next[lane] = map_array[told_ar[lane]];
   end
 
   always_ff @(posedge clock) begin

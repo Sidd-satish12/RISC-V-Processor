@@ -232,6 +232,11 @@ build/map_table.simv: $(MAP_TABLE_FILES)
 build/map_table.cov:  $(MAP_TABLE_FILES)
 synth/map_table.vg:   $(MAP_TABLE_FILES)
 
+STAGE_DISPATCH_FILES = verilog/sys_defs.svh verilog/map_table.sv
+build/stage_dispatch.simv: $(STAGE_DISPATCH_FILES)
+build/stage_dispatch.cov:  $(STAGE_DISPATCH_FILES)
+synth/stage_dispatch.vg:   $(STAGE_DISPATCH_FILES)
+
 
 #################################
 # ---- Main CPU Definition ---- #
