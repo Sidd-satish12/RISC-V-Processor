@@ -251,6 +251,89 @@ module stage_dispatch_tb;
         else
             $display("[FAIL] Expected stall with %0d dispatch", `N-1);
 
+
+                // ============================================================
+        // Test 4.0: Simple test for map table interaction
+        // ============================================================
+        $display("\n=== TEST 4.0: Simple test for map table ===");
+
+
+        // Reset all signals
+        fetch_valid      = '0;
+        fetch_packet     = '0;
+        free_slots_rob   = `N;
+        free_slots_rs    = `N;
+        free_slots_freelst = `N;
+        BPRecoverEN      = 0;
+        cdb_valid        = '0;
+        cdb_tag          = '0;
+
+        // new mappings used for testing
+        for (int i = 0; i < (`PHYS_REG_SZ_R10K - `ROB_SZ); i++) begin
+            archi_maptable[i] = i + 1;  // ARi -> PR(i+100)
+        end
+
+        // Take a snapshot of the initial map state
+        for (int i = 0; i < (`PHYS_REG_SZ_R10K - `ROB_SZ); i++) begin
+            map_snapshot[i] = archi_maptable[i];
+        end
+
+        @(posedge clock);  // Let map table reset with these values
+
+        // Prepare physical allocations for NEW destination registers
+        for (int i = 0; i < `N; i++) begin
+            allocated_phys[i] = 50 + i; // New PRs: 50, 51, 52...
+        end
+
+        // INSTR 1
+        fetch_valid[0] = 1'b1;
+        fetch_packet.valid[0] = 1'b1;
+        fetch_packet.uses_rd[0] = 1'b1;
+        fetch_packet.rs1_idx[0] = 1;  // R1
+        fetch_packet.rs2_idx[0] = 2;  // R2
+        fetch_packet.rd_idx[0]  = 3;  // R3
+
+        $display("\n === DEBUG ===");
+        $display("rs1_idx[0]: %0d", fetch_packet.rs1_idx[0]);
+        $display("rs2_idx[0]: %0d", fetch_packet.rs2_idx[0]);
+        $display("rd_idx[0]: %0d", fetch_packet.rd_idx[0]);
+
+        $display("\nBefore dispatch - Initial map state:");
+        $display("  AR0 -> PR%0d", map_snapshot[0]);
+        $display("  AR1 -> PR%0d", map_snapshot[1]);
+        $display("  AR2 -> PR%0d", map_snapshot[2]);
+        $display("  AR3 -> PR%0d", map_snapshot[3]);
+        $display("  AR4 -> PR%0d", map_snapshot[4]);
+        $display("  AR5 -> PR%0d", map_snapshot[5]);
+
+        $display("\nAllocated physical register:");
+        $display(" Map table 0: %0d", allocated_phys[0]);
+        $display(" Map table 1: %0d", allocated_phys[1]);
+        $display(" Map table 2: %0d", allocated_phys[2]);
+    
+
+        @(posedge clock);
+        #1;  // Small delay for combinational settling
+
+        // ============================================================
+        // Verify Source Operand Mappings
+        // ============================================================
+        $display("\n--- Source Operand Verification ---");
+        passed = 1'b1;
+
+        // Instruction 0: R0, R1 (should get initial mappings)
+        expected_tag1 = map_snapshot[1];
+        expected_tag2 = map_snapshot[2];
+        $display("Instr 0: R3 = R1 + R2");
+        $display("  Expected: R1->PR%0d, R2->PR%0d", expected_tag1, expected_tag2);
+        $display("  Got:      R1->PR%0d, R2->PR%0d", reg1_tag[0], reg2_tag[0]);
+        if (reg1_tag[0] != expected_tag1 || reg2_tag[0] != expected_tag2) begin
+            $display("  [FAIL] Source mapping mismatch!");
+            passed = 1'b0;
+        end else begin
+            $display("  [PASS]");
+        end
+
         // ============================================================
         // Test 4: Simple Dispatch of N Instructions
         // ============================================================
