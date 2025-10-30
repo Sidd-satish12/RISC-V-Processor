@@ -14,14 +14,14 @@ module mult (
 
     // output logic [TODO] dest_tag_out,
     output DATA result,
-    output done
+    output request
 );
 
     MULT_FUNC [`MULT_STAGES-2:0] internal_funcs;
     MULT_FUNC func_out;
 
     logic [(64*(`MULT_STAGES-1))-1:0] internal_sums, internal_mcands, internal_mpliers;
-    logic [`MULT_STAGES-2:0] internal_dones;
+    logic [`MULT_STAGES-1:0] dones;
 
     logic [63:0] mcand, mplier, product;
     logic [63:0] mcand_out, mplier_out; // unused, just for wiring
@@ -40,7 +40,7 @@ module mult (
         .next_mplier ({mplier_out, internal_mpliers}),
         .next_mcand  ({mcand_out,  internal_mcands}),
         .next_func   ({func_out,   internal_funcs}),
-        .done        ({done,       internal_dones}) // done when the final stage is done
+        .done        (dones) // done when the final stage is done
     );
 
     // Sign-extend the multiplier inputs based on the operation
@@ -57,7 +57,7 @@ module mult (
 
     // Use the high or low bits of the product based on the output func
     assign result = (func_out == M_MUL) ? product[31:0] : product[63:32];
-
+    assign request = dones[`MULT_STAGES-2];
 endmodule // mult
 
 
