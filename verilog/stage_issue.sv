@@ -6,7 +6,7 @@ module stage_issue (
     input logic mispredict,
 
     input RS_BANKS  rs_banks,  // Structured RS entries
-    input FU_GRANTS fu_grants, // FU availability (structured) - from cdb arbiter
+    input FU_AVAILS fu_avails, // FU availability (structured) - from cdb arbiter
 
     output ISSUE_CLEAR   issue_clear,   // Clear signals (structured)
     output ISSUE_ENTRIES issue_entries  // To EX stage (structured)
@@ -56,7 +56,7 @@ module stage_issue (
         .reset(reset | mispredict),
         .clock(clock),
         .req  (rs_ready_alu),
-        .clear(fu_grants.alu),
+        .clear(fu_avails.alu),
         .grant(grants_alu)
     );
 
@@ -67,7 +67,7 @@ module stage_issue (
         .reset(reset | mispredict),
         .clock(clock),
         .req  (rs_ready_mult),
-        .clear(fu_grants.mult),
+        .clear(fu_avails.mult),
         .grant(grants_mult)
     );
 
@@ -78,7 +78,7 @@ module stage_issue (
         .reset(reset | mispredict),
         .clock(clock),
         .req  (rs_ready_branch),
-        .clear(fu_grants.branch),
+        .clear(fu_avails.branch),
         .grant(grants_branch)
     );
 
@@ -89,7 +89,7 @@ module stage_issue (
         .reset(reset | mispredict),
         .clock(clock),
         .req  (rs_ready_mem),
-        .clear(fu_grants.mem),
+        .clear(fu_avails.mem),
         .grant(grants_mem)
     );
 
@@ -102,7 +102,7 @@ module stage_issue (
         // ALU - use local ALU RS indices
         for (int rs = 0; rs < `RS_ALU_SZ; rs++) begin
             for (int fu = 0; fu < `NUM_FU_ALU; fu++) begin
-                if (grants_alu[rs][fu] && fu_grants.alu[fu]) begin
+                if (grants_alu[rs][fu] && fu_avails.alu[fu]) begin
                     issue_clear.valid_alu[fu] = 1'b1;
                     issue_clear.idxs_alu[fu]  = RS_IDX'(rs);
                 end
@@ -112,7 +112,7 @@ module stage_issue (
         // MULT - use local MULT RS indices
         for (int rs = 0; rs < `RS_MULT_SZ; rs++) begin
             for (int fu = 0; fu < `NUM_FU_MULT; fu++) begin
-                if (grants_mult[rs][fu] && fu_grants.mult[fu]) begin
+                if (grants_mult[rs][fu] && fu_avails.mult[fu]) begin
                     issue_clear.valid_mult[fu] = 1'b1;
                     issue_clear.idxs_mult[fu]  = RS_IDX'(rs);
                 end
@@ -122,7 +122,7 @@ module stage_issue (
         // BRANCH - use local BRANCH RS indices
         for (int rs = 0; rs < `RS_BRANCH_SZ; rs++) begin
             for (int fu = 0; fu < `NUM_FU_BRANCH; fu++) begin
-                if (grants_branch[rs][fu] && fu_grants.branch[fu]) begin
+                if (grants_branch[rs][fu] && fu_avails.branch[fu]) begin
                     issue_clear.valid_branch[fu] = 1'b1;
                     issue_clear.idxs_branch[fu]  = RS_IDX'(rs);
                 end
@@ -132,7 +132,7 @@ module stage_issue (
         // MEM - use local MEM RS indices
         for (int rs = 0; rs < `RS_MEM_SZ; rs++) begin
             for (int fu = 0; fu < `NUM_FU_MEM; fu++) begin
-                if (grants_mem[rs][fu] && fu_grants.mem[fu]) begin
+                if (grants_mem[rs][fu] && fu_avails.mem[fu]) begin
                     issue_clear.valid_mem[fu] = 1'b1;
                     issue_clear.idxs_mem[fu]  = RS_IDX'(rs);
                 end
@@ -147,7 +147,7 @@ module stage_issue (
         // ALU - use structured ALU bank
         for (int rs = 0; rs < `RS_ALU_SZ; rs++) begin
             for (int fu = 0; fu < `NUM_FU_ALU; fu++) begin
-                if (grants_alu[rs][fu] && fu_grants.alu[fu]) begin
+                if (grants_alu[rs][fu] && fu_avails.alu[fu]) begin
                     issue_register_next.alu[fu] = rs_banks.alu[rs];
                 end
             end
@@ -156,7 +156,7 @@ module stage_issue (
         // MULT - use structured MULT bank
         for (int rs = 0; rs < `RS_MULT_SZ; rs++) begin
             for (int fu = 0; fu < `NUM_FU_MULT; fu++) begin
-                if (grants_mult[rs][fu] && fu_grants.mult[fu]) begin
+                if (grants_mult[rs][fu] && fu_avails.mult[fu]) begin
                     issue_register_next.mult[fu] = rs_banks.mult[rs];
                 end
             end
@@ -165,7 +165,7 @@ module stage_issue (
         // BRANCH - use structured BRANCH bank
         for (int rs = 0; rs < `RS_BRANCH_SZ; rs++) begin
             for (int fu = 0; fu < `NUM_FU_BRANCH; fu++) begin
-                if (grants_branch[rs][fu] && fu_grants.branch[fu]) begin
+                if (grants_branch[rs][fu] && fu_avails.branch[fu]) begin
                     issue_register_next.branch[fu] = rs_banks.branch[rs];
                 end
             end
@@ -174,7 +174,7 @@ module stage_issue (
         // MEM - use structured MEM bank
         for (int rs = 0; rs < `RS_MEM_SZ; rs++) begin
             for (int fu = 0; fu < `NUM_FU_MEM; fu++) begin
-                if (grants_mem[rs][fu] && fu_grants.mem[fu]) begin
+                if (grants_mem[rs][fu] && fu_avails.mem[fu]) begin
                     issue_register_next.mem[fu] = rs_banks.mem[rs];
                 end
             end
