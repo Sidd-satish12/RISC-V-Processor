@@ -526,6 +526,28 @@ typedef struct packed {
     CDB_ENTRY [`NUM_FU_MEM-1:0]    mem;
 } CDB_FU_OUTPUTS;
 
+// PRF read requests grouped by FU type
+typedef struct packed {
+    logic [`NUM_FU_ALU-1:0]    alu;
+    logic [`NUM_FU_MULT-1:0]   mult;
+    logic [`NUM_FU_BRANCH-1:0] branch;
+    logic [`NUM_FU_MEM-1:0]    mem;
+} PRF_READ_EN;
+
+typedef struct packed {
+    PHYS_TAG [`NUM_FU_ALU-1:0]    alu;
+    PHYS_TAG [`NUM_FU_MULT-1:0]   mult;
+    PHYS_TAG [`NUM_FU_BRANCH-1:0] branch;
+    PHYS_TAG [`NUM_FU_MEM-1:0]    mem;
+} PRF_READ_TAGS;
+
+typedef struct packed {
+    DATA [`NUM_FU_ALU-1:0]    alu;
+    DATA [`NUM_FU_MULT-1:0]   mult;
+    DATA [`NUM_FU_BRANCH-1:0] branch;
+    DATA [`NUM_FU_MEM-1:0]    mem;
+} PRF_READ_DATA;
+
 // ROB entry structure
 typedef struct packed {
     logic          valid;          // Entry occupied
