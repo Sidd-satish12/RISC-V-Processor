@@ -1,5 +1,6 @@
 `include "sys_defs.svh"
 
+
 module stage_dispatch_tb;
 
     // ============================================================
@@ -90,34 +91,34 @@ module stage_dispatch_tb;
     );
 
     // Map Table Instance (also needs update)
-    map_table #(
-        .ARCH_COUNT(`PHYS_REG_SZ_R10K - `ROB_SZ),
-        .PHYS_REGS(`PHYS_REG_SZ_R10K),
-        .N(`N)
-    ) map_table_inst (
-        .clock(clock),
-        .reset(reset),
-        .archi_maptable(archi_maptable),
-        .BPRecoverEN(BPRecoverEN),
-        .cdb_valid(cdb_valid),
-        .cdb_tag(cdb_tag),
+    // map_table #(
+    //     .ARCH_COUNT(32),
+    //     .PHYS_REGS(64),
+    //     .N(3)
+    // ) map_table_inst (
+    //     .clock(clock),
+    //     .reset(reset),
+    //     .archi_maptable(archi_maptable),
+    //     .BPRecoverEN(BPRecoverEN),
+    //     .cdb_valid(cdb_valid),
+    //     .cdb_tag(cdb_tag),
         
-        // Rename interface
-        .maptable_new_pr(tb_maptable_new_pr),
-        .maptable_new_ar(tb_maptable_new_ar),
+    //     // Rename interface
+    //     .maptable_new_pr(tb_maptable_new_pr),
+    //     .maptable_new_ar(tb_maptable_new_ar),
         
-        // Source operand lookups
-        .reg1_ar(tb_reg1_ar),
-        .reg2_ar(tb_reg2_ar),
-        .reg1_tag(reg1_tag),
-        .reg2_tag(reg2_tag),
-        .reg1_ready(reg1_ready),
-        .reg2_ready(reg2_ready),
+    //     // Source operand lookups
+    //     .reg1_ar(tb_reg1_ar),
+    //     .reg2_ar(tb_reg2_ar),
+    //     .reg1_tag(reg1_tag),
+    //     .reg2_tag(reg2_tag),
+    //     .reg1_ready(reg1_ready),
+    //     .reg2_ready(reg2_ready),
         
-        // Told lookup (NEW)
-        //.told_ar(tb_told_ar),
-        .Told_out(Told_out)
-    );
+    //     // Told lookup (NEW)
+    //     //.told_ar(tb_told_ar),
+    //     .Told_out(Told_out)
+    // );
 
     // ============================================================
     // Test Procedure

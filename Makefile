@@ -196,7 +196,6 @@ MODULES = cpu mult rob rs regfile stage_dispatch freelist map_table
 ALL_HEADERS = $(CPU_HEADERS)
 
 # TODO: add extra source file dependencies below
-
 STAGE_DISPATCH_FILES = verilog/sys_defs.svh verilog/map_table.sv
 build/stage_dispatch.simv: $(STAGE_DISPATCH_FILES)
 build/stage_dispatch.cov:  $(STAGE_DISPATCH_FILES)

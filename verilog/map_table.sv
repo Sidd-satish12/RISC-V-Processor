@@ -41,10 +41,10 @@ module map_table #(
   // Told = old physical mapping of each renamed AR
   output logic [N-1:0][PRW-1:0]                 Told_out
 
-`ifdef TEST_MODE
- ,output logic [ARCH_COUNT-1:0][PRW-1:0]        map_array_disp,
-  output logic [ARCH_COUNT-1:0]                 ready_array_disp
-`endif
+// `ifdef TEST_MODE
+//  ,output logic [ARCH_COUNT-1:0][PRW-1:0]        map_array_disp,
+//   output logic [ARCH_COUNT-1:0]                 ready_array_disp
+// `endif
 );
   typedef logic [PRW-1:0] PR_TAG;
 
