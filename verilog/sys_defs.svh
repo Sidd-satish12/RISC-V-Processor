@@ -333,7 +333,7 @@ typedef enum logic [3:0] {
     XOR,
     SLL,
     SRL,
-    SRA,
+    SRA
 } ALU_FUNC;
 
 // MULT funct3 code
@@ -470,14 +470,14 @@ typedef struct packed {
 
 // Issue clear signals grouped by functional unit type
 typedef struct packed {
-    logic [`NUM_FU_ALU-1:0]       valid_alu;
-    RS_IDX [`NUM_FU_ALU-1:0]      idxs_alu;
-    logic [`NUM_FU_MULT-1:0]      valid_mult;
-    RS_IDX [`NUM_FU_MULT-1:0]     idxs_mult;
-    logic [`NUM_FU_BRANCH-1:0]    valid_branch;
-    RS_IDX [`NUM_FU_BRANCH-1:0]   idxs_branch;
-    logic [`NUM_FU_MEM-1:0]       valid_mem;
-    RS_IDX [`NUM_FU_MEM-1:0]      idxs_mem;
+    logic [`NUM_FU_ALU-1:0]     valid_alu;
+    RS_IDX [`NUM_FU_ALU-1:0]    idxs_alu;
+    logic [`NUM_FU_MULT-1:0]    valid_mult;
+    RS_IDX [`NUM_FU_MULT-1:0]   idxs_mult;
+    logic [`NUM_FU_BRANCH-1:0]  valid_branch;
+    RS_IDX [`NUM_FU_BRANCH-1:0] idxs_branch;
+    logic [`NUM_FU_MEM-1:0]     valid_mem;
+    RS_IDX [`NUM_FU_MEM-1:0]    idxs_mem;
 } ISSUE_CLEAR;
 
 // Issue entries grouped by functional unit type
