@@ -12,7 +12,7 @@ module regfile (
     input  DATA      [`N-1:0]         write_data
 );
 
-    localparam int READ_PORTS  = 2*`N;
+    localparam int READ_PORTS  = `N;
     localparam int WRITE_PORTS = `N;
 
     DATA mem[`PHYS_REG_SZ_R10K-1:0];

@@ -68,7 +68,7 @@ module retire #(
     // Detect mispredict on the oldest visible head
     if (head_valids[N-1]) begin
       h = head_entries[N-1];
-      if (h.branch) begin
+      if (h.branch && h.complete) begin
         mispred_dir = (h.pred_taken  != h.branch_taken);
         mispred_tgt = (h.branch_taken && (h.pred_target != h.branch_target));
         mispred     = (mispred_dir || mispred_tgt);
@@ -102,6 +102,23 @@ module retire #(
         // Branch with no dest retires silently.
       end
     end
+
+`ifdef DEBUG_RETIRE
+    if (head_valids[N-1]) begin
+      $display("RETIRE DBG @%0t: oldest idx=%0d br=%0b comp=%0b pred=%0b br_tkn=%0b tgt_ok=%0b mispred=%0b",
+               $time,
+               head_entries[N-1].rob_idx,
+               head_entries[N-1].branch,
+               head_entries[N-1].complete,
+               head_entries[N-1].pred_taken,
+               head_entries[N-1].branch_taken,
+               (head_entries[N-1].branch_taken && (head_entries[N-1].pred_target != head_entries[N-1].branch_target)),
+               rob_mispredict);
+    end
+`endif
+
+
+    
   end
 
 

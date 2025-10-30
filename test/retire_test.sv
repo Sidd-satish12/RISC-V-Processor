@@ -209,6 +209,12 @@ module retire_test;
     return e;
   endfunction
 
+// Capture the slot the ROB assigned to a given lane on the *last* alloc edge
+  function automatic ROB_IDX last_alloc_slot(input int lane);
+    // Using the alloc_idxs that ROB drives after the alloc posedge
+    return alloc_idxs[lane];
+  endfunction
+
   // clear ROB update packet
   task automatic clear_rob_update();
     rob_update_packet.valid          = '0;
@@ -229,13 +235,38 @@ module retire_test;
     end
   endtask
 
+
+  task automatic dump_complete_pkt(string tag);
+    $display("TB %s: valid=%b", tag, rob_update_packet.valid);
+    for (int li=0; li<`N; li++) begin
+      $display("  lane%0d: idx=%0d  br_tkn=%0b  br_tgt=%h",
+        li, rob_update_packet.idx[li], rob_update_packet.branch_taken[li], rob_update_packet.branch_targets[li]);
+    end
+  endtask
+
+  task automatic dump_head(string tag);
+    $display("TB %s: head=%0d tail=%0d head_valids=%b", tag, u_rob.head, u_rob.tail, head_valids);
+    $display("  oldest: idx=%0d branch=%0b complete=%0b pred=%0b br_tkn=%0b pred_tgt=%h br_tgt=%h",
+      head_entries[`N-1].rob_idx, head_entries[`N-1].branch, head_entries[`N-1].complete,
+      head_entries[`N-1].pred_taken, head_entries[`N-1].branch_taken,
+      head_entries[`N-1].pred_target, head_entries[`N-1].branch_target);
+  endtask
+
+
   // ----------------
   // The test
   // ----------------
   int ridx_base;
-  int cA, cF, cA2, cF2;
-  logic saw5, saw6;
-
+  int cA;
+  int cF; 
+  int cA2; 
+  int cF2;
+  logic saw5;
+  logic saw6;
+  ROB_IDX s0;
+  ROB_IDX s1;
+  ROB_IDX sB_head;
+  ROB_IDX sB_slot;
 
   initial begin
     // defaults
@@ -278,17 +309,23 @@ module retire_test;
                                      1, 6, 41, 6);
     @(posedge clock);
 
-    // mark both complete (older first); retire should fire for both in order
+    // Capture the actual ROB slots assigned for each lane (this cycle's grants)
+    s0 = last_alloc_slot(0);
+    s1 = last_alloc_slot(1);
+
+
+    // IMPORTANT: drop alloc_valid before issuing completes to avoid any new grants
+    @(negedge clock) alloc_valid = '0;
+
+    // Mark both complete (same cycle)
     @(negedge clock);
       clear_rob_update();
-      rob_complete_lane(1, ridx_base+1, /*br_valid*/0, 0, 0);
-      rob_complete_lane(0, ridx_base+0, /*br_valid*/0, 0, 0);
+      rob_complete_lane(1, s1, /*br_valid*/0, 0, 0);
+      rob_complete_lane(0, s0, /*br_valid*/0, 0, 0);
     @(posedge clock);
 
     // Let retire consume head entries
     @(negedge clock) begin
-      // Oldest lane is N-1 in retire’s view; it should assert Arch/FL on two lanes
-      // We don’t know which head window slots they landed in, so just check that total enables == 2
       cA = 0; cF = 0;
       saw5=0; saw6=0;
       for (int i=0;i<N;i++) begin cA += Arch_Retire_EN[i]; cF += FL_RetireEN[i]; end
@@ -311,40 +348,67 @@ module retire_test;
     // ==============================
     // SCENARIO 2: branch mispredict
     // ==============================
-    // Allocate one branch at head with wrong prediction:
-    // predicted not-taken (0), resolved taken (1) to target 0x100
     ridx_base = 20;
 
     @(negedge clock);
       alloc_valid = '0;
       rob_entry_packet = '{default:'0};
-
       alloc_valid[0] = 1'b1;
-      rob_entry_packet[0] = mk_entry(ridx_base+0, /*branch*/1, /*pred_taken*/0, /*pred_tgt*/32'h20,
-                                     /*has_dest*/0, /*dest_ar*/0, /*Tnew*/0, /*Told*/0);
+      rob_entry_packet[0] = mk_entry(
+        ridx_base+0, /*branch*/1, /*pred_taken*/0, /*pred_tgt*/32'h20,
+        /*has_dest*/0, /*dest_ar*/0, /*Tnew*/0, /*Told*/0
+      );
     @(posedge clock);
 
-    // resolve the branch as taken with target 0x100
+    // Freeze alloc so indices don't shift
+    @(negedge clock) alloc_valid = '0;
+
+    // Complete the PHYSICAL SLOT that holds the oldest entry: u_rob.head
+    sB_slot = u_rob.head;
+
+    // ---- BEFORE COMPLETE ----
+    dump_head("S2 BEFORE"); // shows oldest entry
+    $display("S2 BEFORE: selecting slot=%0d", sB_slot);
+
+    // Drive the COMPLETE packet **directly** (no helpers, no to_robidx)
     @(negedge clock);
       clear_rob_update();
-      rob_complete_lane(0, ridx_base+0, /*br_valid*/1, /*taken*/1, /*tgt*/32'h100);
+      rob_update_packet.valid = '0;
+      rob_update_packet.valid[0]          = 1'b1;
+      rob_update_packet.idx  [0]          = sB_slot;      // PHYSICAL SLOT
+      rob_update_packet.branch_taken[0]   = 1'b1;         // resolved taken
+      rob_update_packet.branch_targets[0] = 32'h00000100; // resolved target
+      dump_complete_pkt("S2 PACKET DRIVEN (pre-pos)");
+    @(posedge clock); // ROB samples here
+
+    // ---- AFTER COMPLETE (state visible to retire) ----
+    @(negedge clock);
+      dump_head("S2 AFTER"); // should show oldest.complete=1 and br_tkn=1, br_tgt=0x100
+      $display("S2 AFTER: slot=%0d -> complete=%0b br_tkn=%0b br_tgt=%h",
+               sB_slot,
+               u_rob.rob_array[sB_slot].complete,
+               u_rob.rob_array[sB_slot].branch_taken,
+               u_rob.rob_array[sB_slot].branch_target);
+
+      // Now retire should see mispredict at oldest head
+      cA2=0;
+      cF2=0;
+      for (int i=0;i<`N;i++) begin cA2 += Arch_Retire_EN[i]; cF2 += FL_RetireEN[i]; end
+      $display("S2 RETIRE VIEW: mispred=%0b BPRecoverEN=%0b mispred_idx=%0d ArchEN_sum=%0d FLen_sum=%0d",
+               rob_mispredict, BPRecoverEN, rob_mispred_idx, cA2, cF2);
+
+      expect_ok(rob_mispredict==1'b1, "Scenario2: expected rob_mispredict=1");
+      expect_ok(cA2==0 && cF2==0,      "Scenario2: no Arch/FL on recovery cycle");
+      expect_ok(BPRecoverEN==1'b1,     "Scenario2: expected BPRecoverEN=1");
     @(posedge clock);
 
-    // Retire should detect mispredict at head, assert BPRecoverEN and rob_mispredict
-    @(negedge clock) begin
-      cA2 = 0; cF2 = 0;
-      expect_ok(rob_mispredict==1'b1, "Scenario2: expected rob_mispredict=1");
-      // On recovery cycle, retire must NOT produce returns/commits
-      for (int i=0;i<N;i++) begin cA2 += Arch_Retire_EN[i]; cF2 += FL_RetireEN[i]; end
-      expect_ok(cA2==0 && cF2==0, "Scenario2: no Arch/FL on recovery cycle");
-      expect_ok(BPRecoverEN==1'b1, "Scenario2: expected BPRecoverEN=1");
-    end
-    @(posedge clock);
+
 
     $display("=== PASS: retire full-stack basic scenarios OK ===");
     $display("@@@ Passed");
     $finish;
   end
+
 
 endmodule
 `endif

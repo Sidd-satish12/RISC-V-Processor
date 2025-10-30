@@ -110,6 +110,8 @@ module rob_test;
     automatic int alloc_counter;
     automatic int complete_counter;
     logic do_alloc, do_complete;
+    int hw;
+  
 
     
     // Initialization & Reset
@@ -462,6 +464,9 @@ module rob_test;
     // Test 9: Retire 3 Instructions and Check head_entries
     // -------------------------------
     $display("Test 9: Retiring 3 instructions and checking head_entries...\n");
+    //failed = 0;
+    hw = 0; 
+
 
     // Reset DUT again for a clean state
     reset = 1;
@@ -506,16 +511,17 @@ module rob_test;
 
     // Step 4: Check head_entries (after DUT update)
     for (int i = 0; i < 3; i++) begin
-      if (head_valids[i] !== 1'b1) begin
-        $display("FAIL: head_valids[%0d] = %b (expected 1)", i, head_valids[i]);
+      hw = `N-1 - i; // oldest at N-1
+      if (head_valids[hw] !== 1'b1) begin
+        $display("FAIL: head_valids[%0d] = %b (expected 1)", hw, head_valids[hw]);
         failed = 1;
-      end else if (head_entries[i].PC !== pc_val + i) begin
+      end else if (head_entries[hw].PC !== pc_val + i) begin
         $display("FAIL: head_entries[%0d].PC = 0x%0h (expected 0x%0h)",
-                  i, head_entries[i].PC, pc_val + i);
+                  hw, head_entries[hw].PC, pc_val + i);
         failed = 1;
       end else begin
         $display("PASS: head_entries[%0d] retired instruction PC=0x%0h",
-                  i, head_entries[i].PC);
+                  hw, head_entries[hw].PC);
       end
     end
 

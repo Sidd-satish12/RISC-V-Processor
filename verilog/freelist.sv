@@ -2,13 +2,14 @@
 `include "sys_defs.svh"
 
 // -------------------------------------------------------------
-// Minimal N-way freelist (mask-driven)
-// - Dispatch provides AllocReqMask[N]: which lanes need a tag.
-// - Freelist exposes next up to N tags in FreeReg[0..N-1].
-//   Dispatch must only consume the first pop_now tags, where
-//     pop_now = min(popcount(AllocReqMask), FreeSlotsForN).
+// Bitmap-based N-way freelist (order-agnostic)
+// - Dispatch provides AllocReqMask[N] (lanes that want a tag).
+// - Freelist shows up to N free tags in FreeReg[0..N-1].
+//   Dispatch must only consume the first pop_now entries, where
+//      pop_now = min( popcount(AllocReqMask), FreeSlotsForN ).
 // - Retire returns up to N old tags.
-// - Optional reseed on mispredict (from Retire) using arch map.
+// - BPRecoverEN rebuilds free set = {all PRs} \ {archi_maptable (+zero if excluded)}.
+// - No FIFO; no modulo; shallow comb priority scan -> better timing.
 // -------------------------------------------------------------
 module freelist #(
   parameter int N            = `N,
@@ -19,112 +20,131 @@ module freelist #(
   input  logic                             clock,
   input  logic                             reset_n,
 
-  // ---- DISPATCH ----
-  // Per-lane request mask from Dispatch (aka free_alloc_valid)
-  input  logic [N-1:0]                     AllocReqMask,
-  // Up to N tags visible (Dispatch MUST only use first pop_now entries)
-  output PHYS_TAG [N-1:0]                  FreeReg,
-  // Availability info
-  output logic [$clog2(PR_COUNT+1)-1:0]    free_count,     // total free
-  output logic [$clog2(N+1)-1:0]           FreeSlotsForN,  // min(N, free_count)
+  // ---- DISPATCH (requests & visibility) ----
+  input  logic       [N-1:0]               AllocReqMask,  // which dispatch lanes want a tag
+  output PHYS_TAG    [N-1:0]               FreeReg,       // up to N free PR indices freelist is offering this cycle
+  output logic [$clog2(PR_COUNT+1)-1:0]    free_count,    // total free regs right now
+  output logic [$clog2(N+1)-1:0]           FreeSlotsForN, // min(N, free_count)
 
   // ---- RETIRE (returns) ----
-  input  logic       [N-1:0]               RetireEN,
+  input  logic       [N-1:0]               RetireEN, // old PRs being returned by retire state
   input  PHYS_TAG    [N-1:0]               RetireReg,
 
-  // ---- RECOVERY (from Retire on mispredict) ----
-  input  logic                             BPRecoverEN,  // 1-cycle pulse
+  // ---- RECOVERY ----
+  input  logic                             BPRecoverEN,  // 1-cycle pulse to rebuild free set
   input  logic [ARCH_COUNT-1:0][(PR_COUNT<=2?1:$clog2(PR_COUNT))-1:0] archi_maptable
 );
 
-  // ---- Params / storage ----
+  // -----------------------------
+  // Storage: 1 bit per phys reg
+  // -----------------------------
+  logic [PR_COUNT-1:0] free_bm;  // 1=free, 0=used, (says weather a PR is currently free)
+
   localparam int START_TAG = (EXCLUDE_ZERO ? ((ARCH_COUNT > 0) ? ARCH_COUNT : 1) : ARCH_COUNT);
-  localparam int DEPTH     = (PR_COUNT > START_TAG) ? (PR_COUNT - START_TAG) : 0;
-  localparam int PTRW      = (DEPTH <= 1) ? 1 : $clog2(DEPTH);
 
-  PHYS_TAG                 queue[(DEPTH>0?DEPTH:1)-1:0];
-  logic [PTRW-1:0]         head, tail;
-  logic [$clog2(PR_COUNT+1)-1:0] count;  // 0..DEPTH
-
-  // ---- helper ----
-  function automatic int popcount(input logic [N-1:0] v);
+  // -----------------------------
+  // Popcount helper (tool-safe) (Counts how many lanes are asking for a PR)
+  // -----------------------------
+  function automatic int popcount_n(input logic [N-1:0] v);
     int s=0; for (int i=0;i<N;i++) s+=v[i]; return s;
   endfunction
 
-  // ---- Combinational: expose next tags + counters ----
-  always_comb begin
-    // Counters for external use
-    free_count    = count;
-    FreeSlotsForN = (count >= N) ? N[$clog2(N+1)-1:0] : count[$clog2(N+1)-1:0];
+  // ----------------------------------------
+  // Combinational pick: up to N free tags (who could give this cycle)
+  // ----------------------------------------
+  logic [PR_COUNT-1:0]        scan_bm; // temp copy of free set
+  logic [$clog2(PR_COUNT)-1:0] chosen_idx [N-1:0]; // picked PR indices (combinational)
+  logic [N-1:0]               chosen_valid; // whether lane i found one
+  int                         i, p;
 
-    // Next up to N tags (Dispatch should only use first pop_now entries)
-    for (int i = 0; i < N; i++) begin
-      if (DEPTH > 0 && i < FreeSlotsForN)
-        FreeReg[i] = queue[(head + i) % DEPTH];
+  always_comb begin
+    // Start from current free set
+    scan_bm      = free_bm;
+    chosen_valid = '0;
+
+    // Greedy priority scan (lowest PR first) — order not architectural
+    // We walk from low PR to high PR and grab the first N free ones (don't care about the fucking order)
+    
+    for (i = 0; i < N; i++) begin
+      chosen_idx[i] = '0;
+      for (p = 0; p < PR_COUNT; p++) begin
+        if (scan_bm[p]) begin
+          chosen_idx[i]   = p[$clog2(PR_COUNT)-1:0]; // this is what we would give to lane i if that many lanes are allowed to pop
+          chosen_valid[i] = 1'b1;
+          scan_bm[p]      = 1'b0;  // consume it in this view
+          break;
+        end
+      end
+    end
+
+    // Counters for external use
+    free_count    = '0;
+    for (p = 0; p < PR_COUNT; p++) free_count += free_bm[p];
+    FreeSlotsForN = (free_count >= N) ? N[$clog2(N+1)-1:0]
+                                      : free_count[$clog2(N+1)-1:0];
+
+    // Drive FreeReg: only first FreeSlotsForN entries are meaningful
+    for (i = 0; i < N; i++) begin
+      if (i < FreeSlotsForN && chosen_valid[i])
+        FreeReg[i] = PHYS_TAG'(chosen_idx[i]);
       else
         FreeReg[i] = '0;
     end
   end
 
-  // ---- Sequential: update FIFO on reset / recovery / normal ----
+  // pop_now = min(requests this cycle, availability)
+  logic [$clog2(N+1)-1:0] req_count, pop_now;
+  always_comb begin
+    req_count = popcount_n(AllocReqMask);
+    pop_now   = (req_count <= FreeSlotsForN) ? req_count : FreeSlotsForN;
+  end
+
+  // ----------------------------------------
+  // Sequential update of the bitmap
+  // ----------------------------------------
   always_ff @(posedge clock or negedge reset_n) begin
-    // Temps declared up-front (tool-friendly)
-    logic [PR_COUNT-1:0]             used;
-    int unsigned                     w;
-    int unsigned                     pushed;
-    logic [$clog2(N+1)-1:0]          req_count;
-    logic [$clog2(N+1)-1:0]          pop_now;
+    // Declare *all* temps first for VCS
+    logic [PR_COUNT-1:0] base;
+    logic [PR_COUNT-1:0] used;
+    logic [PR_COUNT-1:0] set_mask;
+    logic [PR_COUNT-1:0] clr_mask;
+    int k, r, p2;
 
     if (!reset_n) begin
-      head  <= '0;
-      tail  <= '0;
-      count <= DEPTH[$bits(count)-1:0];
-      if (DEPTH > 0) begin
-        for (int i=0; i<DEPTH; i++) queue[i] <= PHYS_TAG'(START_TAG + i);
-      end
+      // Initialize: free = {START_TAG .. PR_COUNT-1}; optionally disallow zero
+      free_bm <= '0;
+      for (p2 = START_TAG; p2 < PR_COUNT; p2++) free_bm[p2] <= 1'b1;
+      if (EXCLUDE_ZERO) free_bm[0] <= 1'b0;
 
-    // Recovery: rebuild freelist from precise map (everything not named)
     end else if (BPRecoverEN) begin
+      // Rebuild free set = all minus precise architectural image
+      base = '0;
       used = '0;
+      for (p2 = START_TAG; p2 < PR_COUNT; p2++) base[p2] = 1'b1;
       if (EXCLUDE_ZERO) used[0] = 1'b1;
-      for (int r=0; r<ARCH_COUNT; r++) used[ archi_maptable[r] ] = 1'b1;
-
-      w = 0;
-      if (DEPTH > 0) begin
-        for (int p=START_TAG; p<PR_COUNT; p++) begin
-          if (!used[p]) begin
-            queue[w[PTRW-1:0]] <= PHYS_TAG'(p);
-            w++;
-            if (w == DEPTH) break;
-          end
-        end
+      for (r = 0; r < ARCH_COUNT; r++) begin
+        used[ archi_maptable[r] ] = 1'b1;
       end
-      head  <= '0;
-      tail  <= (DEPTH>0) ? w[PTRW-1:0] : '0;
-      count <= w[$bits(count)-1:0];
+      free_bm <= base & ~used;
 
-    // Normal operation
     end else begin
-      // 1) Push returns (append in-lane order)
-      pushed = 0;
-      if (DEPTH > 0) begin
-        for (int i=0; i<N; i++) begin
-          if (RetireEN[i]) begin
-            queue[(tail + pushed) % DEPTH] <= RetireReg[i];
-            pushed++;
-          end
-        end
-        tail <= (tail + pushed) % DEPTH;
+      // 1) Returns set bits
+      set_mask = '0;
+      for (k = 0; k < N; k++) begin
+        if (RetireEN[k]) set_mask[ int'(RetireReg[k]) ] = 1'b1;
       end
 
-      // 2) Pop what Dispatch requested (bounded by availability)
-      req_count = popcount(AllocReqMask);
-      pop_now   = (req_count <= FreeSlotsForN) ? req_count : FreeSlotsForN;
+      // 2) Clear only first pop_now chosen this cycle
+      clr_mask = '0;
+      for (k = 0; k < N; k++) begin
+        if (k < pop_now) clr_mask[ chosen_idx[k] ] = 1'b1;
+      end
 
-      if (DEPTH > 0) head <= (head + pop_now) % DEPTH;
+      // 3) Apply: free := (free ∪ returns) \ consumes
+      free_bm <= (free_bm | set_mask) & ~clr_mask;
 
-      // 3) Single count update = pushes - pops
-      count <= count + pushed - pop_now;
+      // 4) Enforce zero exclusion
+      if (EXCLUDE_ZERO) free_bm[0] <= 1'b0;
     end
   end
 
