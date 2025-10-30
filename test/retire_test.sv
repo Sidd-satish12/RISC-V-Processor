@@ -91,80 +91,134 @@ module retire_test;
     .mispred_idx  (rob_mispred_idx)
   );
 
-  // Retire
+  `ifndef SYNTH
   retire #(.N(N), .ARCH_COUNT(ARCH_COUNT), .PHYS_REGS(PHYS_REGS)) u_retire (
-    .clock,
-    .reset,
-
-    .head_entries,
-    .head_valids,
-
-    .rob_mispredict,
-    .rob_mispred_idx,
-
+`else
+  retire u_retire (
+`endif
+    .clock, .reset,
+    .head_entries, .head_valids,
+    .rob_mispredict, .rob_mispred_idx,
     .BPRecoverEN,
-
-    .Arch_Retire_EN,
-    .Arch_Tnew_in,
-    .Arch_Retire_AR,
-
-    .FL_RetireEN,
-    .FL_RetireReg,
-
+    .Arch_Retire_EN, .Arch_Tnew_in, .Arch_Retire_AR,
+    .FL_RetireEN, .FL_RetireReg,
     .archi_maptable(archi_maptable_img)
   );
+
+
+  // Retire
+  // retire #(.N(N), .ARCH_COUNT(ARCH_COUNT), .PHYS_REGS(PHYS_REGS)) u_retire (
+  //   .clock,
+  //   .reset,
+
+  //   .head_entries,
+  //   .head_valids,
+
+  //   .rob_mispredict,
+  //   .rob_mispred_idx,
+
+  //   .BPRecoverEN,
+
+  //   .Arch_Retire_EN,
+  //   .Arch_Tnew_in,
+  //   .Arch_Retire_AR,
+
+  //   .FL_RetireEN,
+  //   .FL_RetireReg,
+
+  //   .archi_maptable(archi_maptable_img)
+  // );
 
   // Precise architectural map (commit-time)
+
+  `ifndef SYNTH
   arch_maptable #(.ARCH_COUNT(ARCH_COUNT), .PHYS_REGS(PHYS_REGS), .N(N)) u_arch (
-    .clock,
-    .reset,
-    .Retire_EN (Arch_Retire_EN),
-    .Tnew_in   (Arch_Tnew_in),
-    .Retire_AR (Arch_Retire_AR),
+`else
+  arch_maptable u_arch (
+`endif
+    .clock, .reset,
+    .Retire_EN(Arch_Retire_EN), .Tnew_in(Arch_Tnew_in), .Retire_AR(Arch_Retire_AR),
     .archi_maptable(archi_maptable_img)
   );
+
+  // arch_maptable #(.ARCH_COUNT(ARCH_COUNT), .PHYS_REGS(PHYS_REGS), .N(N)) u_arch (
+  //   .clock,
+  //   .reset,
+  //   .Retire_EN (Arch_Retire_EN),
+  //   .Tnew_in   (Arch_Tnew_in),
+  //   .Retire_AR (Arch_Retire_AR),
+  //   .archi_maptable(archi_maptable_img)
+  // );
 
   // Speculative map (rename-time). We only need it to listen to BPRecoverEN and to
   // reflect the precise image; CDB/operand lookups unused here.
+
+  `ifndef SYNTH
   map_table #(.ARCH_COUNT(ARCH_COUNT), .PHYS_REGS(PHYS_REGS), .N(N)) u_map (
-    .clock,
-    .reset,
-    .archi_maptable(archi_maptable_img),
-    .BPRecoverEN,
-
-    .cdb_valid('0),
-    .cdb_tag  ('0),
-
-    .maptable_new_pr('0),
-    .maptable_new_ar('0),
-
-    .reg1_ar('0),
-    .reg2_ar('0),
-
-    .reg1_tag,
-    .reg2_tag,
-    .reg1_ready,
-    .reg2_ready,
-
+`else
+  map_table u_map (
+`endif
+    .clock, .reset,
+    .archi_maptable(archi_maptable_img), .BPRecoverEN,
+    .cdb_valid('0), .cdb_tag('0),
+    .maptable_new_pr('0), .maptable_new_ar('0),
+    .reg1_ar('0), .reg2_ar('0),
+    .reg1_tag, .reg2_tag, .reg1_ready, .reg2_ready,
     .Told_out
   );
 
+  // map_table #(.ARCH_COUNT(ARCH_COUNT), .PHYS_REGS(PHYS_REGS), .N(N)) u_map (
+  //   .clock,
+  //   .reset,
+  //   .archi_maptable(archi_maptable_img),
+  //   .BPRecoverEN,
+
+  //   .cdb_valid('0),
+  //   .cdb_tag  ('0),
+
+  //   .maptable_new_pr('0),
+  //   .maptable_new_ar('0),
+
+  //   .reg1_ar('0),
+  //   .reg2_ar('0),
+
+  //   .reg1_tag,
+  //   .reg2_tag,
+  //   .reg1_ready,
+  //   .reg2_ready,
+
+  //   .Told_out
+  // );
+
   // Freelist (Dispatch-driven)
+
+  `ifndef SYNTH
   freelist #(.N(N), .PR_COUNT(PHYS_REGS), .ARCH_COUNT(ARCH_COUNT), .EXCLUDE_ZERO(1'b1)) u_fl (
-    .clock,
-    .reset_n(~reset),
-
-    .AllocReqMask (AllocReqMask),
-    .FreeReg (FreeReg),
-    .free_count,
-    .FreeSlotsForN,
-
-    .RetireEN (FL_RetireEN),
-    .RetireReg(FL_RetireReg),
-
-    .BPRecoverEN  (BPRecoverEN),
-    .archi_maptable (archi_maptable_img)
+`else
+  freelist u_fl (
+`endif
+    .clock, .reset_n(~reset),
+    .AllocReqMask(AllocReqMask), .FreeReg(FreeReg),
+    .free_count, .FreeSlotsForN,
+    .RetireEN(FL_RetireEN), .RetireReg(FL_RetireReg),
+    .BPRecoverEN(BPRecoverEN), .archi_maptable(archi_maptable_img)
   );
+
+  // freelist #(.N(N), .PR_COUNT(PHYS_REGS), .ARCH_COUNT(ARCH_COUNT), .EXCLUDE_ZERO(1'b1)) u_fl (
+  //   .clock,
+  //   .reset_n(~reset),
+
+  //   .AllocReqMask (AllocReqMask),
+  //   .FreeReg (FreeReg),
+  //   .free_count,
+  //   .FreeSlotsForN,
+
+  //   .RetireEN (FL_RetireEN),
+  //   .RetireReg(FL_RetireReg),
+
+  //   .BPRecoverEN  (BPRecoverEN),
+  //   .archi_maptable (archi_maptable_img)
+  // );
 
   // ----------------
   // Test utilities
@@ -236,23 +290,6 @@ module retire_test;
   endtask
 
 
-  task automatic dump_complete_pkt(string tag);
-    $display("TB %s: valid=%b", tag, rob_update_packet.valid);
-    for (int li=0; li<`N; li++) begin
-      $display("  lane%0d: idx=%0d  br_tkn=%0b  br_tgt=%h",
-        li, rob_update_packet.idx[li], rob_update_packet.branch_taken[li], rob_update_packet.branch_targets[li]);
-    end
-  endtask
-
-  task automatic dump_head(string tag);
-    $display("TB %s: head=%0d tail=%0d head_valids=%b", tag, u_rob.head, u_rob.tail, head_valids);
-    $display("  oldest: idx=%0d branch=%0b complete=%0b pred=%0b br_tkn=%0b pred_tgt=%h br_tgt=%h",
-      head_entries[`N-1].rob_idx, head_entries[`N-1].branch, head_entries[`N-1].complete,
-      head_entries[`N-1].pred_taken, head_entries[`N-1].branch_taken,
-      head_entries[`N-1].pred_target, head_entries[`N-1].branch_target);
-  endtask
-
-
   // ----------------
   // The test
   // ----------------
@@ -267,6 +304,7 @@ module retire_test;
   ROB_IDX s1;
   ROB_IDX sB_head;
   ROB_IDX sB_slot;
+  ROB_IDX sel_slot;
 
   initial begin
     // defaults
@@ -363,11 +401,21 @@ module retire_test;
     // Freeze alloc so indices don't shift
     @(negedge clock) alloc_valid = '0;
 
-    // Complete the PHYSICAL SLOT that holds the oldest entry: u_rob.head
+    // Complete the PHYSICAL SLOT that holds the oldest entry
+// - In simulation we can peek u_rob.head
+// - Under synthesis we use the captured alloc slot (sel_slot)
+  `ifndef SYNTH
     sB_slot = u_rob.head;
+  `else
+    sB_slot = sel_slot;
+  `endif
+
+
+    // Complete the PHYSICAL SLOT that holds the oldest entry: u_rob.head
+    //sB_slot = u_rob.head;
 
     // ---- BEFORE COMPLETE ----
-    dump_head("S2 BEFORE"); // shows oldest entry
+    //dump_head("S2 BEFORE"); // shows oldest entry
     $display("S2 BEFORE: selecting slot=%0d", sB_slot);
 
     // Drive the COMPLETE packet **directly** (no helpers, no to_robidx)
@@ -378,24 +426,34 @@ module retire_test;
       rob_update_packet.idx  [0]          = sB_slot;      // PHYSICAL SLOT
       rob_update_packet.branch_taken[0]   = 1'b1;         // resolved taken
       rob_update_packet.branch_targets[0] = 32'h00000100; // resolved target
-      dump_complete_pkt("S2 PACKET DRIVEN (pre-pos)");
+      //dump_complete_pkt("S2 PACKET DRIVEN (pre-pos)");
     @(posedge clock); // ROB samples here
+    sel_slot = alloc_idxs[0];
 
     // ---- AFTER COMPLETE (state visible to retire) ----
     @(negedge clock);
-      dump_head("S2 AFTER"); // should show oldest.complete=1 and br_tkn=1, br_tgt=0x100
+    `ifndef SYNTH
+      // Sim-only: safe to peek internals for richer debug
+      //dump_head("S2 AFTER"); // oldest.complete should now be 1
       $display("S2 AFTER: slot=%0d -> complete=%0b br_tkn=%0b br_tgt=%h",
-               sB_slot,
-               u_rob.rob_array[sB_slot].complete,
-               u_rob.rob_array[sB_slot].branch_taken,
-               u_rob.rob_array[sB_slot].branch_target);
+              sB_slot,
+              u_rob.rob_array[sB_slot].complete,
+              u_rob.rob_array[sB_slot].branch_taken,
+              u_rob.rob_array[sB_slot].branch_target);
+    `else
+      // Synth-safe: don’t XMR into u_rob.* — print retire-facing signals instead
+      $display("S2 AFTER (synth): will check retire signals; slot=%0d", sB_slot);
+    `endif
 
       // Now retire should see mispredict at oldest head
-      cA2=0;
-      cF2=0;
-      for (int i=0;i<`N;i++) begin cA2 += Arch_Retire_EN[i]; cF2 += FL_RetireEN[i]; end
+      cA2 = 0;
+      cF2 = 0;
+      for (int i=0;i<`N;i++) begin
+        cA2 += Arch_Retire_EN[i];
+        cF2 += FL_RetireEN[i];
+      end
       $display("S2 RETIRE VIEW: mispred=%0b BPRecoverEN=%0b mispred_idx=%0d ArchEN_sum=%0d FLen_sum=%0d",
-               rob_mispredict, BPRecoverEN, rob_mispred_idx, cA2, cF2);
+              rob_mispredict, BPRecoverEN, rob_mispred_idx, cA2, cF2);
 
       expect_ok(rob_mispredict==1'b1, "Scenario2: expected rob_mispredict=1");
       expect_ok(cA2==0 && cF2==0,      "Scenario2: no Arch/FL on recovery cycle");

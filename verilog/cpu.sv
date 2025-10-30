@@ -51,42 +51,52 @@ module cpu (
     //                Pipeline Wires                //
     //                                              //
     //////////////////////////////////////////////////
+    // NOTE: organize this section by the module that outputs referenced wires
+
+    logic                   mispredict;
 
     // Pipeline register enables
-    logic if_id_enable, id_ex_enable, ex_mem_enable, mem_wb_enable;
-
-    // From IF stage to memory
-    MEM_COMMAND Imem_command; // Command sent to memory
-
-    // Outputs from IF-Stage and IF/ID Pipeline Register
-    ADDR Imem_addr;
-    IF_ID_PACKET if_packet, if_id_reg;
+    logic issue_execute_enable;
 
     // Outputs from ID stage and ID/EX Pipeline Register
-    ID_EX_PACKET id_packet, id_ex_reg;
+    ISSUE_EXECUTE_PACKET issue_execute_packet, issue_execute_register;
 
-    // Outputs from EX-Stage and EX/MEM Pipeline Register
-    EX_MEM_PACKET ex_packet, ex_mem_reg;
+    // RS wires - structured by functional unit category
+    RS_ALLOC_BANKS rs_alloc;
+    RS_GRANTED_BANKS rs_granted;
+    RS_BANKS rs_banks;
+    ISSUE_CLEAR issue_clear;
 
-    // Outputs from MEM-Stage and MEM/WB Pipeline Register
-    MEM_WB_PACKET mem_packet, mem_wb_reg;
+    // TODO: Connect rs_alloc to dispatch/ID stage outputs when dispatch is implemented
+    assign rs_alloc = '0;
 
-    // Outputs from MEM-Stage to memory
-    ADDR        Dmem_addr;
-    MEM_BLOCK   Dmem_store_data;
-    MEM_COMMAND Dmem_command;
-    MEM_SIZE    Dmem_size;
+    // Individual RS clear signals (extracted from issue_clear)
+    logic [`NUM_FU_ALU-1:0] rs_alu_clear_valid;
+    RS_IDX [`NUM_FU_ALU-1:0] rs_alu_clear_idxs;
+    logic [`NUM_FU_MULT-1:0] rs_mult_clear_valid;
+    RS_IDX [`NUM_FU_MULT-1:0] rs_mult_clear_idxs;
+    logic [`NUM_FU_BRANCH-1:0] rs_branch_clear_valid;
+    RS_IDX [`NUM_FU_BRANCH-1:0] rs_branch_clear_idxs;
+    logic [`NUM_FU_MEM-1:0] rs_mem_clear_valid;
+    RS_IDX [`NUM_FU_MEM-1:0] rs_mem_clear_idxs;
 
-    // Outputs from WB-Stage (These loop back to the register file in ID)
-    COMMIT_PACKET wb_packet;
+    // Individual RS entries outputs (needed for rs_banks)
+    RS_ENTRY [`RS_ALU_SZ-1:0] rs_alu_entries;
+    RS_ENTRY [`RS_MULT_SZ-1:0] rs_mult_entries;
+    RS_ENTRY [`RS_BRANCH_SZ-1:0] rs_branch_entries;
+    RS_ENTRY [`RS_MEM_SZ-1:0] rs_mem_entries;
 
-    // Logic for stalling memory stage
-    logic       load_stall;
-    logic       new_load;
-    logic       mem_tag_match;
-    logic       rd_mem_q;       // previous load
-    MEM_TAG     outstanding_mem_tag;    // tag load is waiting in
-    MEM_COMMAND Dmem_command_filtered;  // removes redundant loads
+    // CDB wires (structured)
+    FU_REQUESTS cdb_requests;
+    FU_GRANTS cdb_grants;
+    CDB_FU_OUTPUTS cdb_fu_outputs;
+    CDB_EARLY_TAG_ENTRY [`N-1:0] early_tag_broadcast;
+    CDB_ENTRY [`N-1:0] cdb_output;
+
+    // TODO: Connect these to actual functional unit outputs when FUs are implemented
+    // Placeholder assignments for now
+    assign cdb_requests = '0;
+    assign cdb_fu_outputs = '0;
 
     //////////////////////////////////////////////////
     //                                              //
@@ -137,7 +147,7 @@ module cpu (
 
     //////////////////////////////////////////////////
     //                                              //
-    //                  IF-Stage                    //
+    //                  Fetch-Stage                 //
     //                                              //
     //////////////////////////////////////////////////
 
@@ -149,7 +159,7 @@ module cpu (
         .take_branch   (ex_mem_reg.take_branch),
         .branch_target (ex_mem_reg.alu_result),
         .Imem_data     (mem2proc_data),
-        
+
         .Imem2proc_transaction_tag(mem2proc_transaction_tag),
         .Imem2proc_data_tag       (mem2proc_data_tag),
 
@@ -166,7 +176,7 @@ module cpu (
 
     //////////////////////////////////////////////////
     //                                              //
-    //            IF/ID Pipeline Register           //
+    //       Fetch/Dispatch Pipeline Register       //
     //                                              //
     //////////////////////////////////////////////////
 
@@ -190,7 +200,7 @@ module cpu (
 
     //////////////////////////////////////////////////
     //                                              //
-    //                  ID-Stage                    //
+    //                Dispatch-Stage                //
     //                                              //
     //////////////////////////////////////////////////
 
@@ -209,36 +219,18 @@ module cpu (
 
     //////////////////////////////////////////////////
     //                                              //
-    //            ID/EX Pipeline Register           //
+    //             Reorder Buffer (ROB)             //
     //                                              //
     //////////////////////////////////////////////////
 
-    assign id_ex_enable = !load_stall;
+    assign issue_execute_enable = '1;
 
     always_ff @(posedge clock) begin
         if (reset) begin
-            id_ex_reg <= '{
-                `NOP, // we can't simply assign 0 because NOP is non-zero
-                32'b0, // PC
-                32'b0, // NPC
-                32'b0, // rs1 select
-                32'b0, // rs2 select
-                OPA_IS_RS1,
-                OPB_IS_RS2,
-                `ZERO_REG,
-                ALU_ADD,
-                1'b0, // mult
-                1'b0, // rd_mem
-                1'b0, // wr_mem
-                1'b0, // cond
-                1'b0, // uncond
-                1'b0, // halt
-                1'b0, // illegal
-                1'b0, // csr_op
-                1'b0  // valid
-            };
-        end else if (id_ex_enable) begin
-            id_ex_reg <= id_packet;
+            // TODO make sure this is the correct way to reset the register
+            issue_execute_register <= '0;
+        end else if (issue_execute_enable) begin
+            issue_execute_register <= issue_execute_packet;
         end
     end
 
@@ -249,7 +241,133 @@ module cpu (
 
     //////////////////////////////////////////////////
     //                                              //
-    //                  EX-Stage                    //
+    //           Reservation Stations (RS)          //
+    //                                              //
+    //////////////////////////////////////////////////
+
+    // RS for ALU operations (6 entries, 3 clear ports)
+    rs #(
+        .ALLOC_WIDTH(`N),
+        .RS_SIZE(`RS_ALU_SZ),
+        .CLEAR_WIDTH(`NUM_FU_ALU),
+        .CDB_WIDTH(`CDB_SZ)
+    ) rs_alu (
+        // Inputs
+        .clock (clock),
+        .reset (reset),
+
+        // From dispatch: allocation signals (structured)
+        .alloc_valid  (rs_alloc.alu.valid),
+        .alloc_entries(rs_alloc.alu.entries),
+
+        // From complete: CDB broadcasts for operand wakeup
+        .early_tag_broadcast(early_tag_broadcast),
+
+        // From issue: clear signals for issued entries
+        .clear_valid (rs_alu_clear_valid),
+        .clear_idxs  (rs_alu_clear_idxs),
+
+        // From execute: mispredict flush signal
+        .mispredict  (mispredict),
+
+        // Outputs to issue/dispatch
+        .entries        (rs_alu_entries),
+        .granted_entries(rs_granted.alu)
+    );
+
+    // RS for MULT operations (2 entries, 1 clear port)
+    rs #(
+        .ALLOC_WIDTH(`N),
+        .RS_SIZE(`RS_MULT_SZ),
+        .CLEAR_WIDTH(`NUM_FU_MULT),
+        .CDB_WIDTH(`CDB_SZ)
+    ) rs_mult (
+        // Inputs
+        .clock (clock),
+        .reset (reset),
+
+        // From dispatch: allocation signals (structured)
+        .alloc_valid  (rs_alloc.mult.valid),
+        .alloc_entries(rs_alloc.mult.entries),
+
+        // From complete: CDB broadcasts for operand wakeup
+        .early_tag_broadcast(early_tag_broadcast),
+
+        // From issue: clear signals for issued entries
+        .clear_valid (rs_mult_clear_valid),
+        .clear_idxs  (rs_mult_clear_idxs),
+
+        // From execute: mispredict flush signal
+        .mispredict  (mispredict),
+
+        // Outputs to issue/dispatch
+        .entries        (rs_mult_entries),
+        .granted_entries(rs_granted.mult)
+    );
+
+    // RS for BRANCH operations (2 entries, 1 clear port)
+    rs #(
+        .ALLOC_WIDTH(`N),
+        .RS_SIZE(`RS_BRANCH_SZ),
+        .CLEAR_WIDTH(`NUM_FU_BRANCH),
+        .CDB_WIDTH(`CDB_SZ)
+    ) rs_branch (
+        // Inputs
+        .clock (clock),
+        .reset (reset),
+
+        // From dispatch: allocation signals (structured)
+        .alloc_valid  (rs_alloc.branch.valid),
+        .alloc_entries(rs_alloc.branch.entries),
+
+        // From complete: CDB broadcasts for operand wakeup
+        .early_tag_broadcast(early_tag_broadcast),
+
+        // From issue: clear signals for issued entries
+        .clear_valid (rs_branch_clear_valid),
+        .clear_idxs  (rs_branch_clear_idxs),
+
+        // From execute: mispredict flush signal
+        .mispredict  (mispredict),
+
+        // Outputs to issue/dispatch
+        .entries        (rs_branch_entries),
+        .granted_entries(rs_granted.branch)
+    );
+
+    // RS for MEM operations (2 entries, 1 clear port)
+    rs #(
+        .ALLOC_WIDTH(`N),
+        .RS_SIZE(`RS_MEM_SZ),
+        .CLEAR_WIDTH(`NUM_FU_MEM),
+        .CDB_WIDTH(`CDB_SZ)
+    ) rs_mem (
+        // Inputs
+        .clock (clock),
+        .reset (reset),
+
+        // From dispatch: allocation signals (structured)
+        .alloc_valid  (rs_alloc.mem.valid),
+        .alloc_entries(rs_alloc.mem.entries),
+
+        // From complete: CDB broadcasts for operand wakeup
+        .early_tag_broadcast(early_tag_broadcast),
+
+        // From issue: clear signals for issued entries
+        .clear_valid (rs_mem_clear_valid),
+        .clear_idxs  (rs_mem_clear_idxs),
+
+        // From execute: mispredict flush signal
+        .mispredict  (mispredict),
+
+        // Outputs to issue/dispatch
+        .entries        (rs_mem_entries),
+        .granted_entries(rs_granted.mem)
+    );
+
+    //////////////////////////////////////////////////
+    //                                              //
+    //                 Issue Stage                  //
     //                                              //
     //////////////////////////////////////////////////
 
@@ -263,109 +381,102 @@ module cpu (
 
     //////////////////////////////////////////////////
     //                                              //
-    //           EX/MEM Pipeline Register           //
+    //                 Issue Stage                  //
     //                                              //
     //////////////////////////////////////////////////
 
-    assign ex_mem_enable = !load_stall;
+    // Issue stage structured inputs/outputs
+    ISSUE_ENTRIES issue_entries;
+    ISSUE_CLEAR issue_clear;
 
-    always_ff @(posedge clock) begin
-        if (reset) begin
-            ex_mem_inst_dbg <= `NOP; // debug output
-            ex_mem_reg      <= 0;    // the defaults can all be zero!
-        end else if (ex_mem_enable) begin
-            ex_mem_inst_dbg <= id_ex_inst_dbg; // debug output, just forwarded from ID
-            ex_mem_reg      <= ex_packet;
-        end
-    end
+    // Create structured RS banks from individual RS module outputs
+    assign rs_banks.alu    = rs_alu_entries;
+    assign rs_banks.mult   = rs_mult_entries;
+    assign rs_banks.branch = rs_branch_entries;
+    assign rs_banks.mem    = rs_mem_entries;
 
-    // debug outputs
-    assign ex_mem_NPC_dbg   = ex_mem_reg.NPC;
-    assign ex_mem_valid_dbg = ex_mem_reg.valid;
+    stage_issue stage_issue_0 (
+        .clock(clock),
+        .reset(reset),
+        .mispredict(mispredict),
+
+        // RS entries (structured)
+        .rs_banks(rs_banks),
+
+        // FU availability grants (structured) - comes from CDB
+        .fu_grants(cdb_grants),
+
+        // Clear signals (structured)
+        .issue_clear(issue_clear),
+
+        // Issue outputs (structured)
+        .issue_entries(issue_entries)
+    );
+
+    // Extract clear signals from structured output for RS modules
+    assign rs_alu_clear_valid = issue_clear.valid_alu;
+    assign rs_alu_clear_idxs = issue_clear.idxs_alu;
+    assign rs_mult_clear_valid = issue_clear.valid_mult;
+    assign rs_mult_clear_idxs = issue_clear.idxs_mult;
+    assign rs_branch_clear_valid = issue_clear.valid_branch;
+    assign rs_branch_clear_idxs = issue_clear.idxs_branch;
+    assign rs_mem_clear_valid = issue_clear.valid_mem;
+    assign rs_mem_clear_idxs = issue_clear.idxs_mem;
 
     //////////////////////////////////////////////////
     //                                              //
-    //                 MEM-Stage                    //
+    //            Physical Register File            //
     //                                              //
     //////////////////////////////////////////////////
 
-    // New address if:
-    // 1) Previous instruction wasn't a load
-    // 2) Load address changed
-    logic valid_load;
-    assign valid_load = ex_mem_reg.valid && ex_mem_reg.rd_mem; 
-    assign new_load = valid_load && !rd_mem_q;
+    //////////////////////////////////////////////////
+    //                                              //
+    //                    CDB                       //
+    //                                              //
+    //////////////////////////////////////////////////
 
-    assign mem_tag_match = outstanding_mem_tag == mem2proc_data_tag;
-    assign load_stall    = new_load || (valid_load && !mem_tag_match);
 
-    assign Dmem_command_filtered = new_load || ex_mem_reg.wr_mem ? Dmem_command : MEM_NONE;
+    cdb cdb_0 (
+        .clock (clock),
+        .reset (reset),
 
-    always_ff @(posedge clock) begin
-        if (reset) begin
-            rd_mem_q            <= 1'b0;
-            outstanding_mem_tag <= '0;
-        end else begin
-            rd_mem_q            <= valid_load;
-            outstanding_mem_tag <= new_load      ? mem2proc_transaction_tag : 
-                                   mem_tag_match ? '0 : outstanding_mem_tag;
-        end
-    end
+        // Arbiter inputs (structured)
+        .requests (cdb_requests),
 
-    stage_mem stage_mem_0 (
-        // Inputs
-        .ex_mem_reg      (ex_mem_reg),
-        .Dmem_load_data  (mem2proc_data),
+        // Arbiter outputs indicating which requests are granted (structured)
+        .grants (cdb_grants),
 
-        // Outputs
-        .mem_packet      (mem_packet),
-        .Dmem_command    (Dmem_command),
-        .Dmem_size       (Dmem_size),
-        .Dmem_addr       (Dmem_addr),
-        .Dmem_store_data (Dmem_store_data)
+        // CDB inputs from functional units (structured)
+        .fu_outputs (cdb_fu_outputs),
+
+        // CDB output indicating which tags should be awoken a cycle early
+        .early_tags (early_tag_broadcast),
+
+        // CDB register outputs broadcasting to PRF, EX stage, and Map Table
+        .cdb_output (cdb_output)
     );
 
     //////////////////////////////////////////////////
     //                                              //
-    //           MEM/WB Pipeline Register           //
+    //              Complete Stage                  //
     //                                              //
     //////////////////////////////////////////////////
-
-    assign mem_wb_enable = 1'b1; // always enabled
-
-    always_ff @(posedge clock) begin
-        if (reset || load_stall) begin
-            mem_wb_inst_dbg <= `NOP; // debug output
-            mem_wb_reg      <= 0;    // the defaults can all be zero!
-        end else if (mem_wb_enable) begin
-            mem_wb_inst_dbg <= ex_mem_inst_dbg; // debug output, just forwarded from EX
-            mem_wb_reg      <= mem_packet;
-        end
-    end
-
-    // debug outputs
-    assign mem_wb_NPC_dbg   = mem_wb_reg.NPC;
-    assign mem_wb_valid_dbg = mem_wb_reg.valid;
-
-    //////////////////////////////////////////////////
-    //                                              //
-    //                  WB-Stage                    //
-    //                                              //
-    //////////////////////////////////////////////////
-
-    stage_wb stage_wb_0 (
-        // Input
-        .mem_wb_reg (mem_wb_reg), // doesn't use all of these
-
-        // Output
-        .wb_packet (wb_packet)
+    complete u_complete (
+        .clock            (clock),
+        .reset            (reset),
+        // From CDB (your structured broadcast)
+        .cdb_output       (cdb_output),
+        // To ROB (what you drove in the retire test)
+        .rob_update_packet(rob_update_packet)
     );
 
-    // This signal is solely used by if_valid for the initial stalling behavior
-    always_ff @(posedge clock) begin
-        if (reset) wb_valid <= 0;
-        else       wb_valid <= mem_wb_reg.valid;
-    end
+
+
+    //////////////////////////////////////////////////
+    //                                              //
+    //                Retire Stage                  //
+    //                                              //
+    //////////////////////////////////////////////////
 
     //////////////////////////////////////////////////
     //                                              //

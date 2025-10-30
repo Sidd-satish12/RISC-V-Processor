@@ -235,6 +235,13 @@ build/map_table.simv: $(MAP_TABLE_FILES)
 build/map_table.cov:  $(MAP_TABLE_FILES)
 synth/map_table.vg:   $(MAP_TABLE_FILES)
 
+# --- extra synth target for the arch_maptable submodule (defined in map_table.sv)
+synth/arch_maptable.vg: verilog/map_table.sv $(TCL_SCRIPT) | synth
+	@$(call PRINT_COLOR, 5, synthesizing the arch_maptable module)
+	cd synth && MODULE=arch_maptable SOURCES="verilog/map_table.sv" dc_shell-t -f $(notdir $(TCL_SCRIPT)) | tee arch_maptable_synth.out
+	@$(call PRINT_COLOR, 6, finished synthesizing $@)
+
+
 
 # ---- freelist testbench deps ---- #
 FREELIST_FILES = verilog/sys_defs.svh
@@ -354,6 +361,19 @@ $(MODULES:%=build/%.syn.simv): build/%.syn.simv: test/%_test.sv synth/%.vg | bui
 	@$(call PRINT_COLOR, 5, compiling the synthesis executable $@)
 	$(VCS) +define+SYNTH $(filter-out $(ALL_HEADERS),$^) $(LIB) -o $@
 	@$(call PRINT_COLOR, 6, finished compiling $@)
+
+# --- retire needs extra synthesized deps at link time
+build/retire.syn.simv: test/retire_test.sv \
+                       synth/retire.vg \
+                       synth/rob.vg \
+                       synth/map_table.vg \
+                       synth/arch_maptable.vg \
+                       synth/freelist.vg \
+                       | build
+	@$(call PRINT_COLOR, 5, compiling the synthesis executable $@)
+	$(VCS) +define+SYNTH $(filter-out $(ALL_HEADERS),$^) $(LIB) -o $@
+	@$(call PRINT_COLOR, 6, finished compiling $@)
+
 
 ##############################
 # ---- Coverage targets ---- #
