@@ -190,7 +190,7 @@ GREP = grep -E --color=auto
 # ---- Modules to Test ---- #
 
 # TODO: add more modules here
-MODULES = cpu mult rob rs regfile stage_dispatch freelist map_table
+MODULES = cpu mult rob rs regfile stage_issue stage_dispatch freelist map_table
 
 # TODO: update this if you add more header files
 ALL_HEADERS = $(CPU_HEADERS)
@@ -219,6 +219,12 @@ REGFILE_FILES = verilog/sys_defs.svh verilog/ISA.svh
 build/regfile.simv: $(REGFILE_FILES)
 build/regfile.cov:  $(REGFILE_FILES)
 synth/regfile.vg:   $(REGFILE_FILES)
+
+# TODO: add any files required for stage_issue here (besides test/stage_issue_test.sv and verilog/stage_issue.sv)
+STAGE_ISSUE_FILES = verilog/sys_defs.svh verilog/allocator.sv verilog/psel_gen.sv
+build/stage_issue.simv: $(STAGE_ISSUE_FILES)
+build/stage_issue.cov: $(STAGE_ISSUE_FILES)
+synth/stage_issue.vg: $(STAGE_ISSUE_FILES)
 
 # ---- freelist testbench deps ---- #
 FREELIST_FILES = verilog/sys_defs.svh
