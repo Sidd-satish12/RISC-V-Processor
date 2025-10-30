@@ -51,19 +51,6 @@
 `define NUM_FU_LOAD xx // KEEP THIS???
 `define NUM_FU_STORE xx // KEEP THIS???
 
-// reservation station sizes per FU type
-`define RS_ALU_SZ (2 * `NUM_FU_ALU)      // 6 entries for ALU
-`define RS_MULT_SZ (2 * `NUM_FU_MULT)    // 2 entries for MULT
-`define RS_BRANCH_SZ (2 * `NUM_FU_BRANCH) // 2 entries for BRANCH
-`define RS_MEM_SZ (2 * `NUM_FU_MEM)      // 2 entries for MEM
-
-// FU category indices (for array indexing)
-`define FU_CAT_ALU 0
-`define FU_CAT_MULT 1
-`define FU_CAT_BRANCH 2
-`define FU_CAT_MEM 3
-`define NUM_FU_CATEGORIES 4
-
 // number of mult stages (2, 4) (you likely don't need 8)
 `define MULT_STAGES 4
 
@@ -325,44 +312,22 @@ typedef enum logic [3:0] {
 //     ALU_SRA     = 4'h9
 // } ALU_FUNC;
 
-// MULT funct3 code
-// we don't include division or rem options
+// // MULT funct3 code
+// // we don't include division or rem options
+// typedef enum logic [2:0] {
+//     M_MUL,
+//     M_MULH,
+//     M_MULHSU,
+//     M_MULHU
+// } MULT_FUNC;
+
+// Category enum (3 bits, matches your [6:4])
 typedef enum logic [2:0] {
-    MUL,
-    MULH,
-    MULHSU,
-    MULHU
-} MULT_FUNC;
-
-typedef enum logic [3:0] {
-    LOAD_BYTE,
-    LOAD_HALF,
-    LOAD_WORD,
-    LOAD_DOUBLE,
-    STORE_BYTE,
-    STORE_HALF,
-    STORE_WORD,
-    STORE_DOUBLE,
-    LOAD_BYTE_U,
-    LOAD_HALF_U
-} MEM_FUNC;
-
-typedef enum logic [3:0] {
-    EQ,
-    NE,
-    LT,
-    GE,
-    LTU,
-    GEU,
-    JAL,
-    JALR
-} BRANCH_FUNC;
-
-typedef enum logic [2:0] {
-    CAT_ALU = 3'b000,
-    CAT_MULT = 3'b001,
-    CAT_MEM = 3'b010,
-    CAT_BRANCH = 3'b011
+    CAT_ALU   = 3'b000,
+    CAT_MULT  = 3'b001,
+    CAT_MEM   = 3'b010,
+    CAT_BRANCH= 3'b011,
+    CAT_CSR   = 3'b100  // Control and Status Register operations
 } OP_CATEGORY;
 
 // Packed struct for OP_TYPE (total 7 bits)
@@ -446,80 +411,6 @@ typedef struct packed {
     logic pred_taken;
     ADDR pred_target;
 } RS_ENTRY;
-
-// Structured RS banks grouping by functional unit type
-typedef struct packed {
-    RS_ENTRY [`RS_ALU_SZ-1:0]    alu;
-    RS_ENTRY [`RS_MULT_SZ-1:0]   mult;
-    RS_ENTRY [`RS_BRANCH_SZ-1:0] branch;
-    RS_ENTRY [`RS_MEM_SZ-1:0]    mem;
-} RS_BANKS;
-
-// FU available signals grouped by functional unit type
-typedef struct packed {
-    logic [`NUM_FU_ALU-1:0]    alu;
-    logic [`NUM_FU_MULT-1:0]   mult;
-    logic [`NUM_FU_BRANCH-1:0] branch;
-    logic [`NUM_FU_MEM-1:0]    mem;
-} FU_AVAILS;
-
-// Issue clear signals grouped by functional unit type
-typedef struct packed {
-    logic [`NUM_FU_ALU-1:0]     valid_alu;
-    RS_IDX [`NUM_FU_ALU-1:0]    idxs_alu;
-    logic [`NUM_FU_MULT-1:0]    valid_mult;
-    RS_IDX [`NUM_FU_MULT-1:0]   idxs_mult;
-    logic [`NUM_FU_BRANCH-1:0]  valid_branch;
-    RS_IDX [`NUM_FU_BRANCH-1:0] idxs_branch;
-    logic [`NUM_FU_MEM-1:0]     valid_mem;
-    RS_IDX [`NUM_FU_MEM-1:0]    idxs_mem;
-} ISSUE_CLEAR;
-
-// Issue entries grouped by functional unit type
-typedef struct packed {
-    RS_ENTRY [`NUM_FU_ALU-1:0]    alu;
-    RS_ENTRY [`NUM_FU_MULT-1:0]   mult;
-    RS_ENTRY [`NUM_FU_BRANCH-1:0] branch;
-    RS_ENTRY [`NUM_FU_MEM-1:0]    mem;
-} ISSUE_ENTRIES;
-
-// FU request signals grouped by functional unit type (for CDB arbitration)
-typedef struct packed {
-    logic [`NUM_FU_ALU-1:0]    alu;
-    logic [`NUM_FU_MULT-1:0]   mult;
-    logic [`NUM_FU_BRANCH-1:0] branch;
-    logic [`NUM_FU_MEM-1:0]    mem;
-} FU_REQUESTS;
-
-// RS allocation signals for a single dispatch width
-typedef struct packed {
-    logic [`N-1:0]    valid;
-    RS_ENTRY [`N-1:0] entries;
-} RS_ALLOC;
-
-// RS allocation signals grouped by functional unit type
-typedef struct packed {
-    RS_ALLOC alu;
-    RS_ALLOC mult;
-    RS_ALLOC branch;
-    RS_ALLOC mem;
-} RS_ALLOC_BANKS;
-
-// RS granted entries (free slot indicators) grouped by functional unit type
-typedef struct packed {
-    logic [`N-1:0][`RS_ALU_SZ-1:0]    alu;
-    logic [`N-1:0][`RS_MULT_SZ-1:0]   mult;
-    logic [`N-1:0][`RS_BRANCH_SZ-1:0] branch;
-    logic [`N-1:0][`RS_MEM_SZ-1:0]    mem;
-} RS_GRANTED_BANKS;
-
-// CDB outputs from functional units grouped by type
-typedef struct packed {
-    CDB_ENTRY [`NUM_FU_ALU-1:0]    alu;
-    CDB_ENTRY [`NUM_FU_MULT-1:0]   mult;
-    CDB_ENTRY [`NUM_FU_BRANCH-1:0] branch;
-    CDB_ENTRY [`NUM_FU_MEM-1:0]    mem;
-} CDB_FU_OUTPUTS;
 
 // ROB entry structure
 typedef struct packed {
