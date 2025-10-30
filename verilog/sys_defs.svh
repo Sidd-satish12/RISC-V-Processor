@@ -460,13 +460,13 @@ typedef struct packed {
     RS_ENTRY [`RS_MEM_SZ-1:0]    mem;
 } RS_BANKS;
 
-// FU grant signals grouped by functional unit type
+// FU available signals grouped by functional unit type
 typedef struct packed {
     logic [`NUM_FU_ALU-1:0]    alu;
     logic [`NUM_FU_MULT-1:0]   mult;
     logic [`NUM_FU_BRANCH-1:0] branch;
     logic [`NUM_FU_MEM-1:0]    mem;
-} FU_GRANTS;
+} FU_AVAILS;
 
 // Issue clear signals grouped by functional unit type
 typedef struct packed {
