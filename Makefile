@@ -96,7 +96,7 @@
 # there should be no need to change anything for project 3
 
 # this is a global clock period variable used in the tcl script and referenced in testbenches
-export CLOCK_PERIOD = 10.0
+export CLOCK_PERIOD = 8.0
 
 # the Verilog Compiler command and arguments
 VCS = module load vcs/2023.12-SP2-1 && \
@@ -237,10 +237,12 @@ build/freelist.cov:  $(FREELIST_FILES)
 synth/freelist.vg:   $(FREELIST_FILES)
 
 
-MAP_TABLE_FILES =
+MAP_TABLE_FILES = verilog/sys_defs.svh
 build/map_table.simv: $(MAP_TABLE_FILES)
 build/map_table.cov:  $(MAP_TABLE_FILES)
 synth/map_table.vg:   $(MAP_TABLE_FILES)
+
+
 
 
 #################################

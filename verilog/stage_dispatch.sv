@@ -21,67 +21,24 @@
 // Parameters and typedefs are now centrally defined in sys_defs.svh
 
 // Map table entry: maps arch reg to phys reg
-typedef struct packed {
-    PHYS_TAG phys_tag;  // Current physical register mapping
-} MAP_ENTRY;
-
-// ROB entry is now defined in sys_defs.svh
-
-// RS entry is now defined in sys_defs.svh
-
-
-// // Packet from Dispatch to Issue (minimal, since Issue reads from RS directly; this could signal new entries)
 // typedef struct packed {
-//     logic [`N-1:0]  valid;    // Valid bits for dispatched bundle
-//     RS_IDX [`N-1:0] rs_idxs;  // Indices of newly allocated RS entries
-// } DISP_ISS_PACKET;
+//     PHYS_TAG phys_tag;  // Current physical register mapping
+// } MAP_ENTRY;
 
-// Packet for mispredict recovery (from Execute/Complete to Dispatch for map/free recovery)
-// move below defs to sys_defs.svh once we know they are correct
-// typedef struct packed {
-//     logic valid;  // Mispredict occurred
-//     ROB_IDX rob_idx;  // ROB index of mispredicted branch (to truncate from)
-//     ADDR correct_target;  // Correct target for fetch redirect
-// } MISPRED_RECOVERY_PACKET;
-
-// // Packet from Retire to Dispatch (for committed map updates and free list additions)
-// typedef struct packed {
-//     logic [`N-1:0]    valid;          // Valid commits this cycle
-//     REG_IDX [`N-1:0]  arch_rds;       // Architectural destinations
-//     PHYS_TAG [`N-1:0] phys_rds;       // Committed physical regs
-//     PHYS_TAG [`N-1:0] prev_phys_rds;  // Previous phys to free
-// } RETIRE_DISP_PACKET;
-
-// typedef struct packed {
-//     logic [`N-1:0]    valid;
-//     ADDR [`N-1:0]     PC;
-//     INST [`N-1:0]     inst;
-//     REG_IDX [`N-1:0]  rs1_idx;
-//     REG_IDX [`N-1:0]  rs2_idx;
-//     REG_IDX [`N-1:0]  rd_idx;
-//     logic [`N-1:0]    uses_rs1;
-//     logic [`N-1:0]    uses_rs2;
-//     logic [`N-1:0]    uses_rd;
-//     ALU_OPA_SELECT [`N-1:0] opa_select;
-//     ALU_OPB_SELECT [`N-1:0] opb_select;
-//     OP_TYPE [`N-1:0]        op_type;
-//     logic [`N-1:0]    pred_taken;
-//     ADDR [`N-1:0]     pred_target;
-// } FETCH_DISP_PACKET;
 
 module stage_dispatch (
-    input  logic clock,
-    input  logic reset,
+    input logic clock,
+    input logic reset,
 
     // From Fetch: partially decoded bundle
     input  FETCH_DISP_PACKET fetch_packet,
     input  logic [`N-1:0]    fetch_valid,
 
     // From ROB/RS/Freelist
-    input  logic [$clog2(`ROB_SZ+1)-1:0]          free_slots_rob,
-    input  logic [$clog2(`RS_SZ+1)-1:0]           free_slots_rs,
-    input  logic [$clog2(`PHYS_REG_SZ_R10K+1)-1:0] free_slots_freelst,
-    input ROB_IDX [`N-1:0] rob_alloc_idxs,
+    input logic   [          $clog2(`ROB_SZ+1)-1:0] free_slots_rob,
+    input logic   [           $clog2(`RS_SZ+1)-1:0] free_slots_rs,
+    input logic   [$clog2(`PHYS_REG_SZ_R10K+1)-1:0] free_slots_freelst,
+    input ROB_IDX [                         `N-1:0] rob_alloc_idxs,
 
     // To Fetch
     output logic stall_fetch,
@@ -94,30 +51,30 @@ module stage_dispatch (
     // TO RS
     output logic [`N-1:0] rs_alloc_valid,
     output RS_ENTRY [`N-1:0] rs_alloc_entries,
-    
+
     // TO FREE LIST
     output logic [`N-1:0] free_alloc_valid,
-    input  PHYS_TAG [`N-1:0] allocated_phys,
+    input PHYS_TAG [`N-1:0] allocated_phys,
 
     // TO MAP TABLE - for RENAMING (writes)
-    output logic [`N-1:0][`PHYS_TAG_BITS-1:0]                 maptable_new_pr,
-    output logic [`N-1:0][$clog2(`PHYS_REG_SZ_R10K - `ROB_SZ) - 1:0]  maptable_new_ar,
-    
+    output logic [`N-1:0][                       `PHYS_TAG_BITS-1:0] maptable_new_pr,
+    output logic [`N-1:0][$clog2(`PHYS_REG_SZ_R10K - `ROB_SZ) - 1:0] maptable_new_ar,
+
     // TO MAP TABLE - for SOURCE LOOKUPS (reads)
-    output logic [`N-1:0][$clog2(`PHYS_REG_SZ_R10K - `ROB_SZ) - 1:0]  reg1_ar,
-    output logic [`N-1:0][$clog2(`PHYS_REG_SZ_R10K - `ROB_SZ) - 1:0]  reg2_ar,
-    
+    output logic [`N-1:0][$clog2(`PHYS_REG_SZ_R10K - `ROB_SZ) - 1:0] reg1_ar,
+    output logic [`N-1:0][$clog2(`PHYS_REG_SZ_R10K - `ROB_SZ) - 1:0] reg2_ar,
+
     // TO MAP TABLE - for TOLD LOOKUPS (reads, separate from renames!)
-    output logic [`N-1:0][$clog2(`PHYS_REG_SZ_R10K - `ROB_SZ) - 1:0]  told_ar,
+    output logic [`N-1:0][$clog2(`PHYS_REG_SZ_R10K - `ROB_SZ) - 1:0] told_ar,
 
     // FROM MAP TABLE - source operands
-    input  logic [`N-1:0][`PHYS_TAG_BITS-1:0] reg1_tag,
-    input  logic [`N-1:0][`PHYS_TAG_BITS-1:0] reg2_tag,
-    input  logic [`N-1:0]                      reg1_ready,
-    input  logic [`N-1:0]                      reg2_ready,
-    
+    input logic [`N-1:0][`PHYS_TAG_BITS-1:0] reg1_tag,
+    input logic [`N-1:0][`PHYS_TAG_BITS-1:0] reg2_tag,
+    input logic [`N-1:0]                     reg1_ready,
+    input logic [`N-1:0]                     reg2_ready,
+
     // FROM MAP TABLE - Told (OLD mappings before this rename)
-    input  logic [`N-1:0][`PHYS_TAG_BITS-1:0] Told_in
+    input logic [`N-1:0][`PHYS_TAG_BITS-1:0] Told_in
 );
 
     logic [$clog2(`N+1)-1:0] num_to_dispatch;
@@ -126,30 +83,22 @@ module stage_dispatch (
     int num_rds_needed;
 
     // Separate local storage for clarity
-    logic [`PHYS_TAG_BITS-1:0] local_reg1_tag [`N-1:0];
-    logic [`PHYS_TAG_BITS-1:0] local_reg2_tag [`N-1:0];
-    logic local_reg1_ready [`N-1:0];
-    logic local_reg2_ready [`N-1:0];
-    logic [`PHYS_TAG_BITS-1:0] local_Told [`N-1:0];
+    logic [`PHYS_TAG_BITS-1:0] local_reg1_tag[`N-1:0];
+    logic [`PHYS_TAG_BITS-1:0] local_reg2_tag[`N-1:0];
+    logic local_reg1_ready[`N-1:0];
+    logic local_reg2_ready[`N-1:0];
+    logic [`PHYS_TAG_BITS-1:0] local_Told[`N-1:0];
 
     always_comb begin
         // ======================================================
         // STEP 1: Count valid instructions and determine dispatch
         // ======================================================
-        num_valid_from_fetch = 0;
-        num_rds_needed = 0;
-        
-        for (int i = 0; i < `N; i++) begin
-            if (fetch_valid[i]) begin
-                num_valid_from_fetch++;
-                if (fetch_packet.uses_rd[i])
-                    num_rds_needed++;
-            end
-        end
+        num_valid_from_fetch = $countones(fetch_valid);
+        num_rds_needed = $countones(fetch_valid & fetch_packet.uses_rd);
 
         max_dispatch = num_valid_from_fetch;
-        if (free_slots_rob < max_dispatch)      max_dispatch = free_slots_rob;
-        if (free_slots_rs  < max_dispatch)      max_dispatch = free_slots_rs;
+        if (free_slots_rob < max_dispatch) max_dispatch = free_slots_rob;
+        if (free_slots_rs < max_dispatch) max_dispatch = free_slots_rs;
         if (free_slots_freelst < num_rds_needed) max_dispatch = free_slots_freelst;
 
         num_to_dispatch = max_dispatch;
@@ -169,11 +118,11 @@ module stage_dispatch (
 
         // Capture map table outputs locally
         for (int i = 0; i < `N; i++) begin
-            local_reg1_tag[i]  = reg1_tag[i];
-            local_reg2_tag[i]  = reg2_tag[i];
-            local_reg1_ready[i]= reg1_ready[i];
-            local_reg2_ready[i]= reg2_ready[i];
-            local_Told[i]      = Told_in[i];
+            local_reg1_tag[i]   = reg1_tag[i];
+            local_reg2_tag[i]   = reg2_tag[i];
+            local_reg1_ready[i] = reg1_ready[i];
+            local_reg2_ready[i] = reg2_ready[i];
+            local_Told[i]       = Told_in[i];
         end
 
         // ======================================================
@@ -199,42 +148,42 @@ module stage_dispatch (
         for (int i = 0; i < dispatch_count; i++) begin
             if (fetch_valid[i]) begin
                 // --- ROB ---
-                rob_alloc_valid[i] = 1'b1;
-                rob_entry_packet[i].valid        = 1'b1;
-                rob_entry_packet[i].PC           = fetch_packet.PC[i];
-                rob_entry_packet[i].inst         = fetch_packet.inst[i];
-                rob_entry_packet[i].arch_rd      = fetch_packet.rd_idx[i];
-                rob_entry_packet[i].phys_rd      = allocated_phys[i];
-                rob_entry_packet[i].prev_phys_rd = local_Told[i];  // Now correct!
-                rob_entry_packet[i].value        = '0;
-                rob_entry_packet[i].complete     = 1'b0;
-                rob_entry_packet[i].exception    = NO_ERROR;
-                rob_entry_packet[i].branch       = (fetch_packet.op_type[i] == CAT_BRANCH);
-                rob_entry_packet[i].branch_target= '0;
-                rob_entry_packet[i].branch_taken = 1'b0;
-                rob_entry_packet[i].pred_target  = fetch_packet.pred_target[i];
-                rob_entry_packet[i].pred_taken   = fetch_packet.pred_taken[i];
-                rob_entry_packet[i].halt         = 1'b0;
-                rob_entry_packet[i].illegal      = 1'b0;
+                rob_alloc_valid[i]                = 1'b1;
+                rob_entry_packet[i].valid         = 1'b1;
+                rob_entry_packet[i].PC            = fetch_packet.PC[i];
+                rob_entry_packet[i].inst          = fetch_packet.inst[i];
+                rob_entry_packet[i].arch_rd       = fetch_packet.rd_idx[i];
+                rob_entry_packet[i].phys_rd       = allocated_phys[i];
+                rob_entry_packet[i].prev_phys_rd  = local_Told[i];
+                rob_entry_packet[i].value         = '0;
+                rob_entry_packet[i].complete      = 1'b0;
+                rob_entry_packet[i].exception     = NO_ERROR;
+                rob_entry_packet[i].branch        = (fetch_packet.op_type[i] == CAT_BRANCH);
+                rob_entry_packet[i].branch_target = '0;
+                rob_entry_packet[i].branch_taken  = 1'b0;
+                rob_entry_packet[i].pred_target   = fetch_packet.pred_target[i];
+                rob_entry_packet[i].pred_taken    = fetch_packet.pred_taken[i];
+                rob_entry_packet[i].halt          = 1'b0;
+                rob_entry_packet[i].illegal       = 1'b0;
 
                 // --- RS ---
-                rs_alloc_valid[i] = 1'b1;
-                rs_alloc_entries[i].valid       = 1'b1;
-                rs_alloc_entries[i].op_type     = fetch_packet.op_type[i];
-                rs_alloc_entries[i].opa_select  = fetch_packet.opa_select[i];
-                rs_alloc_entries[i].opb_select  = fetch_packet.opb_select[i];
-                rs_alloc_entries[i].src1_tag    = local_reg1_tag[i];
-                rs_alloc_entries[i].src1_ready  = local_reg1_ready[i];
-                rs_alloc_entries[i].src2_tag    = local_reg2_tag[i];
-                rs_alloc_entries[i].src2_ready  = local_reg2_ready[i];
-                rs_alloc_entries[i].dest_tag    = allocated_phys[i];
-                rs_alloc_entries[i].rob_idx     = rob_alloc_idxs[i];
-                rs_alloc_entries[i].PC          = fetch_packet.PC[i];
-                rs_alloc_entries[i].pred_taken  = fetch_packet.pred_taken[i];
-                rs_alloc_entries[i].pred_target = fetch_packet.pred_target[i];
+                rs_alloc_valid[i]                 = 1'b1;
+                rs_alloc_entries[i].valid         = 1'b1;
+                rs_alloc_entries[i].op_type       = fetch_packet.op_type[i];
+                rs_alloc_entries[i].opa_select    = fetch_packet.opa_select[i];
+                rs_alloc_entries[i].opb_select    = fetch_packet.opb_select[i];
+                rs_alloc_entries[i].src1_tag      = local_reg1_tag[i];
+                rs_alloc_entries[i].src1_ready    = local_reg1_ready[i];
+                rs_alloc_entries[i].src2_tag      = local_reg2_tag[i];
+                rs_alloc_entries[i].src2_ready    = local_reg2_ready[i];
+                rs_alloc_entries[i].dest_tag      = allocated_phys[i];
+                rs_alloc_entries[i].rob_idx       = rob_alloc_idxs[i];
+                rs_alloc_entries[i].PC            = fetch_packet.PC[i];
+                rs_alloc_entries[i].pred_taken    = fetch_packet.pred_taken[i];
+                rs_alloc_entries[i].pred_target   = fetch_packet.pred_target[i];
 
                 // --- Free List ---
-                free_alloc_valid[i] = fetch_packet.uses_rd[i];
+                free_alloc_valid[i]               = fetch_packet.uses_rd[i];
             end
         end
     end
