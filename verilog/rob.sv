@@ -76,6 +76,10 @@ module rob (
         increment = retire ? `N : 0;
         decrement = $countones(entry_packet_valid_bits);
         free_count_next = free_count + increment - decrement;
+
+        // Head and tail pointers
+        head_idx_next = retire ? (head_idx + `N) % `ROB_SZ;
+        tail_idx_next = tail + decrement;
     end
 
     always_ff @(posedge clock) begin
