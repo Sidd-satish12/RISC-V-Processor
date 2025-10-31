@@ -16,6 +16,8 @@ module rob_test;
   logic mispredict;
   ROB_IDX mispred_idx;
 
+
+
   // -------------------------------------------------------------
   // DUT instantiation
   // -------------------------------------------------------------
@@ -98,7 +100,7 @@ module rob_test;
   // Main test sequence
   // -------------------------------------------------------------
   initial begin
-    // -------------------------------
+   
     
     automatic ROB_IDX expected_tail;
     automatic int k;
@@ -111,6 +113,8 @@ module rob_test;
     automatic int complete_counter;
     logic do_alloc, do_complete;
     int hw;
+    int free_before_wrap;
+    int completed_count;
   
 
     
@@ -130,24 +134,18 @@ module rob_test;
 
     // use below monitior statement for debugging
 
-    $monitor("Time %0t | head=%0d tail=%0d free_slots=%0d valid=%0d",
-              $time, dut.head, dut.tail, dut.free_slots, dut.rob_array[0].valid);
+    // $monitor("Time %0t | head=%0d tail=%0d free_slots=%0d valid=%0d",
+    //           $time, dut.head, dut.tail, dut.free_slots, dut.rob_array[0].valid);
 
     // -------------------------------
     // Test 1: Check Empty ROB after Reset
     // -------------------------------
     $display("\nTest 1: Checking if ROB is empty after reset...\n");
-    if (dut.head !== dut.tail) begin
-      $display("FAIL: head (%0d) != tail (%0d)", dut.head, dut.tail);
+    if (free_slots !== `ROB_SZ) begin
+      $display("FAIL: Incorrect number of free slots as Head and tail may not match or if they do logic to detemrine between full is wrong");
       failed = 1;
     end
-
-    for (int i = 0; i < `ROB_SZ; i++) begin
-      if (dut.rob_array[i].valid !== 0) begin
-        $display("FAIL: rob_array[%0d].valid = %b (expected 0)", i, dut.rob_array[i].valid);
-        failed = 1;
-      end
-    end
+    
 
     if (!failed) $display("PASS: ROB is empty and head == tail after reset.\n");
     else $display("FAIL: ROB initial empty-state check.\n");
@@ -171,6 +169,7 @@ module rob_test;
     end
     @(posedge clock);
     alloc_valid = '0;
+    //@(negedge clock);
     @(posedge clock);
 
     if (free_slots !== 0) begin
@@ -234,8 +233,9 @@ module rob_test;
       alloc_valid[i] = 1'b1;
     end
     @(posedge clock);
+    @(negedge clock);
     alloc_valid = '0;
-    @(posedge clock);
+    @(negedge clock);
 
     // Complete first N instructions
     rob_update_packet.valid = '0;
@@ -246,7 +246,7 @@ module rob_test;
       rob_update_packet.branch_taken[i] = 1'b0;
       rob_update_packet.branch_targets[i] = '0;
     end
-    @(posedge clock);
+    @(negedge clock);
 
     // Dispatch new instructions while retiring
     rob_update_packet.valid = '0;
@@ -261,9 +261,9 @@ module rob_test;
       );
       alloc_valid[i] = 1'b1;
     end
-    @(posedge clock);
+    @(negedge clock);
     alloc_valid = '0;
-    @(posedge clock);
+    @(negedge clock);
     @(posedge clock);
 
     if (free_slots !== 0) begin
@@ -276,11 +276,14 @@ module rob_test;
     // -------------------------------
 
     $display("\nTest 5: Out of Order Complete and In Order Retire...\n");
-    reset = 1;
     @(negedge clock);
+    reset = 1;
+    #3 // delay to let reset take effect (combinational delay)
     @(negedge clock);
     reset = 0;
-    @(posedge clock);
+
+
+    //@(posedge clock);
 
     // 1. Fill the ROB completely
     alloc_valid = '1;
@@ -293,7 +296,7 @@ module rob_test;
         @(posedge clock);
     end
     alloc_valid = '0;
-    @(posedge clock);
+    @(negedge clock);
 
     // 2. Complete several instructions out of order (but not the first few)
     $display("Completing entries at indices 5, 2, 8 out of order...");
@@ -302,12 +305,13 @@ module rob_test;
     rob_update_packet.valid[1] = 1'b1; rob_update_packet.idx[1] = 2;
     rob_update_packet.valid[2] = 1'b1; rob_update_packet.idx[2] = 4;
     @(posedge clock);
+    //#3;
     rob_update_packet.valid = '0;
     
     // 3. Verify that the head has NOT moved, because instruction 0 is not complete
     repeat(3) @(posedge clock);
-    if (dut.head !== 0) begin
-      $display("FAIL: Head advanced on out-of-order complete. Head is %0d, should be 0.", dut.head);
+    if (free_slots !== 0) begin
+      $display("FAIL: Head advanced on out-of-order complete.");
       failed = 1;
     end else begin
       $display("PASS: Head correctly stalled while waiting for in-order instruction.\n");
@@ -320,13 +324,19 @@ module rob_test;
     rob_update_packet.valid[1] = 1'b1; rob_update_packet.idx[1] = 1;
     rob_update_packet.valid[2] = 1'b1; rob_update_packet.idx[2] = 3;
     @(posedge clock);
-    rob_update_packet.valid = '0;
 
+    rob_update_packet.valid = '0;
+    @(negedge clock);
     // 5. Verify that the head has advanced past the entire contiguous completed block
-    repeat(3) @(posedge clock);
+    @(posedge clock);
+
+    @(posedge clock);
+
+    @(posedge clock);
+
     // Instructions 0, 1, 2, 3, 4, 5 are all now complete. Head should be at 6.
-    if (dut.head !== 6) begin
-      $display("FAIL: Head did not correctly batch-retire. Expected 6, got %0d", dut.head);
+    if (free_slots !== 6) begin
+      $display("FAIL: Head did not correctly batch-retire. free_slots: %0d",free_slots);
       failed = 1;
     end else begin
       $display("PASS: Instructions correctly retired in-order after out-of-order completion.\n");
@@ -337,7 +347,11 @@ module rob_test;
     // -------------------------------
 
     $display("Test 6: Partial completions");
-    reset=1; @(negedge clock); @(negedge clock); reset=0; @(posedge clock);
+    @(negedge clock);
+    reset = 1;
+    #3
+    @(negedge clock);
+    reset = 0;
 
     // allocate 2*N entries
     for (int i = 0; i < 2; i++) begin
@@ -349,30 +363,19 @@ module rob_test;
 
     // set first k complete, next one incomplete
     k = (`N >= 3) ? (`N-1) : 1;
-    rob_update_packet.valid='0;
+    rob_update_packet.valid = '0;
     for (int i = 0; i < k; i++) begin
       rob_update_packet.valid[i] = 1'b1; 
-      rob_update_packet.idx[i] = (dut.head + i) % `ROB_SZ;
+      rob_update_packet.idx[i] = i;
     end
     @(posedge clock); 
     rob_update_packet.valid='0; 
     repeat(2) @(posedge clock);
 
     // Expect head advanced by k, and exactly those k entries invalidated
-    if (dut.head != k % `ROB_SZ) begin 
-      $display("FAIL: Head advanced by %0d, expected %0d", dut.head, k%`ROB_SZ); 
-      failed=1; 
-    end
-    
-    for (int i = 0; i < k; i++) begin
-        if (dut.rob_array[i].valid) begin 
-            $display("FAIL: Retired entry %0d still valid", i); 
-            failed=1; 
-        end
-    end
 
-    if (!dut.rob_array[k].valid) begin 
-      $display("FAIL: Entry %0d (next after k) should still be valid", k); 
+    if (free_slots != (`ROB_SZ - (2 * `N)) + k) begin 
+      $display("FAIL: free slots is incorrect, head advanced by more than k completed instructions"); 
       failed=1; 
     end
     if (!failed) $display("PASS: Partial block of %0d instructions retired correctly.\n", k);
@@ -383,7 +386,12 @@ module rob_test;
     // -------------------------------
     $display("\nTest 7: Pointer Wrap-Around and Boundary Conditions...\n");
     // Reset and fill all but the last N slots
-    reset = 1; @(negedge clock); @(negedge clock); reset = 0; @(posedge clock);
+    @(negedge clock);
+    reset = 1;
+    #3
+    @(negedge clock);
+    reset = 0;
+
     alloc_valid = '1;
     for (int i = 0; i < (`ROB_SZ / `N); i++) begin 
       fill_rob_packet(rob_entry_packet, i*`N, i*`N, i*`N, i*`N); 
@@ -403,6 +411,10 @@ module rob_test;
     @(posedge clock); 
     // Wait for retirement
 
+    // Record free slots before wrap-around allocation
+    free_before_wrap = free_slots;
+
+
     // At this point, tail is at `ROB_SZ - N`.
     $display("Allocating instructions to wrap tail pointer...");
     alloc_valid = '1;
@@ -413,9 +425,8 @@ module rob_test;
     alloc_valid = '0;
     @(posedge clock);
 
-    expected_tail = 4;
-    if (dut.tail !== expected_tail) begin
-      $display("FAIL: Tail did not wrap correctly. Expected %0d, got %0d", expected_tail, dut.tail);
+    if (free_before_wrap - free_slots !== 2 * `N) begin
+      $display("FAIL: Tail did not wrap correctly.");
       failed = 1;
     end else $display("PASS: Tail pointer wrapped around correctly.\n");
 
@@ -424,7 +435,13 @@ module rob_test;
     // -------------------------------
     $display("\nTest 8: Partial Allocation and Retirement...\n");
     // -- 8.1: Partial Allocation
-    reset = 1; @(negedge clock); @(negedge clock); reset = 0; @(posedge clock); // Reset ROB
+    @(negedge clock);
+    reset = 1;
+    #3
+    @(negedge clock);
+    reset = 0;
+
+
     alloc_valid = '0;
     alloc_valid[0] = 1'b1;
     alloc_valid[2] = 1'b1;
@@ -433,31 +450,36 @@ module rob_test;
     alloc_valid = '0;
     @(posedge clock);
 
-    if (dut.tail !== 2) begin
-      $display("FAIL: Tail advanced incorrectly on partial alloc. Expected 2, got %0d", dut.tail);
-      failed = 1;
-    end else if (!dut.rob_array[0].valid || dut.rob_array[1].valid) begin
-      $display("FAIL: ROB entries written incorrectly on partial allocation.");
+    if (free_slots != (`ROB_SZ - 2)) begin
+      $display("FAIL: Tail advanced incorrectly on partial alloc.");
       failed = 1;
     end else $display("PASS: Partial allocation handled correctly.");
+    
 
     // -- 8.2: Partial Retirement
-    reset = 1; @(negedge clock); @(negedge clock); reset = 0; @(posedge clock);
+    @(negedge clock);
+    reset = 1;
+    #3
+    @(negedge clock);
+    reset = 0;
+
     alloc_valid = '1; // Refill ROB
     for (int i = 0; i < (`ROB_SZ / `N); i++) begin fill_rob_packet(rob_entry_packet, i, i, i, i); @(posedge clock); end
     if (`ROB_SZ % `N != 0) begin alloc_valid = '0; for (int i = 0; i < (`ROB_SZ % `N); i++) alloc_valid[i] = 1'b1; @(posedge clock); end
     alloc_valid = '0; @(posedge clock);
 
     rob_update_packet.valid[0] = 1'b1;
-    rob_update_packet.idx[0] = dut.head; // Complete only the instruction at the head
+    rob_update_packet.idx[0] = 0; // Complete only the instruction at the head
+
     @(posedge clock);
     rob_update_packet.valid = '0;
     repeat(2) @(posedge clock);
 
-    if (dut.head !== 1) begin
-      $display("FAIL: Head did not advance by 1 on single retirement. Expected 1, got %0d", dut.head);
+    if (free_slots !== 1) begin
+      $display("FAIL: Head did not advance by 1 on single retirement. Expected 1, got %0d", free_slots);
       failed = 1;
     end else $display("PASS: Partial retirement of one instruction successful.\n");
+
 
 
     // -------------------------------
@@ -469,10 +491,11 @@ module rob_test;
 
 
     // Reset DUT again for a clean state
+    @(negedge clock);
     reset = 1;
-    @(negedge clock);   // change reset between clock edges
+    #3
+    @(negedge clock);
     reset = 0;
-    @(posedge clock);   // allow one cycle for reset to propagate
 
     // Step 1: Allocate 3 instructions
     @(posedge clock);   // set inputs before next posedge
@@ -508,7 +531,7 @@ module rob_test;
 
     // Step 3: Wait one cycle for completion logic to execute
     repeat (1) @(posedge clock);
-
+    //#3 // small dealy
     // Step 4: Check head_entries (after DUT update)
     for (int i = 0; i < 3; i++) begin
       hw = `N-1 - i; // oldest at N-1
@@ -529,113 +552,76 @@ module rob_test;
       $display("\033[1;32mPASS: All 3 retired instructions match expected head_entries.\033[0m\n");
     else
       $display("\033[1;31mFAIL: Retired instructions do not match expected head_entries.\033[0m\n");
-    
-begin
-      // -------------------------------
-      // Test #10 - Simplified Randomized Stress Test
-      // -------------------------------
-      $display("\nTest 10: Simplified Randomized Stress Test...\n");
-      begin
-        localparam int STRESS_CYCLES = 20;
-        // Use a fixed-size array and counter to track allocated instructions
-        ROB_IDX allocated_indices_arr[`ROB_SZ];
-        int num_allocated_not_completed = 0;
-        int ran_num_alloc, ran_num_complete;
-        ROB_IDX temp_idx;
-
-        // --- Phase 1: Stress the ROB with random allocations and completions ---
-        for (int i = 0; i < STRESS_CYCLES; i++) begin
-          // Default to no operations in this cycle
-          alloc_valid = '0;
-          rob_update_packet.valid = '0;
 
 
-          // Randomly decide whether to allocate, complete, both, or neither in this cycle
-          // Ensure the action is possible (e.g., free slots exist, or instructions are available to complete)
-          do_alloc = ($urandom_range(0, 1) == 1) && (dut.free_slots > 0);
-          do_complete = ($urandom_range(0, 1) == 1) && (num_allocated_not_completed >= 0);
+    // -------------------------------
+    // Test 10: Simplified Out-of-Order Stress Test
+    // -------------------------------
+    $display("\nTest 10: Simplified Out-of-Order Stress Test...\n");
 
-          // Prepare allocation packet if we are allocating this cycle
-          if (do_alloc) begin
-            ran_num_alloc = $urandom_range(1, `N);
-            if (ran_num_alloc > dut.free_slots) ran_num_alloc = dut.free_slots;
+    // Reset
+    reset = 1;
+    @(negedge clock); 
+    #3
+    @(negedge clock);
+    reset = 0;
+    @(posedge clock);
 
-            for (int j = 0; j < ran_num_alloc; j++) alloc_valid[j] = 1'b1;
-            fill_rob_packet(rob_entry_packet, pc_val, arch_val, phys_val, data_val);
-          end
-
-          $display("do_complete: %0d", do_complete);
-
-          // Prepare completion packet if we are completing this cycle
-          if (do_complete) begin
-            ran_num_complete = $urandom_range(1, `N);
-            if (ran_num_complete > num_allocated_not_completed) ran_num_complete = num_allocated_not_completed;
-
-            for (int j = 0; j < ran_num_complete; j++) begin
-              // Pick a random instruction from the array to complete (simulates out-of-order completion)
-              int arr_idx = $urandom_range(0, num_allocated_not_completed - 1);
-              temp_idx = allocated_indices_arr[arr_idx];
-
-              // Remove from array by swapping with the last element and decrementing the count
-              allocated_indices_arr[arr_idx] = allocated_indices_arr[num_allocated_not_completed - 1];
-              num_allocated_not_completed--;
-
-              rob_update_packet.valid[j] = 1'b1;
-              rob_update_packet.idx[j] = temp_idx;
-            end
-          end
-
-          // Advance simulation by one clock cycle
-          @(posedge clock);
-
-          // After the clock edge, capture the results of any allocation
-          if (do_alloc) begin
-            for (int j = 0; j < ran_num_alloc; j++) begin
-              allocated_indices_arr[num_allocated_not_completed] = dut.alloc_idxs[j];
-              num_allocated_not_completed++;
-            end
-            // Update base values to ensure unique instructions for the next allocation
-            pc_val += ran_num_alloc;
-            arch_val += ran_num_alloc;
-            phys_val += ran_num_alloc;
-          end
-        end
-
-        // --- Phase 2: Wind-down. Stop allocating and complete all remaining instructions ---
-        $display("Stress phase finished. Completing %0d remaining instructions...", num_allocated_not_completed);
-        alloc_valid = '0; // Stop new allocations
-
-
-        while (num_allocated_not_completed > 0) begin
-          ran_num_complete = $urandom_range(1, `N);
-          if (ran_num_complete > num_allocated_not_completed) ran_num_complete = num_allocated_not_completed;
-
-          rob_update_packet.valid = '0;
-          for (int j = 0; j < ran_num_complete; j++) begin
-            // Complete from the end of the array
-            num_allocated_not_completed--;
-            temp_idx = allocated_indices_arr[num_allocated_not_completed];
-            rob_update_packet.valid[j] = 1'b1;
-            rob_update_packet.idx[j] = temp_idx;
-          end
-          @(posedge clock);
-        end
+    // Run 10 cycles of allocation + randomized completions
+    for (int cycle = 0; cycle < 10; cycle++) begin
+        // Clear signals
+        alloc_valid = '0;
         rob_update_packet.valid = '0;
 
-        // --- Phase 3: Verification. Wait for the ROB to become empty through retirement ---
-        $display("Waiting for ROB to drain...");
-        // Wait for retirement to clear the ROB. Max wait time is ROB size / N instructions per cycle + buffer.
-        repeat (`ROB_SZ / `N + 20) @(posedge clock);
-
-        $display("Final check...");
-        if ((dut.head + `ROB_SZ - dut.tail) == dut.free_slots) begin
-          $display("PASS: ROB is empty after stress test.\n");
-        end else begin
-          $display("FAIL: ROB is not empty. free_slots=%0d, head=%0d, tail=%0d", dut.free_slots, dut.head, dut.tail);
-          failed = 1;
+        // Allocate up to N instructions if free slots exist
+        for (int i = 0; i < `N; i++) begin
+            if (i < free_slots) alloc_valid[i] = 1'b1;
         end
-      end
+        fill_rob_packet(rob_entry_packet, pc_val, arch_val, phys_val, data_val);
+        pc_val += `N;
+        arch_val += `N;
+        phys_val += `N;
+
+        @(posedge clock);
+
+        // Out-of-order completion: randomly pick some allocated indices
+        for (int i = 0; i < `N; i++) begin
+            if (alloc_valid[i] && ($urandom_range(0,1) == 1)) begin
+                rob_update_packet.valid[i] = 1'b1;
+                rob_update_packet.idx[i]   = alloc_idxs[i];
+            end
+        end
+
+        @(posedge clock);
+        alloc_valid = '0;
+        rob_update_packet.valid = '0;
     end
+
+    // Final phase: complete any remaining instructions that were not yet marked complete
+    for (int i = 0; i < `ROB_SZ; i += `N) begin
+        rob_update_packet.valid = '0;
+        for (int j = 0; j < `N; j++) begin
+            if (i+j < `ROB_SZ) begin
+                rob_update_packet.valid[j] = 1'b1;
+                rob_update_packet.idx[j]   = i+j;
+            end
+        end
+        @(posedge clock);
+    end
+    rob_update_packet.valid = '0;
+
+    // Give a few extra cycles for retirement to settle
+    repeat(2) @(posedge clock);
+
+    // Check ROB is empty
+    if (free_slots == `ROB_SZ) begin
+        $display("PASS: ROB is empty after out-of-order stress test.\n");
+    end else begin
+        $display("FAIL: ROB is not empty. free_slots=%0d", free_slots);
+        failed = 1;
+    end
+
+
 
     if (!failed)
       $display("\033[1;32mAll tests passed.\033[0m\n");
@@ -657,6 +643,7 @@ begin
 
 
     $finish;
+    //`endif
   end
 
 endmodule

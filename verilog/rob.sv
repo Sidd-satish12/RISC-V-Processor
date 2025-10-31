@@ -8,6 +8,7 @@
 
 `include "sys_defs.svh"
 
+
 module rob (
     input  logic                    clock,
     input  logic                    reset,
@@ -245,35 +246,5 @@ module rob (
       rob_array <= rob_next;
     end
   end
-`ifdef DEBUG_ROB
-// Fires each cycle and logs what the COMPLETE block would do.
-always_ff @(posedge clock) begin
-  if (!reset) begin
-    $display("ROB DBG @%0t: head=%0d tail=%0d full=%0b inflight=%0d free=%0d mispredict=%0b",
-             $time, head, tail, full, inflight, free_slots, mispredict);
-    // show incoming complete packet
-    for (int unsigned li=0; li<`N; li++) begin
-      if (rob_update_packet.valid[li]) begin
-        $display("  COMPLETE REQ lane%0d: idx=%0d br_taken=%0b br_tgt=%h",
-                 li, rob_update_packet.idx[li],
-                 rob_update_packet.branch_taken[li],
-                 rob_update_packet.branch_targets[li]);
-      end
-    end
-  end
-end
-
-// After state updates: show the head entry view used by retire.sv
-always_ff @(negedge clock) begin
-  if (!reset) begin
-    ROB_IDX hw = head;
-    $display("ROB DBG POST-STATE @%0t: head=%0d tail=%0d",
-             $time, head, tail);
-    $display("  HEAD SLOT %0d : valid=%0b complete=%0b branch=%0b pred=%0b br_tkn=%0b",
-             hw, rob_array[hw].valid, rob_array[hw].complete, rob_array[hw].branch,
-             rob_array[hw].pred_taken, rob_array[hw].branch_taken);
-  end
-end
-`endif
 
 endmodule
