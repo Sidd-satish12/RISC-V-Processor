@@ -1,6 +1,7 @@
 
 `include "sys_defs.svh"
 
+
 // This is a pipelined multiplier that multiplies two 64-bit integers and
 // returns the low 64 bits of the result.
 // This is not an ideal multiplier but is sufficient to allow a faster clock
@@ -23,6 +24,7 @@ module mult (
     MULT_FUNC [`MULT_STAGES-2:0] internal_funcs;
     MULT_FUNC func_out;
 
+    logic [`MULT_STAGES-2:0] internal_dones;
     logic [(64*(`MULT_STAGES-1))-1:0] internal_sums, internal_mcands, internal_mpliers;
     logic [`MULT_STAGES-1:0] dones;
 
@@ -49,17 +51,17 @@ module mult (
     // Sign-extend the multiplier inputs based on the operation
     always_comb begin
         case (func)
-            M_MUL, M_MULH, M_MULHSU: mcand = {{(32) {rs1[31]}}, rs1};
-            default:                 mcand = {32'b0, rs1};
+            MUL, MULH, MULHSU: mcand = {{(32) {rs1[31]}}, rs1};
+            default:           mcand = {32'b0, rs1};
         endcase
         case (func)
-            M_MUL, M_MULH: mplier = {{(32) {rs2[31]}}, rs2};
-            default:       mplier = {32'b0, rs2};
+            MUL, MULH: mplier = {{(32) {rs2[31]}}, rs2};
+            default:   mplier = {32'b0, rs2};
         endcase
     end
 
     // Use the high or low bits of the product based on the output func
-    assign result  = (func_out == M_MUL) ? product[31:0] : product[63:32];
+    assign result  = (func_out == MUL) ? product[31:0] : product[63:32];
     assign request = dones[`MULT_STAGES-2];
 endmodule  // mult
 

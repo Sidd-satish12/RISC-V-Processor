@@ -190,7 +190,7 @@ GREP = grep -E --color=auto
 # ---- Modules to Test ---- #
 
 # TODO: add more modules here
-MODULES = cpu mult rob rs regfile map_table stage_issue stage_complete stage_retire
+MODULES = cpu mult rob rs regfile map_table stage_issue stage_execute stage_complete stage_retire
 
 # TODO: update this if you add more header files
 ALL_HEADERS = $(CPU_HEADERS)
@@ -237,6 +237,11 @@ STAGE_RETIRE_FILES = verilog/sys_defs.svh
 build/stage_retire.simv: $(STAGE_RETIRE_FILES)
 build/stage_retire.cov:  $(STAGE_RETIRE_FILES)
 synth/stage_retire.vg:   $(STAGE_RETIRE_FILES)
+# TODO: add any files required for stage_execute here (besides test/stage_execute_test.sv and verilog/stage_execute.sv)
+STAGE_EXECUTE_FILES = verilog/sys_defs.svh verilog/fu/alu.sv verilog/fu/mult.sv verilog/fu/branch.sv
+build/stage_execute.simv: $(STAGE_EXECUTE_FILES)
+build/stage_execute.cov: $(STAGE_EXECUTE_FILES)
+synth/stage_execute.vg: $(STAGE_EXECUTE_FILES)
 
 #################################
 # ---- Main CPU Definition ---- #
