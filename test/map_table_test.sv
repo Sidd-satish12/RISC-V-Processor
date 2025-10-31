@@ -74,15 +74,16 @@ module testbench;
     // end
 
     always begin
-        #50 clock = ~clock;  // 100ns period
+        #(`CLOCK_PERIOD / 2.0);
+        clock = ~clock;
     end
 
     // Helper to reset and wait for proper timing
     task reset_dut;
         reset = 1;
-        repeat (2) @(posedge clock);  // Hold reset over two posedges
+        repeat (2) @(negedge clock);  // Hold reset over two negedges
         reset = 0;
-        @(posedge clock);  // One more cycle for stability
+        @(negedge clock);  // One more cycle for stability
     endtask
 
     // Helper to set read addresses for all ports
@@ -150,8 +151,7 @@ module testbench;
         begin
             logic all_correct = 1;
 
-            @(posedge clock);
-            #10;
+            @(negedge clock);
 
             // Check that first few registers have identity mapping and are ready
             for (int i = 0; i < `N && i < 8; i++) begin  // Check first 8 or N registers
@@ -189,8 +189,7 @@ module testbench;
             read_addrs[0] = 5'd5;
             read_addrs[1] = 5'd10;
 
-            @(posedge clock);
-            #10;
+            @(negedge clock);
 
             // Verify mappings are set but not ready
             if (!check_entry(0, 6'd40, 1'b0) || !check_entry(1, 6'd45, 1'b0)) begin
@@ -203,8 +202,7 @@ module testbench;
             cdb_broadcasts[0] = cdb_entry(1'b1, 6'd40, 32'h1234);  // Make phys 40 ready
             cdb_broadcasts[1] = cdb_entry(1'b1, 6'd45, 32'h5678);  // Make phys 45 ready
 
-            @(posedge clock);
-            #10;
+            @(negedge clock);
 
             // Check that ready bits were updated
             if (check_entry(0, 6'd40, 1'b1) && check_entry(1, 6'd45, 1'b1)) begin
@@ -229,8 +227,7 @@ module testbench;
             // Set read address to match written arch reg
             read_addrs[0] = 5'd3;
 
-            @(posedge clock);
-            #10;
+            @(negedge clock);
 
             // Send CDB broadcast for phys 50 AND a new write to arch 3 in same cycle
             cdb_broadcasts[0] = cdb_entry(1'b1, 6'd50, 32'h9999);
@@ -238,8 +235,7 @@ module testbench;
             write_addrs[0] = 5'd3;
             write_phys_regs[0] = 6'd60;  // Change mapping to phys 60
 
-            @(posedge clock);
-            #10;
+            @(negedge clock);
 
             // Write should override CDB, so phys 60 should not be ready
             if (check_entry(0, 6'd60, 1'b0)) begin
@@ -265,8 +261,7 @@ module testbench;
                 write_phys_regs[i] = 32 + i;  // Map to phys registers 32-32+N-1
             end
 
-            @(posedge clock);
-            #10;
+            @(negedge clock);
 
             // Check all mappings
             for (int i = 0; i < `N; i++) begin
@@ -291,8 +286,7 @@ module testbench;
         begin
             logic all_correct = 1;
 
-            @(posedge clock);
-            #10;
+            @(negedge clock);
 
             // Check that registers are back to identity mapping
             for (int i = 0; i < `N && i < 8; i++) begin
@@ -324,15 +318,13 @@ module testbench;
             write_addrs[1] = 5'd5;
             write_phys_regs[1] = 6'd40;
 
-            @(posedge clock);
-            #10;
+            @(negedge clock);
 
             // Read different registers on different ports
             read_addrs[0] = 5'd1;  // Should read arch 1
             read_addrs[1] = 5'd5;  // Should read arch 5
 
-            @(posedge clock);
-            #10;
+            @(negedge clock);
 
             // Check independent reads
             if (check_entry(0, 6'd35, 1'b0) && check_entry(1, 6'd40, 1'b0)) begin
@@ -361,8 +353,7 @@ module testbench;
             write_addrs[1] = 5'd7;
             write_phys_regs[1] = 6'd37;  // Map arch 7 to phys 37
 
-            @(posedge clock);
-            #10;
+            @(negedge clock);
 
             // Capture the table snapshot (architected state)
             saved_snapshot = table_snapshot;
@@ -379,14 +370,12 @@ module testbench;
             write_addrs[1] = 5'd7;
             write_phys_regs[1] = 6'd55;  // Speculative: map arch 7 to phys 55
 
-            @(posedge clock);
-            #10;
+            @(negedge clock);
 
             // Verify speculative mappings are in place
             read_addrs[0] = 5'd2;
             read_addrs[1] = 5'd7;
-            @(posedge clock);
-            #10;
+            @(negedge clock);
 
             if (!check_entry(0, 6'd50, 1'b0) || !check_entry(1, 6'd55, 1'b0)) begin
                 $display("  FAIL: Speculative mappings not correctly set (expected arch2:50, arch7:55)");
@@ -399,8 +388,7 @@ module testbench;
             table_restore = saved_snapshot;
             table_restore_en = 1'b1;
 
-            @(posedge clock);
-            #10;
+            @(negedge clock);
 
             // Clear restore enable for next cycle
             table_restore_en = 1'b0;
@@ -408,8 +396,7 @@ module testbench;
             // Phase 4: Verify recovery - table should be restored to architected state
             read_addrs[0] = 5'd2;
             read_addrs[1] = 5'd7;
-            @(posedge clock);
-            #10;
+            @(negedge clock);
 
             if (check_entry(0, 6'd32, 1'b0) && check_entry(1, 6'd37, 1'b0)) begin
                 $display("  PASS: Mispredict recovery successful - table restored to architected state");
@@ -441,8 +428,7 @@ module testbench;
         begin
             logic all_correct = 1;
 
-            @(posedge clock);
-            #10;
+            @(negedge clock);
 
             // Check that first few registers have identity mapping
             for (int i = 0; i < `N && i < 8; i++) begin
@@ -473,8 +459,7 @@ module testbench;
                 arch_write_phys_regs[i] = 64 + i;  // Map to phys registers 64-64+N-1
             end
 
-            @(posedge clock);
-            #10;
+            @(negedge clock);
 
             // Check all mappings
             for (int i = 0; i < `N; i++) begin
@@ -506,15 +491,13 @@ module testbench;
             arch_write_addrs[1] = 5'd8;
             arch_write_phys_regs[1] = 6'd40;
 
-            @(posedge clock);
-            #10;
+            @(negedge clock);
 
             // Read different registers on different ports
             arch_read_addrs[0] = 5'd3;  // Should read arch 3
             arch_read_addrs[1] = 5'd8;  // Should read arch 8
 
-            @(posedge clock);
-            #10;
+            @(negedge clock);
 
             // Check independent reads
             if (check_arch_entry(0, 6'd35) && check_arch_entry(1, 6'd40)) begin
