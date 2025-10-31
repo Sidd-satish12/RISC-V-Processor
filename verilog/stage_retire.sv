@@ -10,56 +10,56 @@ module stage_retire #(
     input logic reset,
 
     // From ROB: head window (N-1 = oldest, 0 = youngest)
-    input ROB_ENTRY [N-1:0] headEntries,
-    input logic     [N-1:0] headValids,
-    input ROB_IDX   [N-1:0] headIdxs,     // ROB index per head slot
+    input ROB_ENTRY [N-1:0] head_entries,
+    input logic     [N-1:0] head_valids,
+    input ROB_IDX   [N-1:0] head_idxs,     // ROB index per head slot
 
     // To ROB: flush younger if head is a mispredicted branch
-    output logic   robMispredict,
-    output ROB_IDX robMispredIdx,
+    output logic   rob_mispredict,
+    output ROB_IDX rob_mispred_idx,
 
     // Global recovery pulse (tables react internally)
-    output logic bpRecoverEn,
+    output logic bp_recover_en,
 
-    // To freelist: bitmap of PRs to free (all committed lanes’ Told this cycle)
-    output logic [PHYS_REGS-1:0] freeMask,
+    // To freelist: bitmap of PRs to free (all committed lanes' Told this cycle)
+    output logic [PHYS_REGS-1:0] free_mask,
 
     // To archMapTable: N write ports (commit multiple per cycle)
-    output logic    [N-1:0] archWriteEnables,
-    output REG_IDX  [N-1:0] archWriteAddrs,
-    output PHYS_TAG [N-1:0] archWritePhysRegs
+    output logic    [N-1:0] arch_write_enables,
+    output REG_IDX  [N-1:0] arch_write_addrs,
+    output PHYS_TAG [N-1:0] arch_write_phys_regs
 );
 
     always_comb begin
         // Locals
-        ROB_ENTRY headEntry;
+        ROB_ENTRY head_entry;
         ROB_ENTRY entry;
-        logic recover, mispredDir, mispredTgt, mispred;
+        logic recover, mispred_dir, mispred_tgt, mispred;
 
         // ---- Synth-friendly defaults ----
-        {robMispredict, robMispredIdx, bpRecoverEn, freeMask} = '0;
-        archWriteEnables = '0;
-        archWriteAddrs = '0;
-        archWritePhysRegs = '0;
+        {rob_mispredict, rob_mispred_idx, bp_recover_en, free_mask} = '0;
+        arch_write_enables = '0;
+        arch_write_addrs = '0;
+        arch_write_phys_regs = '0;
         recover = 1'b0;
-        mispredDir = 1'b0;
-        mispredTgt = 1'b0;
+        mispred_dir = 1'b0;
+        mispred_tgt = 1'b0;
         mispred = 1'b0;
-        headEntry = '0;
+        head_entry = '0;
         entry = '0;
 
         // -------- Mispredict detect on oldest visible head --------
-        if (headValids[N-1]) begin
-            headEntry = headEntries[N-1];
-            if (headEntry.branch && headEntry.complete) begin
-                mispredDir = (headEntry.pred_taken  != headEntry.branch_taken);
-                mispredTgt = (headEntry.branch_taken && (headEntry.pred_target != headEntry.branch_target));
-                mispred    = (mispredDir || mispredTgt);
+        if (head_valids[N-1]) begin
+            head_entry = head_entries[N-1];
+            if (head_entry.branch && head_entry.complete) begin
+                mispred_dir = (head_entry.pred_taken != head_entry.branch_taken);
+                mispred_tgt = (head_entry.branch_taken && (head_entry.pred_target != head_entry.branch_target));
+                mispred     = (mispred_dir || mispred_tgt);
                 if (mispred) begin
-                    robMispredict = 1'b1;
-                    robMispredIdx = headIdxs[N-1];  // provided by ROB
-                    bpRecoverEn   = 1'b1;  // one-cycle recover pulse
-                    recover       = 1'b1;  // block normal retire this cycle
+                    rob_mispredict  = 1'b1;
+                    rob_mispred_idx = head_idxs[N-1];  // provided by ROB
+                    bp_recover_en   = 1'b1;  // one-cycle recover pulse
+                    recover         = 1'b1;  // block normal retire this cycle
                 end
             end
         end
@@ -67,19 +67,19 @@ module stage_retire #(
         // -------- Normal retire: multi-commit (oldest→younger; stop at first incomplete) --------
         if (!recover) begin
             for (int w = N - 1; w >= 0; w--) begin
-                if (!headValids[w]) continue;
+                if (!head_valids[w]) continue;
 
-                entry = headEntries[w];
+                entry = head_entries[w];
                 if (!entry.complete) break;  // in-order boundary
 
                 if (entry.arch_rd != '0) begin
                     // Commit this lane to the architected map
-                    archWriteEnables[w]  = 1'b1;
-                    archWriteAddrs[w]    = entry.arch_rd;
-                    archWritePhysRegs[w] = entry.phys_rd;
+                    arch_write_enables[w]  = 1'b1;
+                    arch_write_addrs[w]    = entry.arch_rd;
+                    arch_write_phys_regs[w] = entry.phys_rd;
 
                     // Freelist: free the Told (previous phys)
-                    if ((entry.prev_phys_rd != '0) && (entry.prev_phys_rd < PHYS_REGS)) freeMask[entry.prev_phys_rd] = 1'b1;
+                    if ((entry.prev_phys_rd != '0) && (entry.prev_phys_rd < PHYS_REGS)) free_mask[entry.prev_phys_rd] = 1'b1;
                 end
                 // No-dest instructions (e.g., branches) retire silently.
             end
