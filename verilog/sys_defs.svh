@@ -456,7 +456,6 @@ typedef struct packed {
     DATA           src2_value;   // Source 2 value if immediate
     PHYS_TAG       dest_tag;     // Physical destination tag
     ROB_IDX        rob_idx;      // Associated ROB index (for flush and potential age selection)
-    logic          rob_wrap;     // signal to indicate wrap around in the ROB
     ADDR           PC;           // PC for branch/debug (MIGHT merge with SRC but only if we can resolve mispredicts othersive)
     // Added for branches (prediction info from fetch via dispatch)
     logic          pred_taken;
