@@ -440,24 +440,23 @@ typedef struct packed {
     DATA [`N-1:0]    values;          // Values to store (if applicable)
     logic [`N-1:0]   branch_taken;    // Resolved taken/not taken (if branch)
     ADDR [`N-1:0]    branch_targets;  // Resolved branch targets (if branch)
+    logic [`N-1:0]   mispredicts;     // Mispredict flags
 } ROB_UPDATE_PACKET;
 
 // RS entry structure (extended for full control signals)
 typedef struct packed {
-    logic          valid;        // Entry occupied
-    ALU_OPA_SELECT opa_select;   // From decode (where is OPA coming from)
-    ALU_OPB_SELECT opb_select;   // From decode (where is OPB coming from)
-    OP_TYPE        op_type;      // Which unit are we routing to in EX and what suboperation
-    PHYS_TAG       src1_tag;     // Physical source 1 tag
-    logic          src1_ready;   // Source 1 ready
-    DATA           src1_value;   // Source 1 value if immediate
-    PHYS_TAG       src2_tag;     // Physical source 2 tag
-    logic          src2_ready;   // Source 2 ready
-    DATA           src2_value;   // Source 2 value if immediate
-    PHYS_TAG       dest_tag;     // Physical destination tag
-    ROB_IDX        rob_idx;      // Associated ROB index (for flush and potential age selection)
-    logic          rob_wrap;     // signal to indicate wrap around in the ROB
-    ADDR           PC;           // PC for branch/debug (MIGHT merge with SRC but only if we can resolve mispredicts othersive)
+    logic          valid;           // Entry occupied
+    ALU_OPA_SELECT opa_select;      // From decode (where is OPA coming from)
+    ALU_OPB_SELECT opb_select;      // From decode (where is OPB coming from)
+    OP_TYPE        op_type;         // Which unit are we routing to in EX and what suboperation
+    PHYS_TAG       src1_tag;        // Physical source 1 tag
+    logic          src1_ready;      // Source 1 ready
+    PHYS_TAG       src2_tag;        // Physical source 2 tag
+    logic          src2_ready;      // Source 2 ready
+    DATA           src2_immediate;  // Source 2 value if immediate
+    PHYS_TAG       dest_tag;        // Physical destination tag
+    ROB_IDX        rob_idx;         // Associated ROB index (for flush and potential age selection)
+    ADDR           PC;              // PC for branch/debug (MIGHT merge with SRC but only if we can resolve mispredicts othersive)
     // Added for branches (prediction info from fetch via dispatch)
     logic          pred_taken;
     ADDR           pred_target;
@@ -537,6 +536,14 @@ typedef struct packed {
     CDB_ENTRY [`NUM_FU_MEM-1:0]    mem;
 } CDB_FU_OUTPUTS;
 
+// FU results grouped by type (for internal use in execute stage)
+typedef struct packed {
+    DATA [`NUM_FU_ALU-1:0]    alu;
+    DATA [`NUM_FU_MULT-1:0]   mult;
+    DATA [`NUM_FU_BRANCH-1:0] branch;
+    DATA [`NUM_FU_MEM-1:0]    mem;
+} FU_RESULTS;
+
 // PRF read requests grouped by FU type
 typedef struct packed {
     logic [`NUM_FU_ALU-1:0]    alu;
@@ -579,15 +586,26 @@ typedef struct packed {
     logic          illegal;        // Is this illegal?
 } ROB_ENTRY;
 
-// EX to Complete stage entry
+// Individual entry for FU metadata (AoS - Array of Structs for internal use)
 typedef struct packed {
-    ROB_IDX  rob_idx;        // ROB index of this instruction
-    logic    branch_valid;   // Is this a branch instruction?
-    logic    mispredict;     // Branch misprediction detected
-    logic    branch_taken;   // Branch resolution: taken or not taken
-    ADDR     branch_target;  // Resolved branch target address
-    PHYS_TAG dest_pr;        // Destination physical register
-    DATA     result;         // Computed result value
+    ROB_IDX  rob_idx;        // ROB index
+    logic    branch_valid;   // Branch flag
+    logic    mispredict;     // Mispredict flag
+    logic    branch_taken;   // Taken flag
+    ADDR     branch_target;  // Branch target
+    PHYS_TAG dest_pr;        // Destination PR
+    DATA     result;         // Result
 } EX_COMPLETE_ENTRY;
+
+// Packed struct of arrays for EX/COMP interface (more idiomatic)
+typedef struct packed {
+    ROB_IDX [`N-1:0]  rob_idx;        // ROB indices
+    logic [`N-1:0]    branch_valid;   // Branch flags
+    logic [`N-1:0]    mispredict;     // Mispredict flags
+    logic [`N-1:0]    branch_taken;   // Taken flags
+    ADDR [`N-1:0]     branch_target;  // Branch targets
+    PHYS_TAG [`N-1:0] dest_pr;        // Destination PRs
+    DATA [`N-1:0]     result;         // Results
+} EX_COMPLETE_PACKET;
 
 `endif  // __SYS_DEFS_SVH__
