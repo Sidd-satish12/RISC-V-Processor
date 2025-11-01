@@ -7,8 +7,8 @@ module stage_complete #(
     input logic reset,
 
     // From EX/COMP pipe reg
-    input logic              ex_valid_in[N-1:0],
-    input EX_COMPLETE_PACKET ex_comp_in,
+    input logic              [N-1:0] ex_valid_in,
+    input EX_COMPLETE_PACKET         ex_comp_in,
 
     // To ROB
     output ROB_UPDATE_PACKET rob_update_packet

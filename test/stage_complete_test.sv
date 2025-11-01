@@ -9,7 +9,7 @@ module testbench;
     logic failed;
 
     // Inputs to stage_complete
-    logic ex_valid[`N-1:0];
+    logic [`N-1:0] ex_valid;
     EX_COMPLETE_PACKET ex_comp;
 
     // Outputs from stage_complete
@@ -39,7 +39,7 @@ module testbench;
         ex_comp.result[i]        = DATA'(0);
     endtask
 
-    function automatic int onesum(input logic v[`N-1:0]);
+    function automatic int onesum(input logic [`N-1:0] v);
         int s = 0;
         for (int i = 0; i < `N; i++) s += v[i];
         return s;
@@ -58,8 +58,8 @@ module testbench;
 
     // Helper to clear inputs
     task clr_inputs;
-        for (int i = 0; i < `N; i++) ex_valid[i] = 0;
-        ex_comp = '0;
+        ex_valid = '0;
+        ex_comp  = '0;
     endtask
 
     // Helper to check conditions
@@ -73,7 +73,7 @@ module testbench;
     // Helper to reset and wait for proper timing
     task reset_dut;
         reset = 1;
-        for (int i = 0; i < `N; i++) ex_valid[i] = 0;
+        ex_valid = '0;
         ex_comp = '0;
         @(negedge clock);
         @(negedge clock);
@@ -86,12 +86,12 @@ module testbench;
     // ---------------------------
     initial begin
         int test_num = 1;
-        clock  = 0;
-        reset  = 1;
+        clock = 0;
+        reset = 1;
         failed = 0;
 
         // Initialize inputs
-        for (int i = 0; i < `N; i++) ex_valid[i] = 0;
+        ex_valid = '0;
         ex_comp = '0;
 
         // Test 1: Single lane completion
