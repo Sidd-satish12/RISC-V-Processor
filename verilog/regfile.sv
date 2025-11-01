@@ -1,56 +1,68 @@
 `include "sys_defs.svh"
 
-module regfile #(
-    parameter int NUM_READ_PORTS  = `NUM_FU_TOTAL,
-    parameter int NUM_WRITE_PORTS = `CDB_SZ
-) (
+module regfile (
     input logic clock,
     input logic reset,
 
-    input PHYS_TAG [NUM_READ_PORTS-1:0] read_tags,
-    output DATA    [NUM_READ_PORTS-1:0] read_outputs,
+    // Structured read interface (organized by FU type)
+    input  PRF_READ_TAGS read_tags,
+    output PRF_READ_DATA read_data,
 
-    input logic    [NUM_WRITE_PORTS-1:0] write_en,    // At most `N inst completes
-    input PHYS_TAG [NUM_WRITE_PORTS-1:0] write_tags,
-    input DATA     [NUM_WRITE_PORTS-1:0] write_data
+    // Write interface from CDB
+    input CDB_ENTRY [`CDB_SZ-1:0] cdb_writes
 );
 
     DATA [`PHYS_REG_SZ_R10K-1:0]
         register_file_entries,
         register_file_entries_next;  // synthesis inference: packed array -> flip flops,  unpacked array -> RAM
 
-    DATA  [NUM_READ_PORTS-1:0] forwarding_data;  // forwarding tags for all read ports
-    logic [NUM_READ_PORTS-1:0] forwarding;  // forwarding check for all read ports
-
+    // Forwarding logic for each FU type
     always_comb begin
-        forwarding = '0;
-        for (int i = 0; i < NUM_READ_PORTS; i++) begin
-            // Parallel forwarding logic
-            for (int write_port = 0; write_port < NUM_WRITE_PORTS; write_port++) begin
-                if (read_tags[i] == write_tags[write_port] && write_en[write_port]) begin
-                    forwarding[i] = 1'b1;
-                    forwarding_data[i] = write_data[write_port];
-                end
-            end
-
-            // Read outputs
-            if (read_tags[i] == '0) begin  // 0 register read
-                read_outputs[i] = '0;
-            end else if (forwarding[i]) begin  // write forwarding
-                read_outputs[i] = forwarding_data[i];
-            end else begin
-                read_outputs[i] = register_file_entries[read_tags[i]];  // normal read
-            end
+        // ALU reads
+        for (int i = 0; i < `NUM_FU_ALU; i++) begin
+            read_data.alu[i] = read_register_with_forwarding(read_tags.alu[i]);
         end
 
-        // Write
+        // MULT reads
+        for (int i = 0; i < `NUM_FU_MULT; i++) begin
+            read_data.mult[i] = read_register_with_forwarding(read_tags.mult[i]);
+        end
+
+        // BRANCH reads
+        for (int i = 0; i < `NUM_FU_BRANCH; i++) begin
+            read_data.branch[i] = read_register_with_forwarding(read_tags.branch[i]);
+        end
+
+        // MEM reads
+        for (int i = 0; i < `NUM_FU_MEM; i++) begin
+            read_data.mem[i] = read_register_with_forwarding(read_tags.mem[i]);
+        end
+
+        // Write from CDB
         register_file_entries_next = register_file_entries;
-        for (int i = 0; i < NUM_WRITE_PORTS; i++) begin
-            if (write_en[i]) begin
-                register_file_entries_next[write_tags[i]] = write_data[i];
+        for (int i = 0; i < `CDB_SZ; i++) begin
+            if (cdb_writes[i].valid) begin
+                register_file_entries_next[cdb_writes[i].tag] = cdb_writes[i].data;
             end
         end
     end
+
+    // Helper function for reading with forwarding
+    function DATA read_register_with_forwarding(PHYS_TAG tag);
+        // Check for forwarding from CDB writes
+        for (int write_port = 0; write_port < `CDB_SZ; write_port++) begin
+            if (cdb_writes[write_port].valid && tag == cdb_writes[write_port].tag) begin
+                return cdb_writes[write_port].data;
+            end
+        end
+
+        // Normal read
+        if (tag == '0) begin  // 0 register read
+            return '0;
+        end else begin
+            return register_file_entries[tag];
+        end
+    endfunction
 
     always_ff @(posedge clock) begin
         if (reset) begin
