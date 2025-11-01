@@ -6,36 +6,36 @@
 module testbench;
 
     logic clock, reset;
-    logic                                                                        mispredict;
-    logic                                                                        failed;
+    logic                                                                            mispredict;
+    logic                                                                            failed;
 
     // Inputs to stage_dispatch
-    FETCH_DISP_PACKET                                                            fetch_packet;
-    logic                   [                         `N-1:0]                    fetch_valid;
-    logic                   [          $clog2(`ROB_SZ+1)-1:0]                    free_slots_rob;
-    logic                   [$clog2(`PHYS_REG_SZ_R10K+1)-1:0]                    free_slots_freelst;
-    ROB_IDX                 [                         `N-1:0]                    rob_alloc_idxs;
-    logic                   [                         `N-1:0][   `RS_ALU_SZ-1:0] rs_alu_granted;
-    logic                   [                         `N-1:0][  `RS_MULT_SZ-1:0] rs_mult_granted;
-    logic                   [                         `N-1:0][`RS_BRANCH_SZ-1:0] rs_branch_granted;
-    logic                   [                         `N-1:0][   `RS_MEM_SZ-1:0] rs_mem_granted;
+    FETCH_DISP_PACKET                                                                fetch_packet;
+    logic                   [                         `N-1:0]                        fetch_valid;
+    logic                   [          $clog2(`ROB_SZ+1)-1:0]                        free_slots_rob;
+    logic                   [$clog2(`PHYS_REG_SZ_R10K+1)-1:0]                        free_slots_freelst;
+    ROB_IDX                 [                         `N-1:0]                        rob_alloc_idxs;
+    logic                   [                         `N-1:0][       `RS_ALU_SZ-1:0] rs_alu_granted;
+    logic                   [                         `N-1:0][      `RS_MULT_SZ-1:0] rs_mult_granted;
+    logic                   [                         `N-1:0][    `RS_BRANCH_SZ-1:0] rs_branch_granted;
+    logic                   [                         `N-1:0][       `RS_MEM_SZ-1:0] rs_mem_granted;
 
     // Outputs from stage_dispatch
-    logic                   [                 $clog2(`N)-1:0]                    dispatch_count;
-    ROB_ENTRY               [                         `N-1:0]                    rob_entry_packet;
-    RS_ALLOC_BANKS                                                               rs_alloc;
-    logic                   [                         `N-1:0]                    free_alloc_valid;
-    PHYS_TAG                [                         `N-1:0]                    allocated_phys;
-    MAP_TABLE_WRITE_REQUEST [                         `N-1:0]                    maptable_write_reqs;
-    MAP_TABLE_READ_REQUEST                                                       maptable_read_req;
+    logic                   [                 $clog2(`N)-1:0]                        dispatch_count;
+    ROB_ENTRY               [                         `N-1:0]                        rob_entry_packet;
+    RS_ALLOC_BANKS                                                                   rs_alloc;
+    logic                   [                         `N-1:0]                        free_alloc_valid;
+    logic                   [                         `N-1:0][`PHYS_REG_SZ_R10K-1:0] granted_regs;
+    MAP_TABLE_WRITE_REQUEST [                         `N-1:0]                        maptable_write_reqs;
+    MAP_TABLE_READ_REQUEST                                                           maptable_read_req;
 
     // For map table responses (we'll drive these)
-    MAP_TABLE_READ_RESPONSE                                                      maptable_read_resp;
+    MAP_TABLE_READ_RESPONSE                                                          maptable_read_resp;
 
     // Test helper variables
-    logic                                                                        expected_count;
-    logic                                                                        expected_rob_valid;
-    logic                                                                        expected_free_valid;
+    logic                                                                            expected_count;
+    logic                                                                            expected_rob_valid;
+    logic                                                                            expected_free_valid;
 
     stage_dispatch dut (
         .clock(clock),
@@ -53,7 +53,7 @@ module testbench;
         .rob_entry_packet(rob_entry_packet),
         .rs_alloc(rs_alloc),
         .free_alloc_valid(free_alloc_valid),
-        .allocated_phys(allocated_phys),
+        .granted_regs(granted_regs),
         .maptable_write_reqs(maptable_write_reqs),
         .maptable_read_req(maptable_read_req),
         .maptable_read_resp(maptable_read_resp)
@@ -174,7 +174,12 @@ module testbench;
         rs_mult_granted = '1;
         rs_branch_granted = '1;
         rs_mem_granted = '1;
-        allocated_phys = '0;
+        granted_regs = '0;
+        // Set up default physical register grants for any allocation requests
+        // Each instruction gets a distinct physical register starting from 32
+        for (int i = 0; i < `N; i++) begin
+            granted_regs[i][32+i] = 1'b1;
+        end
         maptable_read_resp = ready_map_response();
 
         reset_dut();
