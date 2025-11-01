@@ -22,12 +22,15 @@ module rob (
     // Dispatch
     input  ROB_ENTRY [               `N-1:0] rob_entry_packet,
     output logic     [$clog2(`ROB_SZ+1)-1:0] free_slots,
+    output ROB_IDX   [               `N-1:0] alloc_idxs,        // Allocation indices
 
     // Complete
     input ROB_UPDATE_PACKET rob_update_packet,
 
     // Retire
-    output ROB_ENTRY [`N-1:0] head_entries  // Could be retired
+    output ROB_ENTRY [`N-1:0] head_entries,  // Could be retired
+    output ROB_IDX   [`N-1:0] head_idxs,     // Head entry indices
+    output logic     [`N-1:0] head_valids    // Head entry valid flags
 );
     ROB_ENTRY [`ROB_SZ-1:0] rob_entries, rob_entries_next;
     logic [$clog2(`ROB_SZ+1)-1:0] free_count, free_count_next;
@@ -83,6 +86,23 @@ module rob (
         tail_idx_next = (tail_idx + num_dispatched) % `ROB_SZ;
     end
 
+    // Generate allocation indices (tail + i)
+    always_comb begin
+        for (int i = 0; i < `N; i++) begin
+            alloc_idxs[i] = ROB_IDX'((tail_idx + i) % `ROB_SZ);
+        end
+    end
+
+    // Generate head indices (head + i) and valid flags
+    always_comb begin
+        for (int i = 0; i < `N; i++) begin
+            head_idxs[i]   = ROB_IDX'((head_idx + i) % `ROB_SZ);
+            head_valids[i] = head_entries[i].valid;
+        end
+    end
+
+    assign free_slots = free_count;
+
     always_ff @(posedge clock) begin
         if (reset) begin
             rob_entries <= '0;
@@ -96,7 +116,5 @@ module rob (
             free_count <= free_count_next;
         end
     end
-
-    assign free_slots = free_count;
 
 endmodule
