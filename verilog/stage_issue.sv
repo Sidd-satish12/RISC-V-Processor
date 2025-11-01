@@ -6,10 +6,11 @@ module stage_issue (
     input logic mispredict,
 
     input RS_BANKS  rs_banks,  // Structured RS entries
-    input FU_AVAILS fu_avails, // FU availability (structured) - from cdb arbiter
+    input FU_GRANTS fu_grants, // FU availability grants (structured) - from cdb arbiter
 
-    output ISSUE_CLEAR   issue_clear,   // Clear signals (structured)
-    output ISSUE_ENTRIES issue_entries  // To EX stage (structured)
+    output ISSUE_CLEAR   issue_clear,    // Clear signals (structured)
+    output ISSUE_ENTRIES issue_entries,  // To EX stage (structured)
+    output FU_REQUESTS   cdb_requests    // CDB requests for single-cycle FUs
 );
 
     // Helper: Check if RS entry is ready
@@ -56,7 +57,7 @@ module stage_issue (
         .reset(reset | mispredict),
         .clock(clock),
         .req  (rs_ready_alu),
-        .clear(fu_avails.alu),
+        .clear(fu_grants.alu),
         .grant(grants_alu)
     );
 
@@ -67,7 +68,7 @@ module stage_issue (
         .reset(reset | mispredict),
         .clock(clock),
         .req  (rs_ready_mult),
-        .clear(fu_avails.mult),
+        .clear(fu_grants.mult),
         .grant(grants_mult)
     );
 
@@ -78,7 +79,7 @@ module stage_issue (
         .reset(reset | mispredict),
         .clock(clock),
         .req  (rs_ready_branch),
-        .clear(fu_avails.branch),
+        .clear(fu_grants.branch),
         .grant(grants_branch)
     );
 
@@ -89,7 +90,7 @@ module stage_issue (
         .reset(reset | mispredict),
         .clock(clock),
         .req  (rs_ready_mem),
-        .clear(fu_avails.mem),
+        .clear(fu_grants.mem),
         .grant(grants_mem)
     );
 
@@ -179,6 +180,29 @@ module stage_issue (
                 end
             end
         end
+    end
+
+    // Generate CDB requests for single-cycle FUs currently in issue register
+    always_comb begin
+        cdb_requests = '0;
+
+        // ALU requests: each valid ALU entry requests CDB access
+        for (int i = 0; i < `NUM_FU_ALU; i++) begin
+            cdb_requests.alu[i] = issue_register.alu[i].valid;
+        end
+
+        // BRANCH requests: each valid BRANCH entry requests CDB access
+        for (int i = 0; i < `NUM_FU_BRANCH; i++) begin
+            cdb_requests.branch[i] = issue_register.branch[i].valid;
+        end
+
+        // MEM requests: each valid MEM entry requests CDB access
+        for (int i = 0; i < `NUM_FU_MEM; i++) begin
+            cdb_requests.mem[i] = issue_register.mem[i].valid;
+        end
+
+        // MULT requests come from execute stage (pipelined), not from issue register
+        cdb_requests.mult = '0;
     end
 
     // Output assignment
