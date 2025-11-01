@@ -1,6 +1,6 @@
 `include "sys_defs.svh"
 
-module reg_file #(
+module regfile #(
     parameter int NUM_READ_PORTS  = `NUM_FU_TOTAL,
     parameter int NUM_WRITE_PORTS = `CDB_SZ
 ) (
@@ -10,16 +10,18 @@ module reg_file #(
     input PHYS_TAG [NUM_READ_PORTS-1:0] read_tags,
     output DATA    [NUM_READ_PORTS-1:0] read_outputs,
 
-    input logic    [NUM_WRITE_PORTS-1:0] write_en, // At most `N inst completes
+    input logic    [NUM_WRITE_PORTS-1:0] write_en,    // At most `N inst completes
     input PHYS_TAG [NUM_WRITE_PORTS-1:0] write_tags,
     input DATA     [NUM_WRITE_PORTS-1:0] write_data
 );
 
-    DATA [`PHYS_REG_SZ_R10K-1:0] register_file_entries, register_file_entries_next; // synthesis inference: packed array -> flip flops,  unpacked array -> RAM
+    DATA [`PHYS_REG_SZ_R10K-1:0]
+        register_file_entries,
+        register_file_entries_next;  // synthesis inference: packed array -> flip flops,  unpacked array -> RAM
 
-    DATA [NUM_READ_PORTS-1:0] forwarding_data; // forwarding tags for all read ports
-    logic [NUM_READ_PORTS-1:0] forwarding; // forwarding check for all read ports
-    
+    DATA  [NUM_READ_PORTS-1:0] forwarding_data;  // forwarding tags for all read ports
+    logic [NUM_READ_PORTS-1:0] forwarding;  // forwarding check for all read ports
+
     always_comb begin
         forwarding = '0;
         for (int i = 0; i < NUM_READ_PORTS; i++) begin
@@ -32,12 +34,12 @@ module reg_file #(
             end
 
             // Read outputs
-            if (read_tags[i] == '0) begin // 0 register read
+            if (read_tags[i] == '0) begin  // 0 register read
                 read_outputs[i] = '0;
-            end else if (forwarding[i]) begin // write forwarding
+            end else if (forwarding[i]) begin  // write forwarding
                 read_outputs[i] = forwarding_data[i];
             end else begin
-                read_outputs[i] = register_file_entries[read_tags[i]]; // normal read
+                read_outputs[i] = register_file_entries[read_tags[i]];  // normal read
             end
         end
 

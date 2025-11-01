@@ -27,7 +27,7 @@ module testbench;
     PHYS_TAG [2:0] write_tags;  // 3 write ports
     DATA     [2:0] write_data;  // 3 write ports
 
-    reg_file dut (
+    regfile dut (
         .clock(clock),
         .reset(reset),
         .read_tags(read_tags),
