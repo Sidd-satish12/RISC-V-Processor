@@ -655,4 +655,19 @@ typedef struct packed {
     RS_IDX [`NUM_FU_MEM-1:0]   idxs_mem;
 } RS_CLEAR_SIGNALS;
 
+
+/**
+ * Commit Packet:
+ * This is an output of the processor and used in the testbench for counting
+ * committed instructions
+ */
+typedef struct packed {
+    ADDR    NPC;
+    DATA    data;
+    REG_IDX reg_idx;
+    logic   halt;
+    logic   illegal;
+    logic   valid;
+} COMMIT_PACKET;
+
 `endif  // __SYS_DEFS_SVH__
