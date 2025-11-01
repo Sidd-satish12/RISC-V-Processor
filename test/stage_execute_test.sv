@@ -231,8 +231,13 @@ module testbench;
         @(negedge clock);
     endtask
 
+    int test_num;
+
     initial begin
-        int test_num = 1;
+        $dumpfile("stage_exeucte_test.vcd");
+        $dumpvars(0, testbench);
+        //$dumpvars(0, dut.fu_outputs.mult[0].rob_idx);
+        test_num = 1;
         clock  = 0;
         reset  = 1;
         failed = 0;
@@ -361,57 +366,72 @@ module testbench;
             end
         end
 
-        // // Test 6b: MULT instruction should execute after pipeline delay and check metadata
-        // $display("\nTest %0d: MULT instruction should execute after pipeline delay", test_num++);
-        // reset_dut();
-        // begin
-        //     int cycles = 0;
-        //     // Hold PRF data constant across cycles
-        //     prf_read_data_src1.mult[0] = 32'h3;
-        //     prf_read_data_src2.mult[0] = 32'h4;
-        //     gnt_bus = '0;
+        // Test 6b: MULT instruction should execute after pipeline delay and check metadata
+        $display("\nTest %0d: MULT instruction should execute after pipeline delay", test_num++);
+        reset_dut();
+        begin
+            int cycles = 0;
+            @(negedge clock);
+            // Hold PRF data constant across cycles
+            prf_read_data_src1.mult[0] = 32'h3;
+            prf_read_data_src2.mult[0] = 32'h4;
+            gnt_bus = '0;
 
-        //     // Set issue_entries and keep valid throughout pipeline (metadata needs to flow through)
-        //     @(negedge clock);
-        //     issue_entries = empty_issue_entries();
-        //     issue_entries.mult[0] = ready_mult_entry(15);
+            // Set issue_entries and keep valid throughout pipeline (metadata needs to flow through)
+            //@(negedge clock);
+            issue_entries = empty_issue_entries();
+            issue_entries.mult[0] = ready_mult_entry(15);
+            // Wait for MULT pipeline to complete (keep issue_entries valid)
+            // @(posedge clock);
+            // @(posedge clock);
+            // @(posedge clock);
+            // @(posedge clock);
+            //$dumpfile("stage_execute")
+            // @(posedge clock);@(posedge clock);@(posedge clock);@(posedge clock);@(posedge clock);@(posedge clock);@(posedge clock);@(posedge clock);@(posedge clock);
+            // while (!fu_outputs.mult[0].valid && cycles < 100) begin
+            //     @(posedge clock);
+            //     cycles++;
+            // end
 
-        //     // Wait for MULT pipeline to complete (keep issue_entries valid)
-        //     while (!fu_outputs.mult[0].valid && cycles < 100) begin
-        //         @(posedge clock);
-        //         cycles++;
-        //     end
-        //     if (cycles >= 100) begin
-        //         $display("  FAIL: MULT timeout after %0d cycles", cycles);
-        //         failed = 1;
-        //     end else begin
-        //         $display("  MULT completed after %0d cycles, data=%h", cycles, fu_outputs.mult[0].data);
-        //     end
+            repeat (`MULT_STAGES) begin
+                @(posedge clock);
+                cycles++;
+                #10;
+            end
+            if (cycles >= 100) begin
+                $display("  FAIL: MULT timeout after %0d cycles", cycles);
+                failed = 1;
+            end else begin
+                $display("  MULT completed after %0d cycles, data=%h", cycles, fu_outputs.mult[0].data);
+            end
 
-        //     // Set grant for completion (one cycle)
-        //     @(negedge clock);
-        //     gnt_bus[0][0] = 1'b1;
-        //     @(posedge clock);  // End of grant cycle
-        //     gnt_bus = '0;
+            // Set grant for completion (one cycle)
+            @(negedge clock);
+            gnt_bus[0][0] = 1'b1;
+            @(negedge clock);  // End of grant cycle
+            gnt_bus = '0;
 
-        //     // Check results after grant
-        //     if (fu_outputs.mult[0].data == 32'hC) begin
-        //         $display("  PASS: MULT executed correctly (3 * 4 = %0d)", fu_outputs.mult[0].data);
-        //     end else begin
-        //         $display("  FAIL: MULT should produce correct result (got %0d, expected 12)", fu_outputs.mult[0].data);
-        //         failed = 1;
-        //     end
+            @(posedge clock);
+            //@(posedge clock);
+            //#1
+            // Check results after grant
+            if (fu_outputs.mult[0].data == 32'hC) begin
+                $display("  PASS: MULT executed correctly (3 * 4 = %0d)", fu_outputs.mult[0].data);
+            end else begin
+                $display("  FAIL: MULT should produce correct result (got %0d, expected 12)", fu_outputs.mult[0].data);
+                failed = 1;
+            end
 
-        //     // Check metadata passing through to completion
-        //     if (ex_valid[0] && ex_comp.rob_idx[0] == 15 && ex_comp.result[0] == 32'hC && ex_comp.dest_pr[0] == 2) begin
-        //         $display("  PASS: MULT metadata passed correctly to completion (rob_idx=%0d, result=0x%h, dest_pr=%0d)",
-        //                  ex_comp.rob_idx[0], ex_comp.result[0], ex_comp.dest_pr[0]);
-        //     end else begin
-        //         $display("  FAIL: MULT metadata not passed correctly (ex_valid[0]=%b, rob_idx=%0d, result=0x%h, dest_pr=%0d)",
-        //                  ex_valid[0], ex_comp.rob_idx[0], ex_comp.result[0], ex_comp.dest_pr[0]);
-        //         failed = 1;
-        //     end
-        // end
+            // Check metadata passing through to completion
+            if (ex_valid[0] && ex_comp.rob_idx[0] == 15 && ex_comp.result[0] == 32'hC && ex_comp.dest_pr[0] == 2) begin
+                $display("  PASS: MULT metadata passed correctly to completion (rob_idx=%0d, result=0x%h, dest_pr=%0d)",
+                         ex_comp.rob_idx[0], ex_comp.result[0], ex_comp.dest_pr[0]);
+            end else begin
+                $display("  FAIL: MULT metadata not passed correctly (ex_valid[0]=%b, rob_idx=%0d, result=0x%h, dest_pr=%0d)",
+                         ex_valid[0], ex_comp.rob_idx[0], ex_comp.result[0], ex_comp.dest_pr[0]);
+                failed = 1;
+            end
+        end
 
         // Test 7: BRANCH instruction should evaluate condition
         $display("\nTest %0d: BRANCH instruction should evaluate condition", test_num++);
