@@ -128,9 +128,9 @@ module cpu (
     PRF_READ_DATA prf_read_data_src1, prf_read_data_src2;
     logic [`NUM_FU_MULT-1:0] mult_request;
 
-    // PRF read data (placeholder - TODO: connect to actual PRF)
-    assign prf_read_data_src1 = '0;
-    assign prf_read_data_src2 = '0;
+    // PRF read data now comes from the regfile instantiation below
+    // For now, assume src2 data comes from CDB forwarding or immediates
+    assign prf_read_data_src2 = '0;  // TODO: Implement proper src2 reading if needed
 
     // Retire stage signals
     ROB_ENTRY [`N-1:0] rob_head_entries;
@@ -657,6 +657,19 @@ module cpu (
     //            Physical Register File            //
     //                                              //
     //////////////////////////////////////////////////
+
+    // Instantiate Physical Register File
+    regfile prf (
+        .clock(clock),
+        .reset(reset),
+
+        // Read interface - directly connect structured interfaces
+        .read_tags(prf_read_tag_src1),
+        .read_data(prf_read_data_src1),
+
+        // Write interface - directly from CDB
+        .cdb_writes(cdb_output)
+    );
 
     //////////////////////////////////////////////////
     //                                              //
