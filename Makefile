@@ -96,7 +96,7 @@
 # there should be no need to change anything for project 3
 
 # this is a global clock period variable used in the tcl script and referenced in testbenches
-export CLOCK_PERIOD = 6.0
+export CLOCK_PERIOD = 3.0
 
 # the Verilog Compiler command and arguments
 VCS = module load vcs/2023.12-SP2-1 && \
@@ -190,7 +190,7 @@ GREP = grep -E --color=auto
 # ---- Modules to Test ---- #
 
 # TODO: add more modules here
-MODULES = cpu mult rob rs regfile map_table stage_issue stage_execute stage_complete stage_retire
+MODULES = cpu mult rob rs regfile map_table stage_issue stage_dispatch stage_execute stage_complete stage_retire
 
 # TODO: update this if you add more header files
 ALL_HEADERS = $(CPU_HEADERS)
