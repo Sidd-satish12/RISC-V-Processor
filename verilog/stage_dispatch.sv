@@ -2,40 +2,41 @@
 
 // Dispatch Stage: Register renaming and resource allocation
 module stage_dispatch (
-    input logic clock, reset,
+    input logic clock,
+    reset,
 
     // From decode: instruction bundle
     input FETCH_DISP_PACKET fetch_packet,
     input logic [`N-1:0]    fetch_valid,
 
     // Structural hazard inputs
-    input logic [$clog2(`ROB_SZ+1)-1:0]     free_slots_rob,
-    input logic [$clog2(`PHYS_REG_SZ_R10K+1)-1:0] free_slots_freelst,
-    input ROB_IDX [`N-1:0]                 rob_alloc_idxs,
+    input logic   [          $clog2(`ROB_SZ+1)-1:0] free_slots_rob,
+    input logic   [$clog2(`PHYS_REG_SZ_R10K+1)-1:0] free_slots_freelst,
+    input ROB_IDX [                         `N-1:0] rob_alloc_idxs,
 
     // RS allocation grants (unused in current impl)
-    input logic [`N-1:0][`RS_ALU_SZ-1:0]   rs_alu_granted,
-    input logic [`N-1:0][`RS_MULT_SZ-1:0]  rs_mult_granted,
+    input logic [`N-1:0][`RS_ALU_SZ-1:0] rs_alu_granted,
+    input logic [`N-1:0][`RS_MULT_SZ-1:0] rs_mult_granted,
     input logic [`N-1:0][`RS_BRANCH_SZ-1:0] rs_branch_granted,
-    input logic [`N-1:0][`RS_MEM_SZ-1:0]   rs_mem_granted,
+    input logic [`N-1:0][`RS_MEM_SZ-1:0] rs_mem_granted,
 
     // To fetch: dispatch count (0 = stall)
-    output logic [$clog2(`N)-1:0]          dispatch_count,
+    output logic [$clog2(`N)-1:0] dispatch_count,
 
     // To ROB: allocation entries
-    output ROB_ENTRY [`N-1:0]              rob_entry_packet,
+    output ROB_ENTRY [`N-1:0] rob_entry_packet,
 
     // To RS: allocation requests
-    output RS_ALLOC_BANKS                  rs_alloc,
+    output RS_ALLOC_BANKS rs_alloc,
 
     // To freelist: allocation requests
-    output logic [`N-1:0]                  free_alloc_valid,
-    input PHYS_TAG [`N-1:0]                allocated_phys,
+    output logic [`N-1:0]                        free_alloc_valid,
+    input  logic [`N-1:0][`PHYS_REG_SZ_R10K-1:0] granted_regs,
 
     // To/from map table: register mapping
     output MAP_TABLE_WRITE_REQUEST [`N-1:0] maptable_write_reqs,
     output MAP_TABLE_READ_REQUEST           maptable_read_req,
-    input MAP_TABLE_READ_RESPONSE           maptable_read_resp
+    input  MAP_TABLE_READ_RESPONSE          maptable_read_resp
 );
 
     // Dispatch control
@@ -51,6 +52,9 @@ module stage_dispatch (
     logic local_reg1_ready[`N-1:0];
     logic local_reg2_ready[`N-1:0];
     logic [`PHYS_TAG_BITS-1:0] local_Told[`N-1:0];
+
+    // Extracted physical register allocations from freelist grants
+    PHYS_TAG [`N-1:0] allocated_phys;
 
     // Create RS entry from instruction and map table data
     function RS_ENTRY create_rs_entry(int idx);
@@ -103,6 +107,17 @@ module stage_dispatch (
             local_Told[i]       = maptable_read_resp.told_entries[i].phys_reg;
         end
 
+        // Extract physical register allocations from freelist grants
+        // granted_regs[i][j] is one-hot: exactly one bit set, index j = allocated phys reg
+        for (int i = 0; i < `N; i++) begin
+            allocated_phys[i] = '0;  // Default value
+            for (int j = 0; j < `PHYS_REG_SZ_R10K; j++) begin
+                if (granted_regs[i][j]) begin
+                    allocated_phys[i] = PHYS_TAG'(j);
+                end
+            end
+        end
+
         // Setup register remapping writes
         for (int i = 0; i < `N; i++) begin
             if (i < dispatch_count && fetch_valid[i] && fetch_packet.uses_rd[i]) begin
@@ -115,31 +130,34 @@ module stage_dispatch (
         end
 
         // Build ROB and RS entries for dispatched instructions
-        alu_count = 0; mult_count = 0; branch_count = 0; mem_count = 0;
+        alu_count = 0;
+        mult_count = 0;
+        branch_count = 0;
+        mem_count = 0;
 
         for (int i = 0; i < dispatch_count; i++) begin
             if (fetch_valid[i]) begin
                 // ROB entry
                 rob_entry_packet[i] = '{
-                    valid:         1'b1,
-                    PC:            fetch_packet.PC[i],
-                    inst:          fetch_packet.inst[i],
-                    arch_rd:       fetch_packet.rd_idx[i],
-                    phys_rd:       allocated_phys[i],
-                    prev_phys_rd:  local_Told[i],
-                    complete:      1'b0,
-                    exception:     NO_ERROR,
-                    branch:        (fetch_packet.op_type[i].category == CAT_BRANCH),
-                    pred_target:   fetch_packet.pred_target[i],
-                    pred_taken:    fetch_packet.pred_taken[i],
-                    default:       '0
+                    valid: 1'b1,
+                    PC: fetch_packet.PC[i],
+                    inst: fetch_packet.inst[i],
+                    arch_rd: fetch_packet.rd_idx[i],
+                    phys_rd: allocated_phys[i],
+                    prev_phys_rd: local_Told[i],
+                    complete: 1'b0,
+                    exception: NO_ERROR,
+                    branch: (fetch_packet.op_type[i].category == CAT_BRANCH),
+                    pred_target: fetch_packet.pred_target[i],
+                    pred_taken: fetch_packet.pred_taken[i],
+                    default: '0
                 };
 
                 // Route to appropriate RS bank
                 case (fetch_packet.op_type[i].category)
                     CAT_ALU: begin
-                        rs_alloc.alu.valid[alu_count]     = 1'b1;
-                        rs_alloc.alu.entries[alu_count]   = create_rs_entry(i);
+                        rs_alloc.alu.valid[alu_count]   = 1'b1;
+                        rs_alloc.alu.entries[alu_count] = create_rs_entry(i);
                         alu_count++;
                     end
                     CAT_MULT: begin
@@ -148,13 +166,13 @@ module stage_dispatch (
                         mult_count++;
                     end
                     CAT_BRANCH: begin
-                        rs_alloc.branch.valid[branch_count] = 1'b1;
+                        rs_alloc.branch.valid[branch_count]   = 1'b1;
                         rs_alloc.branch.entries[branch_count] = create_rs_entry(i);
                         branch_count++;
                     end
                     CAT_MEM: begin
-                        rs_alloc.mem.valid[mem_count]     = 1'b1;
-                        rs_alloc.mem.entries[mem_count]   = create_rs_entry(i);
+                        rs_alloc.mem.valid[mem_count]   = 1'b1;
+                        rs_alloc.mem.entries[mem_count] = create_rs_entry(i);
                         mem_count++;
                     end
                 endcase
