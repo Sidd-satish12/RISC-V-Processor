@@ -13,12 +13,12 @@ module stage_execute (
     input CDB_ENTRY [`N-1:0] cdb_data,
 
     // To PRF for operand reads (structured)
-    output PRF_READ_EN prf_read_en_src1,
-    output PRF_READ_EN prf_read_en_src2,
+    output PRF_READ_EN   prf_read_en_src1,
+    output PRF_READ_EN   prf_read_en_src2,
     output PRF_READ_TAGS prf_read_tag_src1,
     output PRF_READ_TAGS prf_read_tag_src2,
-    input PRF_READ_DATA prf_read_data_src1,
-    input PRF_READ_DATA prf_read_data_src2,
+    input  PRF_READ_DATA prf_read_data_src1,
+    input  PRF_READ_DATA prf_read_data_src2,
 
     // // Interface to D-cache for memory operations (IGNORE FOR NOW)
     // output MEM_COMMAND proc2Dcache_command [`NUM_FU_MEM-1:0],
@@ -37,18 +37,19 @@ module stage_execute (
     // =========================================================================
 
     // ALU signals
-    DATA [`NUM_FU_ALU-1:0] alu_opa, alu_opbs, alu_results;
+    DATA [`NUM_FU_ALU-1:0] alu_opas, alu_opbs, alu_results;
     ALU_FUNC [`NUM_FU_ALU-1:0] alu_funcs;
 
     // MULT signals
     DATA [`NUM_FU_MULT-1:0] mult_rs1, mult_rs2, mult_result;
     MULT_FUNC [`NUM_FU_MULT-1:0] mult_func;
-    logic [`NUM_FU_MULT-1:0] mult_start, mult_done;
+    logic [`NUM_FU_MULT-1:0] mult_start, mult_requesting;
 
     // BRANCH signals
-    DATA branch_rs1, branch_rs2;
-    logic branch_take;
-    ADDR branch_target;
+    DATA [`NUM_FU_BRANCH-1:0] branch_rs1, branch_rs2;
+    logic [2:0][`NUM_FU_BRANCH-1:0] branch_funcs;  // Array of 3-bit func values
+    logic [`NUM_FU_BRANCH-1:0] branch_take;
+    ADDR [`NUM_FU_BRANCH-1:0] branch_target;
 
     // MEM signals (placeholder for future implementation)
     // DATA [`NUM_FU_MEM-1:0] mem_addr, mem_data;
@@ -63,16 +64,16 @@ module stage_execute (
     // Read from PRF when operands are needed (structured by FU type)
     always_comb begin
         // Initialize
-        prf_read_en_src1 = '0;
-        prf_read_en_src2 = '0;
+        prf_read_en_src1  = '0;
+        prf_read_en_src2  = '0;
         prf_read_tag_src1 = '0;
         prf_read_tag_src2 = '0;
 
         // ALU reads
         for (int i = 0; i < `NUM_FU_ALU; i++) begin
             if (issue_entries.alu[i].valid) begin
-                prf_read_en_src1.alu[i] = !issue_entries.alu[i].src1_ready;
-                prf_read_en_src2.alu[i] = !issue_entries.alu[i].src2_ready;
+                prf_read_en_src1.alu[i] = 1'b1;  // SRC1 always comes from register
+                prf_read_en_src2.alu[i]  = (issue_entries.alu[i].opb_select == OPB_IS_RS2);  // SRC2 only from PRF if it's a register
                 prf_read_tag_src1.alu[i] = issue_entries.alu[i].src1_tag;
                 prf_read_tag_src2.alu[i] = issue_entries.alu[i].src2_tag;
             end
@@ -81,8 +82,8 @@ module stage_execute (
         // MULT reads
         for (int i = 0; i < `NUM_FU_MULT; i++) begin
             if (issue_entries.mult[i].valid) begin
-                prf_read_en_src1.mult[i] = !issue_entries.mult[i].src1_ready;
-                prf_read_en_src2.mult[i] = !issue_entries.mult[i].src2_ready;
+                prf_read_en_src1.mult[i]  = 1'b1;  // SRC1 always comes from register
+                prf_read_en_src2.mult[i]  = 1'b1;  // SRC2 always comes from register for MULT
                 prf_read_tag_src1.mult[i] = issue_entries.mult[i].src1_tag;
                 prf_read_tag_src2.mult[i] = issue_entries.mult[i].src2_tag;
             end
@@ -91,8 +92,8 @@ module stage_execute (
         // BRANCH reads
         for (int i = 0; i < `NUM_FU_BRANCH; i++) begin
             if (issue_entries.branch[i].valid) begin
-                prf_read_en_src1.branch[i] = !issue_entries.branch[i].src1_ready;
-                prf_read_en_src2.branch[i] = !issue_entries.branch[i].src2_ready;
+                prf_read_en_src1.branch[i]  = 1'b1;  // SRC1 always comes from register
+                prf_read_en_src2.branch[i]  = 1'b1;  // SRC2 always comes from register for BRANCH
                 prf_read_tag_src1.branch[i] = issue_entries.branch[i].src1_tag;
                 prf_read_tag_src2.branch[i] = issue_entries.branch[i].src2_tag;
             end
@@ -101,8 +102,8 @@ module stage_execute (
         // MEM reads (placeholder)
         for (int i = 0; i < `NUM_FU_MEM; i++) begin
             if (issue_entries.mem[i].valid) begin
-                prf_read_en_src1.mem[i] = !issue_entries.mem[i].src1_ready;
-                prf_read_en_src2.mem[i] = !issue_entries.mem[i].src2_ready;
+                prf_read_en_src1.mem[i]  = 1'b1;  // SRC1 always comes from register
+                prf_read_en_src2.mem[i]  = 1'b1;  // SRC2 always comes from register for MEM (placeholder)
                 prf_read_tag_src1.mem[i] = issue_entries.mem[i].src1_tag;
                 prf_read_tag_src2.mem[i] = issue_entries.mem[i].src2_tag;
             end
@@ -194,11 +195,11 @@ module stage_execute (
             // Select operand B
             case (issue_entries.alu[i].opb_select)
                 OPB_IS_RS2:   alu_opbs[i] = resolved_src2.alu[i];
-                OPB_IS_I_IMM: alu_opbs[i] = `RV32_signext_Iimm(issue_entries.alu[i].inst);
-                OPB_IS_S_IMM: alu_opbs[i] = `RV32_signext_Simm(issue_entries.alu[i].inst);
-                OPB_IS_B_IMM: alu_opbs[i] = `RV32_signext_Bimm(issue_entries.alu[i].inst);
-                OPB_IS_U_IMM: alu_opbs[i] = `RV32_signext_Uimm(issue_entries.alu[i].inst);
-                OPB_IS_J_IMM: alu_opbs[i] = `RV32_signext_Jimm(issue_entries.alu[i].inst);
+                OPB_IS_I_IMM: alu_opbs[i] = issue_entries.alu[i].src2_immediate;
+                OPB_IS_S_IMM: alu_opbs[i] = issue_entries.alu[i].src2_immediate;
+                OPB_IS_B_IMM: alu_opbs[i] = issue_entries.alu[i].src2_immediate;
+                OPB_IS_U_IMM: alu_opbs[i] = issue_entries.alu[i].src2_immediate;
+                OPB_IS_J_IMM: alu_opbs[i] = issue_entries.alu[i].src2_immediate;
                 default:      alu_opbs[i] = 32'hfacefeed;
             endcase
 
@@ -208,7 +209,7 @@ module stage_execute (
     end
 
     // Instantiate ALU modules
-    alu alu_inst [`NUM_FU_ALU-1:0] (
+    alu alu_inst[`NUM_FU_ALU-1:0] (
         .opa(alu_opas),
         .opb(alu_opbs),
         .alu_func(alu_funcs),
@@ -230,16 +231,16 @@ module stage_execute (
 
     always_comb begin
         for (int i = 0; i < `NUM_FU_MULT; i++) begin
-            mult_rs1[i] = resolved_src1.mult[i];
-            mult_rs2[i] = resolved_src2.mult[i];
-            mult_func[i] = issue_entries.mult[i].op_type.func;
+            mult_rs1[i]   = resolved_src1.mult[i];
+            mult_rs2[i]   = resolved_src2.mult[i];
+            mult_func[i]  = issue_entries.mult[i].op_type.func;
             mult_start[i] = issue_entries.mult[i].valid;
         end
     end
 
     // Instantiate MULT modules
 
-    mult mult_inst [`NUM_FU_MULT-1:0] (
+    mult mult_inst[`NUM_FU_MULT-1:0] (
         .clock(clock),
         .reset(reset | mispredict),
         .start(mult_start),
@@ -247,16 +248,19 @@ module stage_execute (
         .rs2(mult_rs2),
         .func(mult_func),
         .result(mult_result),
-        .done(mult_done)
+        .request(mult_requesting)
     );
 
     // MULT outputs to CDB (only when done)
     always_comb begin
         for (int i = 0; i < `NUM_FU_MULT; i++) begin
-            fu_outputs.mult[i].valid = mult_done[i];
+            //TODO note that the valid signal doesnt really mean anything here 
+            // the cdb arbiter will have already determined if the instruction should be ready
+            // and the signal to read this value will be in the cdb register by the time it actually completes
+            fu_outputs.mult[i].valid = 1'b1;
             fu_outputs.mult[i].tag   = issue_entries.mult[i].dest_tag;
             fu_outputs.mult[i].data  = mult_result[i];
-            fu_requests.mult[i]      = mult_done[i];
+            mult_request[i]          = mult_requesting[i];
         end
     end
 
@@ -266,30 +270,33 @@ module stage_execute (
 
     always_comb begin
         for (int i = 0; i < `NUM_FU_BRANCH; i++) begin
-            branch_rs1[i] = resolved_src1.branch[i];
-            branch_rs2[i] = resolved_src2.branch[i];
+            branch_rs1[i]   = resolved_src1.branch[i];
+            branch_rs2[i]   = resolved_src2.branch[i];
+            branch_funcs[i] = issue_entries.branch[i].op_type.func[2:0];
         end
     end
 
-    // Instantiate BRANCH module
-    conditional_branch branch_inst (
-        .rs1(branch_rs1),
-        .rs2(branch_rs2),
-        .func(issue_entries.branch.op_type.func[2:0]),
+    // Instantiate BRANCH modules
+    conditional_branch branch_inst[`NUM_FU_BRANCH-1:0] (
+        .rs1 (branch_rs1),
+        .rs2 (branch_rs2),
+        .func(branch_funcs),  // Connect func array directly
         .take(branch_take)
     );
 
-    // Compute branch target: PC + offset
-    assign branch_target = issue_entries.branch[branch_idx].PC +
-                                        `RV32_signext_Bimm(issue_entries.branch[branch_idx].inst);
+    // Compute branch targets: PC + offset (offset is pre-stored in src2_immediate)
+    always_comb begin
+        for (int i = 0; i < `NUM_FU_BRANCH; i++) begin
+            branch_target[i] = issue_entries.branch[i].PC + issue_entries.branch[i].src2_immediate;
+        end
+    end
 
     // BRANCH outputs to CDB
     always_comb begin
-        fu_outputs.branch.valid = issue_entries.branch.valid;
-        fu_outputs.branch.tag   = issue_entries.branch.dest_tag;
+        fu_outputs.branch[0].valid = issue_entries.branch[0].valid;
+        fu_outputs.branch[0].tag   = issue_entries.branch[0].dest_tag;
         // For branches, data could be PC+4 for branch-and-link or 0 for conditional branches
-        fu_outputs.branch.data  = issue_entries.branch.PC + 4; // TODO: check if needed
-        fu_requests.branch      = issue_entries.branch.valid;
+        fu_outputs.branch[0].data  = issue_entries.branch[0].PC + 4;  // TODO: check if needed
     end
 
     // =========================================================================
@@ -302,7 +309,6 @@ module stage_execute (
             fu_outputs.mem[i].valid = 1'b0;
             fu_outputs.mem[i].tag   = '0;
             fu_outputs.mem[i].data  = '0;
-            fu_requests.mem[i]      = 1'b0;
         end
     end
 
