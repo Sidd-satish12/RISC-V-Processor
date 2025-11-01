@@ -1,6 +1,7 @@
 
 `include "sys_defs.svh"
 
+
 // This is a pipelined multiplier that multiplies two 64-bit integers and
 // returns the low 64 bits of the result.
 // This is not an ideal multiplier but is sufficient to allow a faster clock
@@ -13,21 +14,25 @@ module mult (
     input DATA rs1,
     rs2,
     input MULT_FUNC func,
-    // input logic [TODO] dest_tag_in,
+    input EX_COMPLETE_ENTRY meta_in,
 
-    // output logic [TODO] dest_tag_out,
     output DATA result,
-    output request
+    output logic request,
+    output logic done,
+    output EX_COMPLETE_ENTRY meta_out
 );
 
     MULT_FUNC [`MULT_STAGES-2:0] internal_funcs;
     MULT_FUNC func_out;
 
+    logic [`MULT_STAGES-2:0] internal_dones;
     logic [(64*(`MULT_STAGES-1))-1:0] internal_sums, internal_mcands, internal_mpliers;
     logic [`MULT_STAGES-1:0] dones;
 
     logic [63:0] mcand, mplier, product;
     logic [63:0] mcand_out, mplier_out;  // unused, just for wiring
+
+    EX_COMPLETE_ENTRY [`MULT_STAGES-2:0] internal_meta;
 
     // instantiate an array of mult_stage modules
     // this uses concatenation syntax for internal wiring, see lab 2 slides
@@ -43,24 +48,28 @@ module mult (
         .next_mplier({mplier_out, internal_mpliers}),
         .next_mcand ({mcand_out, internal_mcands}),
         .next_func  ({func_out, internal_funcs}),
+        .meta_in    ({internal_meta, meta_in}),
+        .meta_out   ({meta_out, internal_meta}),
         .done       (dones)                            // done when the final stage is done
     );
 
     // Sign-extend the multiplier inputs based on the operation
     always_comb begin
         case (func)
-            M_MUL, M_MULH, M_MULHSU: mcand = {{(32) {rs1[31]}}, rs1};
-            default:                 mcand = {32'b0, rs1};
+            MUL, MULH, MULHSU: mcand = {{(32) {rs1[31]}}, rs1};
+            default:           mcand = {32'b0, rs1};
         endcase
         case (func)
-            M_MUL, M_MULH: mplier = {{(32) {rs2[31]}}, rs2};
-            default:       mplier = {32'b0, rs2};
+            MUL, MULH: mplier = {{(32) {rs2[31]}}, rs2};
+            default:   mplier = {32'b0, rs2};
         endcase
     end
 
     // Use the high or low bits of the product based on the output func
-    assign result  = (func_out == M_MUL) ? product[31:0] : product[63:32];
+    assign result = (func_out == MUL) ? product[31:0] : product[63:32];
     assign request = dones[`MULT_STAGES-2];
+    assign done = dones[`MULT_STAGES-1];
+
 endmodule  // mult
 
 
@@ -72,11 +81,13 @@ module mult_stage (
     mplier,
     mcand,
     input MULT_FUNC func,
+    input EX_COMPLETE_ENTRY meta_in,
 
     output logic [63:0] product_sum,
     next_mplier,
     next_mcand,
     output MULT_FUNC next_func,
+    output EX_COMPLETE_ENTRY meta_out,
     output logic done
 );
 
@@ -94,6 +105,7 @@ module mult_stage (
         next_mplier <= shifted_mplier;
         next_mcand  <= shifted_mcand;
         next_func   <= func;
+        meta_out    <= meta_in;
     end
 
     always_ff @(posedge clock) begin
