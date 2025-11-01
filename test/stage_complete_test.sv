@@ -49,8 +49,8 @@ module complete_test;
     ) dut (
         .clock,
         .reset,
-        .ex_valid(ex_valid),
-        .ex_comp (ex_comp),
+        .ex_valid_in(ex_valid),
+        .ex_comp_in (ex_comp),
         .rob_update_packet
     );
 `else
@@ -58,8 +58,8 @@ module complete_test;
     complete dut (
         .clock,
         .reset,
-        .ex_valid(ex_valid_p),
-        .ex_comp(ex_comp_bus),
+        .ex_valid_in(ex_valid_p),
+        .ex_comp_in(ex_comp_bus),
         .rob_update_packet(rob_update_packet)
     );
 `endif
