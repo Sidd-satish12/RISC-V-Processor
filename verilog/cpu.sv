@@ -164,21 +164,6 @@ module cpu (
     // Calculate freelist free slots (placeholder - TODO: get from freelist module)
     assign freelist_free_slots = 32;  // Placeholder
 
-    // Generate ROB allocation indices (sequential from tail)
-    // TODO: This should come from ROB module
-    always_comb begin
-        for (int i = 0; i < `N; i++) begin
-            rob_alloc_idxs[i] = ROB_IDX'(0);  // Placeholder - should be tail + i
-        end
-    end
-
-    // Generate retire stage inputs from ROB head entries
-    always_comb begin
-        for (int i = 0; i < `N; i++) begin
-            rob_head_valids[i] = rob_head_entries[i].valid;
-            rob_head_idxs[i]   = ROB_IDX'(0);  // TODO: Should be head_idx + i
-        end
-    end
 
     //////////////////////////////////////////////////
     //                                              //
@@ -359,12 +344,15 @@ module cpu (
         // Dispatch
         .rob_entry_packet(rob_entry_packet),
         .free_slots(rob_free_slots),
+        .alloc_idxs(rob_alloc_idxs),
 
         // Complete
         .rob_update_packet(rob_update_packet),
 
         // Retire
-        .head_entries(rob_head_entries)
+        .head_entries(rob_head_entries),
+        .head_idxs(rob_head_idxs),
+        .head_valids(rob_head_valids)
     );
 
     //////////////////////////////////////////////////

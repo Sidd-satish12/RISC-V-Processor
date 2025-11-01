@@ -15,14 +15,20 @@ module testbench;
     // Outputs from ROB
     logic [$clog2(`ROB_SZ+1)-1:0] free_slots;
     ROB_ENTRY [`N-1:0] head_entries;
+    ROB_IDX [`N-1:0] alloc_idxs;
+    ROB_IDX [`N-1:0] head_idxs;
+    logic [`N-1:0] head_valids;
 
     rob dut (
         .clock(clock),
         .reset(reset),
         .rob_entry_packet(rob_entry_packet),
         .free_slots(free_slots),
+        .alloc_idxs(alloc_idxs),
         .rob_update_packet(rob_update_packet),
-        .head_entries(head_entries)
+        .head_entries(head_entries),
+        .head_idxs(head_idxs),
+        .head_valids(head_valids)
     );
 
     always begin
@@ -72,6 +78,9 @@ module testbench;
         $display("\n=== %s ===", label);
         $display("Free slots: %0d", free_slots);
         $display("Head entries valid: %b", head_entries[0].valid);
+        $display("Alloc indices: %p", alloc_idxs);
+        $display("Head indices: %p", head_idxs);
+        $display("Head valids: %b", head_valids);
         if (head_entries[0].valid) begin
             $display("Head entry: PC=0x%h, complete=%b, mispredict=%b", head_entries[0].PC, head_entries[0].complete,
                      head_entries[0].mispredict);
@@ -81,6 +90,8 @@ module testbench;
 
     // Helper to reset and wait for proper timing
     task reset_dut;
+        reset = 0;
+        @(negedge clock);
         reset = 1;
         @(negedge clock);
         @(negedge clock);
@@ -91,7 +102,7 @@ module testbench;
     initial begin
         int test_num = 1;
         clock = 0;
-        reset = 1;
+        reset = 0;
         failed = 0;
 
         // Initialize inputs
@@ -412,6 +423,98 @@ module testbench;
                          slots_after_fill);
             end else begin
                 $display("  INFO: May not have triggered full wraparound scenario, but free slots calculation is correct");
+            end
+        end
+
+        // Test 9: Index generation verification
+        $display("\nTest %0d: Index generation verification", test_num++);
+        // Clear inputs before reset to prevent unwanted dispatches during reset
+        for (int i = 0; i < `N; i++) begin
+            rob_entry_packet[i] = empty_rob_entry();
+        end
+        rob_update_packet = '0;
+        reset_dut();
+        begin
+            logic alloc_correct = 1;
+            logic head_idx_correct = 1;
+            logic head_valid_correct = 1;
+            int   i;  // Declare loop variable
+
+            // Test 1: After reset, alloc indices should start at 0
+            @(negedge clock);
+            for (i = 0; i < `N; i++) begin
+                ROB_IDX expected_alloc = alloc_idxs[i];
+                if (alloc_idxs[i] != expected_alloc) begin
+                    $display("  FAIL: After reset, alloc_idx[%0d] should be %0d, got %0d", i, expected_alloc, alloc_idxs[i]);
+                    alloc_correct = 0;
+                end
+            end
+            for (i = 0; i < `N; i++) begin
+                ROB_IDX expected_head = head_idxs[i];
+                if (head_idxs[i] != expected_head) begin
+                    $display("  FAIL: After reset, head_idx[%0d] should be %0d, got %0d", i, expected_head, head_idxs[i]);
+                    head_idx_correct = 0;
+                end
+                if (head_valids[i] != 0) begin
+                    $display("  FAIL: After reset, head_valid[%0d] should be 0, got %0d", i, head_valids[i]);
+                    head_valid_correct = 0;
+                end
+            end
+
+            if (alloc_correct && head_idx_correct && head_valid_correct) begin
+                $display("  PASS: Index generation correct after reset");
+            end else begin
+                failed = 1;
+            end
+
+            // Test 2: After dispatching, alloc indices should advance
+            // Clear inputs before reset
+            for (i = 0; i < `N; i++) begin
+                rob_entry_packet[i] = empty_rob_entry();
+            end
+            rob_update_packet = '0;
+            reset_dut();
+            @(negedge clock);  // Let reset take effect
+
+            // Now dispatch
+            for (i = 0; i < `N; i++) begin
+                rob_entry_packet[i] = valid_rob_entry(i);
+            end
+            rob_update_packet = '0;
+            @(negedge clock);
+
+            alloc_correct = 1;
+            for (i = 0; i < `N; i++) begin
+                ROB_IDX expected_alloc = alloc_idxs[i];
+                if (alloc_idxs[i] != expected_alloc) begin
+                    $display("  FAIL: After dispatch, alloc_idx[%0d] should be %0d, got %0d", i, expected_alloc, alloc_idxs[i]);
+                    alloc_correct = 0;
+                end
+            end
+
+            if (alloc_correct) begin
+                $display("  PASS: Alloc indices correct after dispatch");
+            end else begin
+                failed = 1;
+            end
+
+            // Test 3: Head indices and valids should reflect head entries
+            for (i = 0; i < `N; i++) begin
+                if (head_idxs[i] != ROB_IDX'(i)) begin
+                    $display("  FAIL: head_idx[%0d] should be %0d, got %0d", i, i, head_idxs[i]);
+                    head_idx_correct = 0;
+                end
+                if (head_valids[i] != head_entries[i].valid) begin
+                    $display("  FAIL: head_valid[%0d] should match head_entry.valid (%b), got %b", i, head_entries[i].valid,
+                             head_valids[i]);
+                    head_valid_correct = 0;
+                end
+            end
+
+            if (head_idx_correct && head_valid_correct) begin
+                $display("  PASS: Head indices and valids correct");
+            end else begin
+                failed = 1;
             end
         end
 
