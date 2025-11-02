@@ -15,24 +15,24 @@ module decoder (
 
     output ALU_OPA_SELECT opa_select,
     output ALU_OPB_SELECT opb_select,
-    output logic          has_dest, // if there is a destination register
+    output logic          has_dest,    // if there is a destination register
     output OP_TYPE        op_type,
-    output logic          csr_op, // used for CSR operations
-    output logic          halt,   // non-zero on a halt
-    output logic          illegal // non-zero on an illegal instruction
+    output logic          csr_op,      // used for CSR operations
+    output logic          halt,        // non-zero on a halt
+    output logic          illegal      // non-zero on an illegal instruction
 );
 
     // Note: I recommend using an IDE's code folding feature on this block
     always_comb begin
         // Default control values (looks like a NOP)
         // See sys_defs.svh for the constants used here
-        opa_select    = OPA_IS_RS1;
-        opb_select    = OPB_IS_RS2;
-        has_dest      = `FALSE;
-        op_type       = '{category: CAT_ALU, func: 4'h0};
-        csr_op        = `FALSE;
-        halt          = `FALSE;
-        illegal       = `FALSE;
+        opa_select = OPA_IS_RS1;
+        opb_select = OPB_IS_RS2;
+        has_dest   = `FALSE;
+        op_type    = '{category: CAT_ALU, func: 4'h0};
+        csr_op     = `FALSE;
+        halt       = `FALSE;
+        illegal    = `FALSE;
 
         if (valid) begin
             casez (inst)
@@ -49,46 +49,46 @@ module decoder (
                     op_type    = OP_ALU_ADD;
                 end
                 `RV32_JAL: begin
-                    has_dest      = `TRUE;
-                    opa_select    = OPA_IS_PC;
-                    opb_select    = OPB_IS_J_IMM;
-                    op_type       = OP_JAL;
+                    has_dest   = `TRUE;
+                    opa_select = OPA_IS_PC;
+                    opb_select = OPB_IS_J_IMM;
+                    op_type    = OP_JAL;
                 end
                 `RV32_JALR: begin
-                    has_dest      = `TRUE;
-                    opa_select    = OPA_IS_RS1;
-                    opb_select    = OPB_IS_I_IMM;
-                    op_type       = OP_JALR;
+                    has_dest   = `TRUE;
+                    opa_select = OPA_IS_RS1;
+                    opb_select = OPB_IS_I_IMM;
+                    op_type    = OP_JALR;
                 end
                 `RV32_BEQ: begin
-                    opa_select  = OPA_IS_PC;
-                    opb_select  = OPB_IS_B_IMM;
-                    op_type     = OP_BR_EQ;
+                    opa_select = OPA_IS_PC;
+                    opb_select = OPB_IS_B_IMM;
+                    op_type    = OP_BR_EQ;
                 end
                 `RV32_BNE: begin
-                    opa_select  = OPA_IS_PC;
-                    opb_select  = OPB_IS_B_IMM;
-                    op_type     = OP_BR_NE;
+                    opa_select = OPA_IS_PC;
+                    opb_select = OPB_IS_B_IMM;
+                    op_type    = OP_BR_NE;
                 end
                 `RV32_BLT: begin
-                    opa_select  = OPA_IS_PC;
-                    opb_select  = OPB_IS_B_IMM;
-                    op_type     = OP_BR_LT;
+                    opa_select = OPA_IS_PC;
+                    opb_select = OPB_IS_B_IMM;
+                    op_type    = OP_BR_LT;
                 end
                 `RV32_BGE: begin
-                    opa_select  = OPA_IS_PC;
-                    opb_select  = OPB_IS_B_IMM;
-                    op_type     = OP_BR_GE;
+                    opa_select = OPA_IS_PC;
+                    opb_select = OPB_IS_B_IMM;
+                    op_type    = OP_BR_GE;
                 end
                 `RV32_BLTU: begin
-                    opa_select  = OPA_IS_PC;
-                    opb_select  = OPB_IS_B_IMM;
-                    op_type     = OP_BR_LTU;
+                    opa_select = OPA_IS_PC;
+                    opb_select = OPB_IS_B_IMM;
+                    op_type    = OP_BR_LTU;
                 end
                 `RV32_BGEU: begin
-                    opa_select  = OPA_IS_PC;
-                    opb_select  = OPB_IS_B_IMM;
-                    op_type     = OP_BR_GEU;
+                    opa_select = OPA_IS_PC;
+                    opb_select = OPB_IS_B_IMM;
+                    op_type    = OP_BR_GEU;
                 end
                 `RV32_MUL: begin
                     has_dest = `TRUE;
@@ -228,35 +228,19 @@ module decoder (
                     has_dest = `TRUE;
                     op_type  = OP_ALU_SRA;
                 end
-                `RV32_CSRRW: begin
-                    has_dest   = `TRUE;
-                    opa_select = OPA_IS_RS1;  // CSR address in rs1
-                    opb_select = OPB_IS_RS2;  // Value in rs2
-                    op_type    = OP_CSRRW;
-                    csr_op     = `TRUE;
-                end
-                `RV32_CSRRS: begin
-                    has_dest   = `TRUE;
-                    opa_select = OPA_IS_RS1;
-                    opb_select = OPB_IS_RS2;
-                    op_type    = OP_CSRRS;
-                    csr_op     = `TRUE;
-                end
-                `RV32_CSRRC: begin
-                    has_dest   = `TRUE;
-                    opa_select = OPA_IS_RS1;
-                    opb_select = OPB_IS_RS2;
-                    op_type    = OP_CSRRC;
-                    csr_op     = `TRUE;
+                `RV32_CSRRW, `RV32_CSRRS, `RV32_CSRRC, `RV32_CSRRWI, `RV32_CSRRSI, `RV32_CSRRCI: begin
+                    // Ignore CSR instructions - treat as NOP
+                    illegal = `TRUE;
                 end
                 `WFI: begin
+                    op_type = OP_HALT;
                     halt = `TRUE;
                 end
                 default: begin
                     illegal = `TRUE;
                 end
-        endcase // casez (inst)
-        end // if (valid)
-    end // always
+            endcase  // casez (inst)
+        end  // if (valid)
+    end  // always
 
-endmodule // decoder
+endmodule  // decoder
