@@ -344,7 +344,8 @@ typedef enum logic [3:0] {
     XOR,
     SLL,
     SRL,
-    SRA
+    SRA,
+    HALT
 } ALU_FUNC;
 
 // MULT funct3 code
@@ -394,6 +395,11 @@ typedef struct packed {
 } OP_TYPE;
 
 // Constants for specific ops (assign struct values)
+
+// Halt
+const OP_TYPE OP_HALT = '{category: CAT_ALU, func: HALT};
+
+// Adder operations
 const OP_TYPE OP_ALU_ADD = '{category: CAT_ALU, func: ADD};
 const OP_TYPE OP_ALU_SUB = '{category: CAT_ALU, func: SUB};
 const OP_TYPE OP_ALU_AND = '{category: CAT_ALU, func: AND};
@@ -404,6 +410,7 @@ const OP_TYPE OP_ALU_XOR = '{category: CAT_ALU, func: XOR};
 const OP_TYPE OP_ALU_SLL = '{category: CAT_ALU, func: SLL};
 const OP_TYPE OP_ALU_SRL = '{category: CAT_ALU, func: SRL};
 const OP_TYPE OP_ALU_SRA = '{category: CAT_ALU, func: SRA};
+
 
 // Multiply operations
 const OP_TYPE OP_MULT_MUL = '{category: CAT_MULT, func: MUL};
@@ -622,6 +629,7 @@ typedef struct packed {
     INST [`N-1:0]           inst;           // Full instructions
     logic [`N-1:0]          pred_taken;     // Branch prediction taken
     ADDR [`N-1:0]           pred_target;    // Branch prediction target
+    logic [`N-1:0]          halt;           // Halt instruction flag
 } FETCH_DISP_PACKET;
 
 // Map table communication packets

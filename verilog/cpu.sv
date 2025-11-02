@@ -9,6 +9,7 @@
 /////////////////////////////////////////////////////////////////////////
 
 `include "sys_defs.svh"
+`include "ISA.svh"
 
 module cpu (
     input clock,  // System clock
@@ -28,12 +29,12 @@ module cpu (
     output COMMIT_PACKET [`N-1:0] committed_insts,
 
     // Fake-fetch interface
-    input  DATA  [          `N-1:0] ff_instr,        // Instruction bundle from testbench
-    input  ADDR                     ff_pc,           // Current PC from testbench
-    input  logic [$clog2(`N+1)-1:0] ff_nvalid,       // Number of valid instructions from testbench
-    output logic [$clog2(`N+1)-1:0] ff_consumed,     // Number consumed by CPU
-    output logic                    branch_taken_o,  // Branch taken signal to testbench
-    output ADDR                     branch_target_o, // Branch target to testbench
+    input  DATA                     ff_instr       [`N-1:0],  // Instruction bundle from testbench
+    input  ADDR                     ff_pc,                    // Current PC from testbench
+    input  logic [$clog2(`N+1)-1:0] ff_nvalid,                // Number of valid instructions from testbench
+    output logic [$clog2(`N+1)-1:0] ff_consumed,              // Number consumed by CPU
+    output logic                    branch_taken_o,           // Branch taken signal to testbench
+    output ADDR                     branch_target_o,          // Branch target to testbench
 
     // Debug outputs: these signals are solely used for debugging in testbenches
     // Do not change for project 3
@@ -62,8 +63,6 @@ module cpu (
     //////////////////////////////////////////////////
     // NOTE: organize this section by the module that outputs referenced wires
 
-    logic                                                                            mispredict;
-
     // Pipeline register enables
     logic                                                                            issue_execute_enable;
 
@@ -72,6 +71,7 @@ module cpu (
 
     // Outputs from Dispatch stage
     logic                   [                 $clog2(`N)-1:0]                        dispatch_count;
+    logic                   [                         `N-1:0]                        fetch_valid_mask;
     RS_ALLOC_BANKS                                                                   rs_alloc_from_dispatch;
 
     // ROB allocation signals
@@ -139,13 +139,19 @@ module cpu (
     logic              rob_mispredict;
     ROB_IDX            rob_mispred_idx;
     logic              bp_recover_en;
-    logic              arch_write_enables  [`N-1:0];
-    REG_IDX            arch_write_addrs    [`N-1:0];
-    PHYS_TAG           arch_write_phys_regs[`N-1:0];
+    logic     [`N-1:0] arch_write_enables;
+    REG_IDX   [`N-1:0] arch_write_addrs;
+    PHYS_TAG  [`N-1:0] arch_write_phys_regs;
 
     // Global mispredict signal
     logic              mispredict;
     assign mispredict = rob_mispredict;
+
+    // Memory interface placeholders (TODO: implement proper data memory stages)
+    logic                        Dmem_command_filtered = MEM_NONE;
+    MEM_SIZE                     Dmem_size = DOUBLE;
+    ADDR                         Dmem_addr = '0;
+    MEM_BLOCK                    Dmem_store_data = '0;
 
     // Arch map table signals
     MAP_ENTRY [`ARCH_REG_SZ-1:0] arch_table_snapshot;
@@ -176,16 +182,11 @@ module cpu (
     // there is a 100ns latency to memory 
 
     always_comb begin
-        if (Dmem_command != MEM_NONE) begin  // read or write DATA from memory
-            proc2mem_command = Dmem_command_filtered;
-            proc2mem_size    = Dmem_size;
-            proc2mem_addr    = Dmem_addr;
-        end else begin  // read an INSTRUCTION from memory
-            proc2mem_command = Imem_command;
-            proc2mem_addr    = Imem_addr;
-            proc2mem_size    = DOUBLE;  // instructions load a full memory line (64 bits)
-        end
-        proc2mem_data = Dmem_store_data;
+        // Using fake fetch - only handle data memory operations
+        proc2mem_command = Dmem_command_filtered;
+        proc2mem_size    = Dmem_size;
+        proc2mem_addr    = Dmem_addr;
+        proc2mem_data    = Dmem_store_data;
     end
 
     //////////////////////////////////////////////////
@@ -218,28 +219,7 @@ module cpu (
     //                                              //
     //////////////////////////////////////////////////
 
-    stage_if stage_if_0 (
-        // Inputs
-        .clock        (clock),
-        .reset        (reset),
-        .if_valid     (if_valid),
-        .take_branch  (ex_mem_reg.take_branch),
-        .branch_target(ex_mem_reg.alu_result),
-        .Imem_data    (mem2proc_data),
-
-        .Imem2proc_transaction_tag(mem2proc_transaction_tag),
-        .Imem2proc_data_tag       (mem2proc_data_tag),
-
-        // Outputs
-        .Imem_command(Imem_command),
-        .if_packet   (if_packet),
-        .Imem_addr   (Imem_addr)
-    );
-
-    // debug outputs
-    assign if_NPC_dbg   = if_packet.NPC;
-    assign if_inst_dbg  = if_packet.inst;
-    assign if_valid_dbg = if_packet.valid;
+    // Fetch stage removed - using fake fetch directly
 
     //////////////////////////////////////////////////
     //                                              //
@@ -247,23 +227,39 @@ module cpu (
     //                                              //
     //////////////////////////////////////////////////
 
-    assign if_id_enable = !load_stall;
+    // Pipeline register removed - using fake fetch directly
 
-    always_ff @(posedge clock) begin
-        if (reset) begin
-            if_id_reg.inst  <= `NOP;
-            if_id_reg.valid <= `FALSE;
-            if_id_reg.NPC   <= 0;
-            if_id_reg.PC    <= 0;
-        end else if (if_id_enable) begin
-            if_id_reg <= if_packet;
+    //////////////////////////////////////////////////
+    //                                              //
+    //                Decode Stage                  //
+    //                                              //
+    //////////////////////////////////////////////////
+
+    // Decoder outputs for each instruction in the bundle
+    ALU_OPA_SELECT [`N-1:0] decode_opa_select;
+    ALU_OPB_SELECT [`N-1:0] decode_opb_select;
+    logic          [`N-1:0] decode_has_dest;
+    OP_TYPE        [`N-1:0] decode_op_type;
+    logic          [`N-1:0] decode_csr_op;
+    logic          [`N-1:0] decode_halt;
+    logic          [`N-1:0] decode_illegal;
+
+    // Instantiate decoders for each instruction in the bundle
+    generate
+        for (genvar i = 0; i < `N; i++) begin
+            decoder decoder_i (
+                .inst      (ff_instr[i]),
+                .valid     (i < ff_nvalid),
+                .opa_select(decode_opa_select[i]),
+                .opb_select(decode_opb_select[i]),
+                .has_dest  (decode_has_dest[i]),
+                .op_type   (decode_op_type[i]),
+                .csr_op    (decode_csr_op[i]),
+                .halt      (decode_halt[i]),
+                .illegal   (decode_illegal[i])
+            );
         end
-    end
-
-    // debug outputs
-    assign if_id_NPC_dbg   = if_id_reg.NPC;
-    assign if_id_inst_dbg  = if_id_reg.inst;
-    assign if_id_valid_dbg = if_id_reg.valid;
+    endgenerate
 
     //////////////////////////////////////////////////
     //                                              //
@@ -272,23 +268,48 @@ module cpu (
     //////////////////////////////////////////////////
 
 
-    // For now, convert id_packet to fetch_disp_packet format
-    // TODO: Update stage_id to output FETCH_DISP_PACKET directly
+    // Convert ff_nvalid count to bit mask for dispatch stage
+    always_comb begin
+        fetch_valid_mask = '0;
+        for (int i = 0; i < `N; i++) begin
+            if (i < ff_nvalid) fetch_valid_mask[i] = 1'b1;
+        end
+    end
+
+    // Build FETCH_DISP_PACKET from fake fetch inputs and decoder outputs
     always_comb begin
         for (int i = 0; i < `N; i++) begin
-            fetch_disp_packet.rs1_idx[i]       = id_packet.inst.r.rs1;
-            fetch_disp_packet.rs2_idx[i]       = id_packet.inst.r.rs2;
-            fetch_disp_packet.rd_idx[i]        = id_packet.dest_reg_idx;
-            fetch_disp_packet.uses_rd[i]       = (id_packet.dest_reg_idx != `ZERO_REG);
-            // TODO: Set op_type, opa_select, opb_select based on decode logic
-            fetch_disp_packet.op_type[i]       = OP_ALU_ADD;  // Placeholder
-            fetch_disp_packet.opa_select[i]    = id_packet.opa_select;
-            fetch_disp_packet.opb_select[i]    = id_packet.opb_select;
-            fetch_disp_packet.rs2_immediate[i] = '0;  // TODO: Extract immediate from instruction
-            fetch_disp_packet.PC[i]            = id_packet.PC;
-            fetch_disp_packet.inst[i]          = id_packet.inst;
-            fetch_disp_packet.pred_taken[i]    = 1'b0;  // TODO: Add branch prediction
-            fetch_disp_packet.pred_target[i]   = '0;
+            // Register indices from instruction (RISC-V bit fields)
+            fetch_disp_packet.rs1_idx[i] = ff_instr[i][19:15];  // rs1: bits 19-15
+            fetch_disp_packet.rs2_idx[i] = ff_instr[i][24:20];  // rs2: bits 24-20
+            fetch_disp_packet.rd_idx[i]  = ff_instr[i][11:7];   // rd: bits 11-7
+
+            // Use destination flag from decoder
+            fetch_disp_packet.uses_rd[i] = decode_has_dest[i] && (ff_instr[i][11:7] != `ZERO_REG);
+
+            // Operation info from decoder
+            fetch_disp_packet.op_type[i]    = decode_op_type[i];
+            fetch_disp_packet.opa_select[i] = decode_opa_select[i];
+            fetch_disp_packet.opb_select[i] = decode_opb_select[i];
+
+            // Extract immediate based on operand B select
+            case (decode_opb_select[i])
+                OPB_IS_I_IMM: fetch_disp_packet.rs2_immediate[i] = `RV32_signext_Iimm(ff_instr[i]);
+                OPB_IS_S_IMM: fetch_disp_packet.rs2_immediate[i] = `RV32_signext_Simm(ff_instr[i]);
+                OPB_IS_B_IMM: fetch_disp_packet.rs2_immediate[i] = `RV32_signext_Bimm(ff_instr[i]);
+                OPB_IS_U_IMM: fetch_disp_packet.rs2_immediate[i] = `RV32_signext_Uimm(ff_instr[i]);
+                OPB_IS_J_IMM: fetch_disp_packet.rs2_immediate[i] = `RV32_signext_Jimm(ff_instr[i]);
+                default:      fetch_disp_packet.rs2_immediate[i] = '0;
+            endcase
+
+            // PC and instruction info from fake fetch
+            fetch_disp_packet.PC[i]          = ff_pc + 32'(4 * i);
+            fetch_disp_packet.inst[i]        = ff_instr[i];
+
+            // No branch prediction for now
+            fetch_disp_packet.pred_taken[i]  = 1'b0;
+            fetch_disp_packet.pred_target[i] = '0;
+            fetch_disp_packet.halt[i]        = decode_halt[i];
         end
     end
 
@@ -299,7 +320,7 @@ module cpu (
 
         // From decode
         .fetch_packet(fetch_disp_packet),
-        .fetch_valid ({`N{id_packet.valid}}), // Replicate valid bit
+        .fetch_valid (fetch_valid_mask),   // Convert count to bit mask
 
         // From ROB/Freelist
         .free_slots_rob    (rob_free_slots),
@@ -489,7 +510,6 @@ module cpu (
 
     // Issue stage structured inputs/outputs
     ISSUE_ENTRIES issue_entries;
-    ISSUE_CLEAR   issue_clear;
     FU_REQUESTS   issue_cdb_requests;
 
     // Create structured RS banks from individual RS module outputs
@@ -753,12 +773,25 @@ module cpu (
     //                                              //
     //////////////////////////////////////////////////
 
-    // Output the committed instruction to the testbench for counting
-    assign committed_insts[0] = wb_packet;
+    // Output the committed instructions to the testbench for counting
+    // For now, only output the oldest retired instruction
+    always_comb begin
+        committed_insts = '0;
+        if (rob_head_valids[`N-1]) begin  // Oldest instruction is valid
+            committed_insts[0] = '{
+                NPC: rob_head_entries[`N-1].PC + 4,
+                data: '0,  // TODO: Get actual result data
+                reg_idx: rob_head_entries[`N-1].arch_rd,
+                halt: rob_head_entries[`N-1].halt,
+                illegal: rob_head_entries[`N-1].exception == ILLEGAL_INST,
+                valid: rob_head_entries[`N-1].complete
+            };
+        end
+    end
 
-    // Fake-fetch outputs (placeholder implementations)
-    assign ff_consumed = '0;     // TODO: implement based on dispatch count
-    assign branch_taken_o = 1'b0;  // TODO: implement branch resolution
-    assign branch_target_o = '0;   // TODO: implement branch target
+    // Fake-fetch outputs
+    assign ff_consumed     = dispatch_count;  // Number of instructions consumed by dispatch
+    assign branch_taken_o  = 1'b0;  // TODO: implement branch resolution
+    assign branch_target_o = '0;  // TODO: implement branch target
 
 endmodule  // cpu
