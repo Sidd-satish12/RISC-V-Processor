@@ -118,7 +118,9 @@ module allocator #(
             // - XOR with resource_allocated: resources being allocated become unavailable (0)
             // Note: XOR flips the bit when allocating; the OR with clear handles clearing
             //       This preserves the original parking lot logic behavior
-            resource_status <= (resource_status | clear) ^ resource_allocated;
+            // TODO changed from XOR to OR as this prevents stalling for 1 cycle instructions (ALU, BRANCH, ETC)
+            // need to check if this works for mult as it is not a 1 cycle instruction
+            resource_status <= (resource_status | clear) | resource_allocated;
         end
     end
 
