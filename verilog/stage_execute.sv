@@ -49,7 +49,11 @@ module stage_execute (
     output logic [`NUM_FU_MULT-1:0] mult_start_dbg,
     output logic [`NUM_FU_MULT-1:0] mult_done_dbg,
     output logic [`NUM_FU_BRANCH-1:0] branch_take_dbg,
-    output ADDR [`NUM_FU_BRANCH-1:0] branch_target_dbg
+    output ADDR [`NUM_FU_BRANCH-1:0] branch_target_dbg,
+    output logic [`NUM_FU_ALU-1:0] alu_executing_dbg,
+    output logic [`NUM_FU_MULT-1:0] mult_executing_dbg,
+    output logic [`NUM_FU_BRANCH-1:0] branch_executing_dbg,
+    output logic [`NUM_FU_MEM-1:0] mem_executing_dbg
 );
 
     // =========================================================================
@@ -391,9 +395,9 @@ module stage_execute (
     // localparam int ALU_START = MEM_START + `NUM_FU_MEM;
     // localparam int BRANCH_START = ALU_START + `NUM_FU_ALU;
     localparam int BRANCH_START = 0;
-    localparam int ALU_START    = BRANCH_START + `NUM_FU_BRANCH;
-    localparam int MEM_START    = ALU_START    + `NUM_FU_ALU;
-    localparam int MULT_START   = MEM_START    + `NUM_FU_MEM;
+    localparam int ALU_START = BRANCH_START + `NUM_FU_BRANCH;
+    localparam int MEM_START = ALU_START + `NUM_FU_ALU;
+    localparam int MULT_START = MEM_START + `NUM_FU_MEM;
 
 
     // Separate grant signals for each FU type (extracted from global gnt_bus)
@@ -518,5 +522,9 @@ module stage_execute (
     assign mult_done_dbg = mult_done;
     assign branch_take_dbg = branch_take;
     assign branch_target_dbg = branch_target;
+    assign alu_executing_dbg = {fu_outputs.alu[2].valid, fu_outputs.alu[1].valid, fu_outputs.alu[0].valid};
+    assign mult_executing_dbg = {fu_outputs.mult[0].valid};
+    assign branch_executing_dbg = {fu_outputs.branch[0].valid};
+    assign mem_executing_dbg = {fu_outputs.mem[0].valid};
 
 endmodule
