@@ -108,6 +108,28 @@ module stage_issue (
     always_comb begin
         issue_clear = '0;
 
+        // Clear completed FUs from issue register
+        for (int fu = 0; fu < `NUM_FU_ALU; fu++) begin
+            if (fu_grants.alu[fu]) begin
+                issue_register_next.alu[fu].valid = 1'b0;
+            end
+        end
+        for (int fu = 0; fu < `NUM_FU_MULT; fu++) begin
+            if (fu_grants.mult[fu]) begin
+                issue_register_next.mult[fu].valid = 1'b0;
+            end
+        end
+        for (int fu = 0; fu < `NUM_FU_BRANCH; fu++) begin
+            if (fu_grants.branch[fu]) begin
+                issue_register_next.branch[fu].valid = 1'b0;
+            end
+        end
+        for (int fu = 0; fu < `NUM_FU_MEM; fu++) begin
+            if (fu_grants.mem[fu]) begin
+                issue_register_next.mem[fu].valid = 1'b0;
+            end
+        end
+
         // ALU - use local ALU RS indices
         for (int rs = 0; rs < `RS_ALU_SZ; rs++) begin
             for (int fu = 0; fu < `NUM_FU_ALU; fu++) begin
