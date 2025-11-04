@@ -110,6 +110,10 @@ module stage_dispatch (
                 local_reg1_ready[i] = 1'b1;
                 local_reg2_ready[i] = 1'b1;
             end
+
+            if ((fetch_packet.opb_select[i] != OPB_IS_RS2) && !fetch_packet.halt[i]) begin
+                local_reg2_ready[i] = 1'b1;
+            end
             local_Told[i] = maptable_read_resp.told_entries[i].phys_reg;
         end
 

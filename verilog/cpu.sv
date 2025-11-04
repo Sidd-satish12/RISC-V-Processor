@@ -70,7 +70,17 @@ module cpu (
     output EX_COMPLETE_PACKET ex_comp_dbg,
 
     // Complete stage debug outputs
-    output ROB_UPDATE_PACKET rob_update_packet_dbg
+    output ROB_UPDATE_PACKET rob_update_packet_dbg,
+
+    // PRF Debug output
+    output DATA [`PHYS_REG_SZ_R10K-1:0] regfile_entries,
+
+    // architecture map table Debug output
+    output MAP_ENTRY [`ARCH_REG_SZ-1:0] arch_table_snapshot,
+
+    // rs_alu Debug output
+    output RS_ENTRY            [   `RS_ALU_SZ-1:0] rs_alu_entries
+
 );
 
     //////////////////////////////////////////////////
@@ -190,6 +200,9 @@ module cpu (
 
     // TODO Debug for PRF remove when synthesizing/ not needed anymore
     DATA [`PHYS_REG_SZ_R10K-1:0] regfile_entries;
+
+    // debug for architecture map table
+    MAP_ENTRY [`ARCH_REG_SZ-1:0] arch_table_snapshot_dbg_next;
 
 
     //////////////////////////////////////////////////
@@ -678,7 +691,10 @@ module cpu (
         // Mispredict recovery: output snapshot for map_table restoration
         .table_snapshot(arch_table_snapshot),
         .table_restore('0),  // Not used - arch table doesn't restore
-        .table_restore_en(1'b0)  // Arch table never restores
+        .table_restore_en(1'b0),  // Arch table never restores
+
+        // debug output
+        .table_snapshot_next(arch_table_snapshot_dbg_next)
     );
 
     //////////////////////////////////////////////////
@@ -815,7 +831,7 @@ module cpu (
             if (rob_head_valids[i]) begin  // Instruction i is valid
                 committed_insts[i] = '{
                     NPC: rob_head_entries[i].PC + 4,
-                    data: regfile_entries[arch_table_snapshot[rob_head_entries[i].arch_rd]],  // TODO: Get actual result data
+                    data: regfile_entries[arch_table_snapshot_dbg_next[rob_head_entries[i].arch_rd].phys_reg],
                     reg_idx: rob_head_entries[i].arch_rd,
                     halt: rob_head_entries[i].halt,
                     illegal: rob_head_entries[i].exception == ILLEGAL_INST,
