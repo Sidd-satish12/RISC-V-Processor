@@ -2,9 +2,9 @@
 //                                                                     //
 //   Modulename :  cpu.sv                                              //
 //                                                                     //
-//  Description :  Top-level module of the verisimple processor;       //
-//                 This instantiates and connects the 5 stages of the  //
-//                 Verisimple pipeline together.                       //
+//  Description :  Top-level module of the verisimple out-of-order      //
+//                 processor; This instantiates and connects the OOO   //
+//                 pipeline stages together.                            //
 //                                                                     //
 /////////////////////////////////////////////////////////////////////////
 
@@ -107,8 +107,6 @@ module cpu (
     //////////////////////////////////////////////////
     // NOTE: organize this section by the module that outputs referenced wires
 
-    // Pipeline register enables
-    logic                                                                            issue_execute_enable;
 
     // Outputs from ID stage (decode)
     FETCH_DISP_PACKET                                                                fetch_disp_packet;
@@ -246,23 +244,18 @@ module cpu (
     //                                              //
     //////////////////////////////////////////////////
 
-    // This state controls the stall signal that artificially forces IF
-    // to stall until the previous instruction has completed.
-    // For project 3, start by assigning if_valid to always be 1
+    // This state controls fetch stalling for OOO processor
+    // Stall fetch when dispatch cannot accept more instructions
 
-    logic if_valid, start_valid_on_reset, wb_valid;
-
+    logic if_valid, start_valid_on_reset;
 
     always_ff @(posedge clock) begin
-        // Start valid on reset. Other stages (ID,EX,MEM,WB) start as invalid
-        // Using a separate always_ff is necessary since if_valid is combinational
-        // Assigning if_valid = reset doesn't work as you'd hope :/
+        // Start valid on reset
         start_valid_on_reset <= reset;
     end
 
-    // valid bit will cycle through the pipeline and come back from the wb stage
-    // For OOO, stall fetch when dispatch count is zero
-    assign if_valid = (start_valid_on_reset || wb_valid) && (dispatch_count != 0);
+    // For OOO, stall fetch when dispatch count is zero (dispatch full)
+    assign if_valid = start_valid_on_reset || (dispatch_count != 0);
 
     //////////////////////////////////////////////////
     //                                              //
