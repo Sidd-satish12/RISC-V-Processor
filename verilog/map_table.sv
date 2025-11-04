@@ -106,7 +106,10 @@ module arch_map_table #(
     // Mispredict recovery: output entire table and accept table overwrite
     output MAP_ENTRY [`ARCH_REG_SZ-1:0] table_snapshot,   // For copying from map_table
     input  MAP_ENTRY [`ARCH_REG_SZ-1:0] table_restore,    // For restoring from map_table
-    input  logic                        table_restore_en  // Enable table restore on mispredict
+    input  logic                        table_restore_en,  // Enable table restore on mispredict
+
+    // debug output
+    output MAP_ENTRY [`ARCH_REG_SZ-1:0] table_snapshot_next
 );
 
     // Internal architected map table state (ARCH_REG_SZ architectural registers)
@@ -134,6 +137,9 @@ module arch_map_table #(
 
     // Output entire table for mispredict recovery
     assign table_snapshot = arch_map_table_reg;
+
+    // Debug output
+    assign table_snapshot_next = arch_map_table_next;
 
     // Sequential logic: Update state on clock edge
     always_ff @(posedge clock) begin
