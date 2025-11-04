@@ -110,6 +110,15 @@ module testbench;
     logic                                 ff_branch_taken;
     ADDR                                  ff_branch_target;
 
+    // Debug Output PRF
+    DATA [`PHYS_REG_SZ_R10K-1:0] regfile_entries;
+
+    // Debug output Architecture map table
+    MAP_ENTRY [`ARCH_REG_SZ-1:0] arch_table_snapshot;
+
+    // debug output rs_alu
+    RS_ENTRY            [   `RS_ALU_SZ-1:0] rs_alu_entries;
+
 
     // Instantiate the Pipeline
     cpu verisimpleV (
@@ -164,6 +173,15 @@ module testbench;
 
         // Complete stage debug outputs
         .rob_update_packet_dbg(rob_update_packet),
+
+        // Debug output from PRF
+        .regfile_entries(regfile_entries),
+
+        // Debug output from architecture map table
+        .arch_table_snapshot(arch_table_snapshot),
+
+        // Debug output from RS_ALU
+        .rs_alu_entries(rs_alu_entries),
 
         // ---- Fake-Fetch interface ----
         .ff_instr       (fake_instr),
@@ -230,11 +248,16 @@ module testbench;
     // ----------------------------------------------------------------
     // Build the N-wide bundle every cycle (sequential @ fake_pc + 4*i)
     // ----------------------------------------------------------------
+    int count;
     always_comb begin
+        count = 0;
         for (int i = 0; i < `N; i++) begin
             fake_instr[i] = get_inst32(fake_pc + 32'(4 * i));
+            if (fake_instr[i] != 32'b0) begin
+                count++;
+            end
         end
-        fake_nvalid = `N;  // simple model: always provide N; CPU decides how many to take
+        fake_nvalid = count;  // simple model: always provide N; CPU decides how many to take
     end
 
 
@@ -438,11 +461,91 @@ module testbench;
 
     // OPTIONAL: Print our your data here
     // It will go to the $program.log file
+    // task print_custom_data;
+    //     $display(
+    //         "%3d: ROB head valid=%b | Dispatch count=%0d | RS ready=%b | Issue ALU valid=%b | Execute valid=%b | ROB update valid=%b | Committed halt=%b valid=%b",
+    //         clock_count - 1, rob_head_valids, dispatch_count, rs_alu_ready, issue_entries.alu[0].valid, ex_valid,
+    //         rob_update_packet.valid, committed_insts[0].halt, committed_insts[0].valid);
+    // endtask
+
     task print_custom_data;
-        $display(
-            "%3d: ROB head valid=%b | Dispatch count=%0d | RS ready=%b | Issue ALU valid=%b | Execute valid=%b | ROB update valid=%b | Committed halt=%b valid=%b",
-            clock_count - 1, rob_head_valids, dispatch_count, rs_alu_ready, issue_entries.alu[0].valid, ex_valid,
-            rob_update_packet.valid, committed_insts[0].halt, committed_insts[0].valid);
+        $display("\n--- Cycle %0d ---", clock_count-1);
+        $display("ROB head valid: %b | Dispatch count: %0d | RS ALU ready: %b",
+                rob_head_valids, dispatch_count, rs_alu_ready);
+        
+        // Print all ALU RS entries
+        // for (int i = 0; i < `RS_ALU_SZ; i++) begin
+        //     $display("RS[%0d]: valid=%b ready=%b opcode=%h dest_pr=%0d src_tags=%0d,%0d",
+        //             i,
+        //             verisimpleV.rs_alu[i].valid,
+        //             verisimpleV.rs_alu[i].ready,
+        //             verisimpleV.rs_alu[i].opcode,
+        //             verisimpleV.rs_alu[i].dest_pr,
+        //             verisimpleV.rs_alu[i].src_tag1,
+        //             verisimpleV.rs_alu[i].src_tag2);
+        // end
+
+        // Print which RS entries were granted to issue
+        for (int i = 0; i < `N; i++) begin
+            $display("RS grant[%0d]: granted=%b", i, rs_granted.alu[i]);
+        end
+
+        // Print Issue entries
+        for (int i = 0; i < `N; i++) begin
+            $display("Issue entry[%0d]: valid=%b", i, issue_entries.alu[i].valid);
+        end
+
+        // Print execution stage
+        for (int i = 0; i < `N; i++) begin
+            $display("EX[%0d]: valid=%b", i, ex_valid[i]);
+        end
+
+        // Print ROB head entries
+        for (int i = 0; i < `N; i++) begin
+            $display("ROB[%0d]: valid=%b", i, rob_head_valids[i]);
+        end
+
+        // Optional: print CDB broadcasts
+        for (int i = 0; i < `N; i++) begin
+            $display("CDB[%0d]: valid=%b tag=%0d data=%h",
+                    i,
+                    verisimpleV.cdb_output[i].valid,
+                    verisimpleV.cdb_output[i].tag,
+                    verisimpleV.cdb_output[i].data);
+        end
+
+        for (int i = 0; i < `N; i++) begin
+            if (committed_insts[i].valid) begin
+                //ADDR pc = committed_insts[i].NPC - 4;
+                //string inst_str = decode_inst(get_inst32(pc));
+                if (committed_insts[i].reg_idx == `ZERO_REG)
+                    $display("COMMIT[%0d]: PC=%h | ---", i, committed_insts[i].NPC - 4);
+                else
+                    $display("COMMIT[%0d]: PC=%h | r%0d=%h",
+                            i, committed_insts[i].NPC - 4, committed_insts[i].reg_idx, committed_insts[i].data);
+            end
+        end
+
+        //$display("PRF REGISTER 1: %d", regfile_entries[arch_table_snapshot[1].phys_reg]);
+        //$display("ARCH MAP TABLE R1 MAPPING ->: %d",arch_table_snapshot[1].phys_reg);
+
+        for (int i = 0; i < `RS_ALU_SZ; i++) begin
+            $display("RS[%0d]: valid=%b, opa=%0d, opb=%0d, op_type=%0d, src1_tag=%0d, src1_ready=%b, src2_tag=%0d, src2_ready=%b, dest_tag=%0d, rob_idx=%0d, PC=0x%08h",
+                    i,
+                    rs_alu_entries[i].valid,
+                    rs_alu_entries[i].opa_select,
+                    rs_alu_entries[i].opb_select,
+                    rs_alu_entries[i].op_type,
+                    rs_alu_entries[i].src1_tag,
+                    rs_alu_entries[i].src1_ready,
+                    rs_alu_entries[i].src2_tag,
+                    rs_alu_entries[i].src2_ready,
+                    rs_alu_entries[i].dest_tag,
+                    rs_alu_entries[i].rob_idx,
+                    rs_alu_entries[i].PC
+            );
+        end
+
     endtask
 
 
