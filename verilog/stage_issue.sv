@@ -106,29 +106,8 @@ module stage_issue (
     // Note: clear indices contain local RS bank indices since each RS module
     // maintains its own entry array. The RS modules handle their own indexing.
     always_comb begin
+        // drive issue clear
         issue_clear = '0;
-
-        // Clear completed FUs from issue register
-        for (int fu = 0; fu < `NUM_FU_ALU; fu++) begin
-            if (fu_grants.alu[fu]) begin
-                issue_register_next.alu[fu].valid = 1'b0;
-            end
-        end
-        for (int fu = 0; fu < `NUM_FU_MULT; fu++) begin
-            if (fu_grants.mult[fu]) begin
-                issue_register_next.mult[fu].valid = 1'b0;
-            end
-        end
-        for (int fu = 0; fu < `NUM_FU_BRANCH; fu++) begin
-            if (fu_grants.branch[fu]) begin
-                issue_register_next.branch[fu].valid = 1'b0;
-            end
-        end
-        for (int fu = 0; fu < `NUM_FU_MEM; fu++) begin
-            if (fu_grants.mem[fu]) begin
-                issue_register_next.mem[fu].valid = 1'b0;
-            end
-        end
 
         // ALU - use local ALU RS indices
         for (int rs = 0; rs < `RS_ALU_SZ; rs++) begin
@@ -173,7 +152,31 @@ module stage_issue (
 
     // Update issue register from granted RS entries
     always_comb begin
+        // drive issue_register_next
         issue_register_next = issue_register;
+
+        // Clear completed FUs from issue register
+        for (int fu = 0; fu < `NUM_FU_ALU; fu++) begin
+            if (fu_grants.alu[fu]) begin
+                issue_register_next.alu[fu].valid = 1'b0;
+            end
+        end
+        for (int fu = 0; fu < `NUM_FU_MULT; fu++) begin
+            if (fu_grants.mult[fu]) begin
+                issue_register_next.mult[fu].valid = 1'b0;
+            end
+        end
+        for (int fu = 0; fu < `NUM_FU_BRANCH; fu++) begin
+            if (fu_grants.branch[fu]) begin
+                issue_register_next.branch[fu].valid = 1'b0;
+            end
+        end
+        for (int fu = 0; fu < `NUM_FU_MEM; fu++) begin
+            if (fu_grants.mem[fu]) begin
+                issue_register_next.mem[fu].valid = 1'b0;
+            end
+        end
+
 
         // ALU - use structured ALU bank
         for (int rs = 0; rs < `RS_ALU_SZ; rs++) begin
