@@ -80,6 +80,10 @@ module cpu (
     // CDB debug outputs
     output CDB_ENTRY [`N-1:0] cdb_output_dbg,
     output logic [`N-1:0][`NUM_FU_TOTAL-1:0] cdb_gnt_bus_dbg,
+    output FU_REQUESTS cdb_requests_dbg,
+    output CDB_FU_OUTPUTS cdb_fu_outputs_dbg,
+    output logic [`NUM_FU_TOTAL-1:0] cdb_grants_flat_dbg,
+    output CDB_EARLY_TAG_ENTRY [`N-1:0] cdb_early_tags_dbg,
 
     // Dispatch packet debug output
     output FETCH_DISP_PACKET fetch_disp_packet_dbg,
@@ -100,7 +104,11 @@ module cpu (
     output logic [`NUM_FU_MULT-1:0] mult_start_dbg,
     output logic [`NUM_FU_MULT-1:0] mult_done_dbg,
     output logic [`NUM_FU_BRANCH-1:0] branch_take_dbg,
-    output ADDR [`NUM_FU_BRANCH-1:0] branch_target_dbg
+    output ADDR [`NUM_FU_BRANCH-1:0] branch_target_dbg,
+    output logic [`NUM_FU_ALU-1:0] alu_executing_dbg,
+    output logic [`NUM_FU_MULT-1:0] mult_executing_dbg,
+    output logic [`NUM_FU_BRANCH-1:0] branch_executing_dbg,
+    output logic [`NUM_FU_MEM-1:0] mem_executing_dbg
 
 );
 
@@ -591,7 +599,7 @@ module cpu (
         .cdb_requests(issue_cdb_requests),
 
         // Debug outputs
-        .rs_alu_ready_dbg (rs_alu_ready),
+        .rs_alu_ready_dbg(rs_alu_ready),
         .issue_entries_dbg(issue_entries_debug),
         .rs_alu_requests_dbg(rs_alu_requests_dbg),
         .rs_mult_requests_dbg(rs_mult_requests_dbg),
@@ -650,7 +658,11 @@ module cpu (
         .mult_start_dbg(mult_start_dbg),
         .mult_done_dbg(mult_done_dbg),
         .branch_take_dbg(branch_take_dbg),
-        .branch_target_dbg(branch_target_dbg)
+        .branch_target_dbg(branch_target_dbg),
+        .alu_executing_dbg(alu_executing_dbg),
+        .mult_executing_dbg(mult_executing_dbg),
+        .branch_executing_dbg(branch_executing_dbg),
+        .mem_executing_dbg(mem_executing_dbg)
     );
 
     //////////////////////////////////////////////////
@@ -793,7 +805,14 @@ module cpu (
         .early_tags(early_tag_broadcast),
 
         // CDB register outputs broadcasting to PRF, EX stage, and Map Table
-        .cdb_output(cdb_output)
+        .cdb_output(cdb_output),
+
+        // Debug outputs
+        .requests_dbg(cdb_requests_dbg),
+        .fu_outputs_dbg(cdb_fu_outputs_dbg),
+        .grants_flat_dbg(cdb_grants_flat_dbg),
+        .gnt_bus_dbg(cdb_gnt_bus_dbg),
+        .early_tags_dbg(cdb_early_tags_dbg)
     );
 
     //////////////////////////////////////////////////
@@ -907,7 +926,6 @@ module cpu (
 
     // CDB debug outputs
     assign cdb_output_dbg         = cdb_output;
-    assign cdb_gnt_bus_dbg        = cdb_0.gnt_bus;
 
     // Dispatch packet debug output
     assign fetch_disp_packet_dbg  = fetch_disp_packet;

@@ -124,6 +124,10 @@ module testbench;
     // CDB debug outputs
     CDB_ENTRY [`N-1:0] cdb_output;
     logic [`N-1:0][`NUM_FU_TOTAL-1:0] cdb_gnt_bus;
+    FU_REQUESTS cdb_requests;
+    CDB_FU_OUTPUTS cdb_fu_outputs;
+    logic [`NUM_FU_TOTAL-1:0] cdb_grants_flat;
+    CDB_EARLY_TAG_ENTRY [`N-1:0] cdb_early_tags;
 
     // Dispatch packet debug output
     FETCH_DISP_PACKET fetch_disp_packet;
@@ -138,7 +142,13 @@ module testbench;
     PRF_READ_DATA resolved_src1, resolved_src2;
     logic [`NUM_FU_MULT-1:0] mult_request, mult_start, mult_done;
     logic [`NUM_FU_BRANCH-1:0] branch_take;
-    ADDR  [`NUM_FU_BRANCH-1:0] branch_target;
+    ADDR [`NUM_FU_BRANCH-1:0] branch_target;
+
+    // Execute stage functional unit validity
+    logic [`NUM_FU_ALU-1:0] alu_executing;
+    logic [`NUM_FU_MULT-1:0] mult_executing;
+    logic [`NUM_FU_BRANCH-1:0] branch_executing;
+    logic [`NUM_FU_MEM-1:0] mem_executing;
 
 
     // Instantiate the Pipeline
@@ -202,8 +212,12 @@ module testbench;
         .freelist_available_dbg(freelist_available),
 
         // CDB debug outputs
-        .cdb_output_dbg (cdb_output),
+        .cdb_output_dbg(cdb_output),
         .cdb_gnt_bus_dbg(cdb_gnt_bus),
+        .cdb_requests_dbg(cdb_requests),
+        .cdb_fu_outputs_dbg(cdb_fu_outputs),
+        .cdb_grants_flat_dbg(cdb_grants_flat),
+        .cdb_early_tags_dbg(cdb_early_tags),
 
         // Dispatch packet debug output
         .fetch_disp_packet_dbg(fetch_disp_packet),
@@ -225,6 +239,10 @@ module testbench;
         .mult_done_dbg(mult_done),
         .branch_take_dbg(branch_take),
         .branch_target_dbg(branch_target),
+        .alu_executing_dbg(alu_executing),
+        .mult_executing_dbg(mult_executing),
+        .branch_executing_dbg(branch_executing),
+        .mem_executing_dbg(mem_executing),
 
         // ---- Fake-Fetch interface ----
         .ff_instr       (fake_instr),
@@ -599,19 +617,24 @@ module testbench;
         $display("RS Grants - ALU: %b | MULT: %b | BRANCH: %b | MEM: %b", rs_granted.alu, rs_granted.mult, rs_granted.branch,
                  rs_granted.mem);
 
-        for (integer i = 0; i < `N; i++) begin
-            $display("ISSUE[%0d]: ALU_valid=%b | MULT_valid=%b | BR_valid=%b | MEM_valid=%b", i, issue_entries.alu[i].valid,
-                     issue_entries.mult[i].valid, issue_entries.branch[i].valid, issue_entries.mem[i].valid);
-        end
+        $display("ISSUE REGISTER (currently issued to execute):");
+        $display("  ALU: valid[0]=%b valid[1]=%b valid[2]=%b", issue_entries.alu[0].valid, issue_entries.alu[1].valid,
+                 issue_entries.alu[2].valid);
+        $display("  MULT: valid[0]=%b", issue_entries.mult[0].valid);
+        $display("  BRANCH: valid[0]=%b", issue_entries.branch[0].valid);
+        $display("  MEM: valid[0]=%b", issue_entries.mem[0].valid);
 
-        $display("Issue Clears - ALU: %b | MULT: %b | BRANCH: %b | MEM: %b", rs_clear_signals.valid_alu,
-                 rs_clear_signals.valid_mult, rs_clear_signals.valid_branch, rs_clear_signals.valid_mem);
+        $display("RS CLEARS (immediate, follow grants):");
+        $display("  ALU: %b | MULT: %b | BRANCH: %b | MEM: %b", rs_clear_signals.valid_alu, rs_clear_signals.valid_mult,
+                 rs_clear_signals.valid_branch, rs_clear_signals.valid_mem);
 
         // EXECUTE STAGE
         $display("\n--- EXECUTE STAGE ---");
-        for (integer i = 0; i < `N; i++) begin
-            $display("EX[%0d]: valid=%b", i, ex_valid[i]);
-        end
+        $display("FUNCTIONAL UNITS EXECUTING:");
+        $display("  ALU: valid[0]=%b valid[1]=%b valid[2]=%b", alu_executing[0], alu_executing[1], alu_executing[2]);
+        $display("  MULT: valid[0]=%b", mult_executing[0]);
+        $display("  BRANCH: valid[0]=%b", branch_executing[0]);
+        $display("  MEM: valid[0]=%b", mem_executing[0]);
 
         // FU Results
         $display("\nFunctional Unit Results:");
@@ -667,12 +690,58 @@ module testbench;
 
         // CDB
         $display("\n--- COMMON DATA BUS (CDB) ---");
+
+        // FU Requests to CDB
+        $display("FU REQUESTS to CDB Arbiter:");
+        $display("  ALU requests: %b", cdb_requests.alu);
+        $display("  MULT requests: %b", cdb_requests.mult);
+        $display("  BRANCH requests: %b", cdb_requests.branch);
+        $display("  MEM requests: %b", cdb_requests.mem);
+
+        // FU Outputs (data ready to broadcast)
+        $display("\nFU OUTPUTS (data ready for CDB):");
+        for (integer i = 0; i < `NUM_FU_ALU; i++) begin
+            if (cdb_fu_outputs.alu[i].valid) begin
+                $display("  ALU[%0d]: tag=P%0d | data=0x%08h", i, cdb_fu_outputs.alu[i].tag, cdb_fu_outputs.alu[i].data);
+            end
+        end
+        for (integer i = 0; i < `NUM_FU_MULT; i++) begin
+            if (cdb_fu_outputs.mult[i].valid) begin
+                $display("  MULT[%0d]: tag=P%0d | data=0x%08h", i, cdb_fu_outputs.mult[i].tag, cdb_fu_outputs.mult[i].data);
+            end
+        end
+        for (integer i = 0; i < `NUM_FU_BRANCH; i++) begin
+            if (cdb_fu_outputs.branch[i].valid) begin
+                $display("  BRANCH[%0d]: tag=P%0d | data=0x%08h", i, cdb_fu_outputs.branch[i].tag, cdb_fu_outputs.branch[i].data);
+            end
+        end
+        for (integer i = 0; i < `NUM_FU_MEM; i++) begin
+            if (cdb_fu_outputs.mem[i].valid) begin
+                $display("  MEM[%0d]: tag=P%0d | data=0x%08h", i, cdb_fu_outputs.mem[i].tag, cdb_fu_outputs.mem[i].data);
+            end
+        end
+
+        // CDB Arbitration Results
+        $display("\nCDB ARBITRATION RESULTS:");
+        $display("  Grants (flat): %b", cdb_grants_flat);
+        $display("  Priority order: BRANCH(highest) -> ALU -> MEM -> MULT(lowest)");
+
+        // CDB Broadcasts
+        $display("\nCDB BROADCASTS:");
         for (integer i = 0; i < `N; i++) begin
             if (cdb_output[i].valid) begin
-                $display("CDB[%0d]: tag=P%0d | data=0x%08h | grant_bus=%b", i, cdb_output[i].tag, cdb_output[i].data,
+                $display("  CDB[%0d]: tag=P%0d | data=0x%08h | grant_bus=%b", i, cdb_output[i].tag, cdb_output[i].data,
                          cdb_gnt_bus[i]);
             end else begin
-                $display("CDB[%0d]: INVALID", i);
+                $display("  CDB[%0d]: INVALID", i);
+            end
+        end
+
+        // Early Tag Broadcasts
+        $display("\nEARLY TAG BROADCASTS (for wakeup):");
+        for (integer i = 0; i < `N; i++) begin
+            if (cdb_early_tags[i].valid) begin
+                $display("  Early[%0d]: tag=P%0d", i, cdb_early_tags[i].tag);
             end
         end
 
