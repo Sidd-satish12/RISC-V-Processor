@@ -38,16 +38,16 @@ module rob (
     logic [`N-1:0] entry_packet_valid_bits;
 
     // For calculating free count
-    logic retire;
-    logic [`N-1:0] next_N_complete_bits;
+  //  logic retire;
+  //  logic [`N-1:0] next_N_complete_bits;
     logic [$clog2(`N+1)-1:0] num_retired, num_dispatched;
-
-    assign retire = &next_N_complete_bits;
+    // Prefix-retire bookkeeping
+    logic [$clog2(`N+1)-1:0] retire_count;
 
     always_comb begin
         free_count_next = free_count;
         rob_entries_next = rob_entries;
-        next_N_complete_bits = '0;
+        retire_count = '0;
 
         for (int i = 0; i < `N; i++) begin
             // Dispatch, assume incoming valid instructions to be contiguous from index 0
@@ -64,25 +64,27 @@ module rob (
             end
 
             // For determining whether to retire
-            head_entries[i] = rob_entries[(head_idx+i)%`ROB_SZ];
-            if (head_entries[i].complete) begin
-                next_N_complete_bits[i] = 1'b1;
-            end
-
-            if (retire) begin
-                rob_entries_next[(head_idx+i)%`ROB_SZ].valid = 1'b0;
+            // head_entries[i] = rob_entries[(head_idx+i)%`ROB_SZ];
+            if ((i == retire_count) && rob_entries[(head_idx + i) % `ROB_SZ].valid && rob_entries[(head_idx + i) % `ROB_SZ].complete) begin
+                retire_count = retire_count + 1;
             end
 
             // Free Count calculation
             entry_packet_valid_bits[i] = rob_entry_packet[i].valid;
         end
 
-        num_retired = retire ? `N : 0;
+        //num_retired = retire ? `N : 0;
+        num_retired = retire_count;
+        // Invalidate only the retired prefix at the head
+        for (int i = 0; i < retire_count; i++) begin
+            rob_entries_next[(head_idx + i) % `ROB_SZ].valid = 1'b0;
+        end
         num_dispatched = $countones(entry_packet_valid_bits);
         free_count_next = free_count + num_retired - num_dispatched;
 
         // Head and tail pointers
-        head_idx_next = retire ? ((head_idx + `N) % `ROB_SZ) : head_idx;
+        head_idx_next = (head_idx + retire_count) % `ROB_SZ;
+        //    head_idx_next = retire ? ((head_idx + `N) % `ROB_SZ) : head_idx;
         tail_idx_next = (tail_idx + num_dispatched) % `ROB_SZ;
     end
 
@@ -93,11 +95,12 @@ module rob (
         end
     end
 
-    // Generate head indices (head + i) and valid flags
+    // Expose head window: N-1 = oldest, 0 = youngest (matches stage_retire)
     always_comb begin
         for (int i = 0; i < `N; i++) begin
-            head_idxs[i]   = ROB_IDX'((head_idx + i) % `ROB_SZ);
-            head_valids[i] = head_entries[i].valid;
+            head_entries[`N-1 - i] = rob_entries[(head_idx + i) % `ROB_SZ];
+            head_idxs[`N-1 - i]    = ROB_IDX'((head_idx + i) % `ROB_SZ);
+            head_valids[`N-1 - i]  = rob_entries[(head_idx + i) % `ROB_SZ].valid;
         end
     end
 
@@ -118,3 +121,6 @@ module rob (
     end
 
 endmodule
+
+
+

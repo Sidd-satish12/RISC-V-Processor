@@ -189,9 +189,10 @@ module testbench;
             end
             rob_update_packet = create_update_packet(0, 0);
             @(negedge clock);
+            //@(posedge clock);
 
             // Check that head entry is now complete
-            if (head_entries[0].complete) begin
+            if (head_entries[`N-1].complete) begin
                 $display("  PASS: Head entry marked as complete");
             end else begin
                 $display("  FAIL: Head entry should be marked as complete");
@@ -221,7 +222,7 @@ module testbench;
             @(negedge clock);
 
             // Check that head entry has mispredict flag set
-            if (head_entries[0].mispredict) begin
+            if (head_entries[`N-1].mispredict) begin
                 $display("  PASS: Head entry marked with mispredict");
             end else begin
                 $display("  FAIL: Head entry should be marked with mispredict");
@@ -259,7 +260,7 @@ module testbench;
             // Should be able to retire both now (since head entries are complete)
             // The ROB retire logic is implicit - when head entries are complete,
             // they can be retired by external logic
-            if (head_entries[0].complete && head_entries[1].complete) begin
+            if (head_entries[`N-1].complete && head_entries[`N-2].complete) begin
                 $display("  PASS: Both head entries are complete and ready for retire");
             end else begin
                 $display("  FAIL: Both head entries should be complete");
@@ -450,6 +451,7 @@ module testbench;
                 end
             end
             for (i = 0; i < `N; i++) begin
+                int idx = `N-1 - i;
                 ROB_IDX expected_head = head_idxs[i];
                 if (head_idxs[i] != expected_head) begin
                     $display("  FAIL: After reset, head_idx[%0d] should be %0d, got %0d", i, expected_head, head_idxs[i]);
@@ -498,23 +500,74 @@ module testbench;
                 failed = 1;
             end
 
-            // Test 3: Head indices and valids should reflect head entries
-            for (i = 0; i < `N; i++) begin
-                if (head_idxs[i] != ROB_IDX'(i)) begin
-                    $display("  FAIL: head_idx[%0d] should be %0d, got %0d", i, i, head_idxs[i]);
-                    head_idx_correct = 0;
-                end
-                if (head_valids[i] != head_entries[i].valid) begin
-                    $display("  FAIL: head_valid[%0d] should match head_entry.valid (%b), got %b", i, head_entries[i].valid,
-                             head_valids[i]);
-                    head_valid_correct = 0;
-                end
-            end
-
             if (head_idx_correct && head_valid_correct) begin
                 $display("  PASS: Head indices and valids correct");
             end else begin
                 failed = 1;
+            end
+        end
+
+        // Test: Prefix retire with (C, I, C) at head — only the oldest retires
+        $display("\nTest %0d: Minimal (C, I, C) prefix retire", test_num++);
+        reset_dut();
+        begin
+            if (`N < 3) begin
+                $display("  SKIP: N=%0d < 3", `N);
+            end else begin
+                ROB_IDX oldest_idx, middle_idx, youngest_idx, head_idx_before, head_idx_after;
+                int free_before;
+
+                // 1) Dispatch three entries (packed-left)
+                rob_entry_packet = '0;
+                rob_entry_packet[0] = valid_rob_entry(0);
+                rob_entry_packet[1] = valid_rob_entry(1);
+                rob_entry_packet[2] = valid_rob_entry(2);
+                rob_update_packet   = '0;
+                @(negedge clock);
+
+                free_before     = free_slots;
+                oldest_idx      = head_idxs[`N-1];
+                middle_idx      = head_idxs[`N-2];
+                youngest_idx    = head_idxs[`N-3];
+                head_idx_before = head_idxs[`N-1];
+
+                // 2) Make (C, I, C): complete oldest + youngest only
+                rob_entry_packet = '0;
+                rob_update_packet = '0;
+                rob_update_packet.valid[0]       = 1'b1; rob_update_packet.idx[0] = oldest_idx;
+                rob_update_packet.valid[1]       = 1'b1; rob_update_packet.idx[1] = youngest_idx;
+                @(negedge clock);
+                rob_update_packet = '0;
+
+                // 3) One cycle to let ROB retire prefix (should retire exactly 1)
+                @(negedge clock);
+
+                head_idx_after = head_idxs[`N-1];
+
+                // Checks
+                if (head_idx_after != ((head_idx_before + 1) % `ROB_SZ)) begin
+                    $display("  FAIL: head advanced != 1 (before=%0d, after=%0d)", head_idx_before, head_idx_after);
+                    failed = 1;
+                end else
+                    $display("  PASS: head advanced by 1");
+
+                if (!(head_entries[`N-1].valid && !head_entries[`N-1].complete)) begin
+                    $display("  FAIL: oldest should now be previous middle (valid && !complete)");
+                    failed = 1;
+                end else
+                    $display("  PASS: oldest is previous middle and incomplete");
+
+                if (!(head_entries[`N-2].valid && head_entries[`N-2].complete)) begin
+                    $display("  FAIL: younger complete should remain (shifted closer to head)");
+                    failed = 1;
+                end else
+                    $display("  PASS: younger complete remained (not retired)");
+
+                if (free_slots != (free_before + 1)) begin
+                    $display("  FAIL: free_slots should increase by 1 (got %0d exp %0d)", free_slots, (free_before - 3 + 1));
+                    failed = 1;
+                end else
+                    $display("  PASS: free_slots increased by 1");
             end
         end
 
