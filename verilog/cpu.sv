@@ -186,7 +186,7 @@ module cpu (
 
     // PRF read data now comes from the regfile instantiation below
     // For now, assume src2 data comes from CDB forwarding or immediates
-    assign prf_read_data_src2 = '0;  // TODO: Implement proper src2 reading if needed
+    //assign prf_read_data_src2 = '0;  // TODO: Implement proper src2 reading if needed
 
     // Retire stage signals
     ROB_ENTRY [`N-1:0] rob_head_entries;
@@ -782,8 +782,8 @@ module cpu (
         .reset(reset),
 
         // Read interface - directly connect structured interfaces
-        .read_tags(prf_read_tag_src1),
-        .read_data(prf_read_data_src1),
+        .read_tags({prf_read_tag_src2, prf_read_tag_src1}),
+        .read_data({prf_read_data_src2, prf_read_data_src1}),
 
         // Write interface - directly from CDB
         .cdb_writes(cdb_output),
