@@ -5,8 +5,8 @@ module regfile (
     input logic reset,
 
     // Structured read interface (organized by FU type)
-    input  PRF_READ_TAGS read_tags,
-    output PRF_READ_DATA read_data,
+    input  PRF_READ_TAGS [1:0] read_tags,
+    output PRF_READ_DATA [1:0] read_data,
 
     // Write interface from CDB
     input CDB_ENTRY [`CDB_SZ-1:0] cdb_writes,
@@ -22,25 +22,54 @@ module regfile (
 
     // Forwarding logic for each FU type
     always_comb begin
+        // ----------------
+        // SRC1
+        // ----------------
+
         // ALU reads
         for (int i = 0; i < `NUM_FU_ALU; i++) begin
-            read_data.alu[i] = read_register_with_forwarding(read_tags.alu[i]);
+            read_data[0].alu[i] = read_register_with_forwarding(read_tags[0].alu[i]);
         end
 
         // MULT reads
         for (int i = 0; i < `NUM_FU_MULT; i++) begin
-            read_data.mult[i] = read_register_with_forwarding(read_tags.mult[i]);
+            read_data[0].mult[i] = read_register_with_forwarding(read_tags[0].mult[i]);
         end
 
         // BRANCH reads
         for (int i = 0; i < `NUM_FU_BRANCH; i++) begin
-            read_data.branch[i] = read_register_with_forwarding(read_tags.branch[i]);
+            read_data[0].branch[i] = read_register_with_forwarding(read_tags[0].branch[i]);
         end
 
         // MEM reads
         for (int i = 0; i < `NUM_FU_MEM; i++) begin
-            read_data.mem[i] = read_register_with_forwarding(read_tags.mem[i]);
+            read_data[0].mem[i] = read_register_with_forwarding(read_tags[0].mem[i]);
         end
+
+        // ----------------
+        // SRC2
+        // ----------------
+
+        // ALU reads
+        for (int i = 0; i < `NUM_FU_ALU; i++) begin
+            read_data[1].alu[i] = read_register_with_forwarding(read_tags[1].alu[i]);
+        end
+
+        // MULT reads
+        for (int i = 0; i < `NUM_FU_MULT; i++) begin
+            read_data[1].mult[i] = read_register_with_forwarding(read_tags[1].mult[i]);
+        end
+
+        // BRANCH reads
+        for (int i = 0; i < `NUM_FU_BRANCH; i++) begin
+            read_data[1].branch[i] = read_register_with_forwarding(read_tags[1].branch[i]);
+        end
+
+        // MEM reads
+        for (int i = 0; i < `NUM_FU_MEM; i++) begin
+            read_data[1].mem[i] = read_register_with_forwarding(read_tags[1].mem[i]);
+        end
+
 
         // Write from CDB
         register_file_entries_next = register_file_entries;
