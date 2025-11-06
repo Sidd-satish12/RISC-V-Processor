@@ -20,10 +20,10 @@ module correct_mult (
 
     always_comb begin
         case (func)
-            M_MUL:    result = signed_mul[31:0];
-            M_MULH:   result = signed_mul[63:32];
-            M_MULHU:  result = unsigned_mul[63:32];
-            M_MULHSU: result = mixed_mul[63:32];
+            MUL:    result = signed_mul[31:0];
+            MULH:   result = signed_mul[63:32];
+            MULHU:  result = unsigned_mul[63:32];
+            MULHSU: result = mixed_mul[63:32];
             default:  result = 0;
         endcase
     end
@@ -108,37 +108,37 @@ module testbench;
 
         fmt = "%-8s | %3d * %3d = correct: %3d | mul: %3d";
         $display("");
-        test(M_MUL, 0, 0);
-        test(M_MUL, 1, 0);
-        test(M_MUL, 0, 1);
-        test(M_MUL, 3, 4);
-        test(M_MUL, 2, 15);
-        test(M_MUL, 15, 2);
-        test(M_MUL, 30, 30);
+        test(MUL, 0, 0);
+        test(MUL, 1, 0);
+        test(MUL, 0, 1);
+        test(MUL, 3, 4);
+        test(MUL, 2, 15);
+        test(MUL, 15, 2);
+        test(MUL, 30, 30);
 
         fmt = "%-8s | %h * %h = correct: %h | mul: %h";
         $display("");
-        test(M_MUL,    32'hff12_3456, 32'hfffff888);
-        test(M_MULH,   32'hff12_3456, 32'hfffff888);
-        test(M_MULHU,  32'hff12_3456, 32'hfffff888);
-        test(M_MULHSU, 32'hff12_3456, 32'hfffff888);
+        test(MUL,    32'hff12_3456, 32'hfffff888);
+        test(MULH,   32'hff12_3456, 32'hfffff888);
+        test(MULHU,  32'hff12_3456, 32'hfffff888);
+        test(MULHSU, 32'hff12_3456, 32'hfffff888);
 
         fmt = "%-8s | %d * %d = correct: %d | mul: %d";
         $display("");
-        test(M_MUL,    32'h3 << 30, 4);
-        test(M_MULH,   32'h3 << 30, 4);
-        test(M_MULHU,  32'h3 << 30, 4);
-        test(M_MULHSU, 32'h3 << 30, 4);
-        test(M_MUL,    4, 32'h3 << 30);
-        test(M_MULH,   4, 32'h3 << 30);
-        test(M_MULHU,  4, 32'h3 << 30);
-        test(M_MULHSU, 4, 32'h3 << 30);
+        test(MUL,    32'h3 << 30, 4);
+        test(MULH,   32'h3 << 30, 4);
+        test(MULHU,  32'h3 << 30, 4);
+        test(MULHSU, 32'h3 << 30, 4);
+        test(MUL,    4, 32'h3 << 30);
+        test(MULH,   4, 32'h3 << 30);
+        test(MULHU,  4, 32'h3 << 30);
+        test(MULHSU, 4, 32'h3 << 30);
 
         fmt = "%-8s | %d * %d = correct: %d | mul: %d";
-        $display(""); repeat (10) test(M_MUL,    $random, $random);
-        $display(""); repeat (10) test(M_MULH,   $random, $random);
-        $display(""); repeat (10) test(M_MULHU,  $random, $random);
-        $display(""); repeat (10) test(M_MULHSU, $random, $random);
+        $display(""); repeat (10) test(MUL,    $random, $random);
+        $display(""); repeat (10) test(MULH,   $random, $random);
+        $display(""); repeat (10) test(MULHU,  $random, $random);
+        $display(""); repeat (10) test(MULHSU, $random, $random);
 
         $display("");
 
