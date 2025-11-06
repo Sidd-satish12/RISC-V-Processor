@@ -5,7 +5,7 @@
 module conditional_branch (
     input DATA rs1,
     input DATA rs2,
-    input [2:0] func,  // Which branch condition to check
+    input BRANCH_FUNC func,  // Which branch condition to check
 
     output logic take  // True/False condition result
 );
