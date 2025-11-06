@@ -46,7 +46,7 @@ module stage_retire #(
         head_entry = '0;
         entry = '0;
 
-        // -------- Mispredict detect on oldest visible head --------
+        // -------- Mispredict detect on oldest visible head
         if (head_valids[0]) begin   // <-- oldest is now index 0
             head_entry = head_entries[0];
             if (head_entry.branch && head_entry.complete) begin
