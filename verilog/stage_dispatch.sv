@@ -52,6 +52,12 @@ module stage_dispatch (
     // RS allocation counters
     int alu_count, mult_count, branch_count, mem_count;
 
+    // Track RS usage dynamically as we go
+    int alu_used;
+    int mult_used;
+    int branch_used;
+    int mem_used;
+
     // Map table read results
     logic [`PHYS_TAG_BITS-1:0] local_reg1_tag[`N-1:0];
     logic [`PHYS_TAG_BITS-1:0] local_reg2_tag[`N-1:0];
@@ -97,6 +103,11 @@ module stage_dispatch (
         rob_slots_used = 0;
         freelist_slots_used = 0;
 
+        alu_used = 0;
+        mult_used = 0;
+        branch_used = 0;
+        mem_used = 0;
+
         for (int i = 0; i < `N; i++) begin
             if (i >= num_valid_from_fetch) break;  // No more valid instructions
 
@@ -108,19 +119,27 @@ module stage_dispatch (
 
             // Check RS bank space for this instruction's functional unit
             case (fetch_packet.op_type[i].category)
-                CAT_ALU:    rs_bank_available = (rs_alu_free_slots > 0);
-                CAT_MULT:   rs_bank_available = (rs_mult_free_slots > 0);
-                CAT_BRANCH: rs_bank_available = (rs_branch_free_slots > 0);
-                CAT_MEM:    rs_bank_available = (rs_mem_free_slots > 0);
-                default:    rs_bank_available = 1'b0;  // Unknown category, can't dispatch
+                CAT_ALU:    if (alu_used   >= rs_alu_free_slots)    break;
+                CAT_MULT:   if (mult_used  >= rs_mult_free_slots)   break;
+                CAT_BRANCH: if (branch_used>= rs_branch_free_slots) break;
+                CAT_MEM:    if (mem_used   >= rs_mem_free_slots)    break;
+                default:    break;
             endcase
 
-            if (!rs_bank_available) break;  // This instruction's RS bank is full
+            
 
             // This instruction can be dispatched
             num_to_dispatch++;
             rob_slots_used++;
             if (fetch_packet.uses_rd[i]) freelist_slots_used++;
+
+            // Reserve RS slot for this instruction type
+            case (fetch_packet.op_type[i].category)
+                CAT_ALU:    alu_used++;
+                CAT_MULT:   mult_used++;
+                CAT_BRANCH: branch_used++;
+                CAT_MEM:    mem_used++;
+            endcase
         end
 
         // Set dispatch count (0 = stall)
@@ -202,7 +221,7 @@ module stage_dispatch (
 
         // Setup register remapping writes
         for (int i = 0; i < `N; i++) begin
-            if (i < dispatch_count && fetch_valid[i] && fetch_packet.uses_rd[i]) begin
+            if (i < dispatch_count && fetch_valid[i] && fetch_packet.uses_rd[i])  begin
                 maptable_write_reqs[i].valid    = 1'b1;
                 maptable_write_reqs[i].addr     = fetch_packet.rd_idx[i];
                 maptable_write_reqs[i].phys_reg = allocated_phys[i];
