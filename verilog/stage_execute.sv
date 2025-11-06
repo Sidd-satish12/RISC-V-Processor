@@ -83,7 +83,7 @@ module stage_execute (
 
     // BRANCH signals
     DATA [`NUM_FU_BRANCH-1:0] branch_rs1, branch_rs2;
-    logic [2:0][`NUM_FU_BRANCH-1:0] branch_funcs;  // Array of 3-bit func values
+    BRANCH_FUNC [`NUM_FU_BRANCH-1:0] branch_funcs;  // Array of 3-bit func values
     logic [`NUM_FU_BRANCH-1:0] branch_take;
     ADDR [`NUM_FU_BRANCH-1:0] branch_target;
 
@@ -348,7 +348,7 @@ module stage_execute (
         for (int i = 0; i < `NUM_FU_BRANCH; i++) begin
             branch_rs1[i]   = resolved_src1.branch[i];
             branch_rs2[i]   = resolved_src2.branch[i];
-            branch_funcs[i] = issue_entries.branch[i].op_type.func[2:0];
+            branch_funcs[i] = issue_entries.branch[i].op_type.func;
         end
     end
 
