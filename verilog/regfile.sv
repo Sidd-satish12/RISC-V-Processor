@@ -74,7 +74,7 @@ module regfile (
         // Write from CDB
         register_file_entries_next = register_file_entries;
         for (int i = 0; i < `CDB_SZ; i++) begin
-            if (cdb_writes[i].valid) begin
+            if (cdb_writes[i].valid && cdb_writes[i].tag != '0) begin
                 register_file_entries_next[cdb_writes[i].tag] = cdb_writes[i].data;
             end
         end

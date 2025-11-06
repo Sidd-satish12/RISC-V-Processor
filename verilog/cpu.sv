@@ -199,6 +199,9 @@ module cpu (
     REG_IDX   [`N-1:0] arch_write_addrs;
     PHYS_TAG  [`N-1:0] arch_write_phys_regs;
 
+    // DEBUG signal for committed instructions:
+    COMMIT_PACKET [`N-1:0] retire_commits_dbg;
+
     // Global mispredict signal
     logic              mispredict;
     assign mispredict = rob_mispredict;
@@ -799,7 +802,7 @@ module cpu (
 
     cdb cdb_0 (
         .clock(clock),
-        .reset(reset),
+        .reset(reset || rob_mispredict),
 
         // Arbiter inputs (structured)
         .requests(cdb_requests),
@@ -873,7 +876,12 @@ module cpu (
         // To archMapTable: N write ports (commit multiple per cycle)
         .arch_write_enables  (arch_write_enables),
         .arch_write_addrs    (arch_write_addrs),
-        .arch_write_phys_regs(arch_write_phys_regs)
+        .arch_write_phys_regs(arch_write_phys_regs),
+        .retire_commits_dbg(retire_commits_dbg),
+
+        // To fake fetch
+        .branch_taken_o(branch_taken_o),
+        .branch_target_o(branch_target_o)
     );
 
     //////////////////////////////////////////////////
@@ -885,36 +893,16 @@ module cpu (
     // Output the committed instructions to the testbench for counting
     // For superscalar, show the oldest ready instruction (whether retired or not)
     always_comb begin
-        committed_insts = '0;  // default all entries to zero/invalid
-
+        committed_insts = retire_commits_dbg;
         for (int i = 0; i < `N; i++) begin
-            // If this instruction is valid and all previous committed are valid
-            if (rob_head_valids[i] && (i == 0 || committed_insts[i-1].valid)) begin
-                if (rob_head_entries[i].complete) begin
-                    committed_insts[i] = '{
-                        NPC: rob_head_entries[i].PC + 4,
-                        data: regfile_entries[arch_table_snapshot_dbg_next[rob_head_entries[i].arch_rd].phys_reg],
-                        reg_idx: rob_head_entries[i].arch_rd,
-                        halt: rob_head_entries[i].halt,
-                        illegal: rob_head_entries[i].exception == ILLEGAL_INST,
-                        valid: 1'b1
-                    };
-                end else begin
-                    // First incomplete instruction: mark invalid
-                    committed_insts[i].valid = 1'b0;
-                end
-            end else begin
-                committed_insts[i].valid = 1'b0;  // all later instructions invalid
-            end
+            committed_insts[i].data = regfile_entries[arch_table_snapshot_dbg_next[retire_commits_dbg[i].reg_idx].phys_reg];
         end
-    end
 
+    end
 
 
     // Fake-fetch outputs
     assign ff_consumed            = dispatch_count;  // Number of instructions consumed by dispatch
-    assign branch_taken_o         = 1'b0;  // TODO: implement branch resolution
-    assign branch_target_o        = '0;  // TODO: implement branch target
 
 
     // Additional debug outputs
