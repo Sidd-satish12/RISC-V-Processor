@@ -11,20 +11,22 @@ module testbench;
 
     // Inputs to stage_issue
     RS_BANKS rs_banks;
-    FU_AVAILS fu_avails;
+    FU_GRANTS fu_grants;
 
     // Outputs from stage_issue
     ISSUE_CLEAR issue_clear;
     ISSUE_ENTRIES issue_entries;
+    FU_REQUESTS cdb_requests;
 
     stage_issue dut (
         .clock(clock),
         .reset(reset),
         .mispredict(mispredict),
         .rs_banks(rs_banks),
-        .fu_avails(fu_avails),
+        .fu_grants(fu_grants),
         .issue_clear(issue_clear),
-        .issue_entries(issue_entries)
+        .issue_entries(issue_entries),
+        .cdb_requests(cdb_requests)
     );
 
     // always @(issue_entries) begin
@@ -144,7 +146,7 @@ module testbench;
 
         // Initialize inputs
         rs_banks = '0;
-        fu_avails = '0;
+        fu_grants = '0;
 
         reset_dut();
 
@@ -155,8 +157,8 @@ module testbench;
             logic any_alu_clear;
             rs_banks = '0;
             rs_banks.alu[0] = ready_alu_entry(10);
-            fu_avails = '0;
-            fu_avails.alu = {`NUM_FU_ALU{1'b1}};
+            fu_grants = '0;
+            fu_grants.alu = {`NUM_FU_ALU{1'b1}};
 
             // Wait for allocator to stabilize (may need a cycle)
             @(negedge clock);
@@ -178,8 +180,8 @@ module testbench;
             logic any_mult_clear;
             rs_banks = '0;
             rs_banks.mult[0] = ready_mult_entry(15);
-            fu_avails = '0;
-            fu_avails.mult = {`NUM_FU_MULT{1'b1}};
+            fu_grants = '0;
+            fu_grants.mult = {`NUM_FU_MULT{1'b1}};
 
             @(negedge clock);
             @(negedge clock);
@@ -200,8 +202,8 @@ module testbench;
             logic any_branch_clear;
             rs_banks = '0;
             rs_banks.branch[0] = ready_branch_entry(20);
-            fu_avails = '0;
-            fu_avails.branch = {`NUM_FU_BRANCH{1'b1}};
+            fu_grants = '0;
+            fu_grants.branch = {`NUM_FU_BRANCH{1'b1}};
 
             @(negedge clock);
             @(negedge clock);
@@ -222,8 +224,8 @@ module testbench;
             logic any_mem_clear;
             rs_banks = '0;
             rs_banks.mem[0] = ready_mem_entry(25);
-            fu_avails = '0;
-            fu_avails.mem = {`NUM_FU_MEM{1'b1}};
+            fu_grants = '0;
+            fu_grants.mem = {`NUM_FU_MEM{1'b1}};
 
             @(negedge clock);
             @(negedge clock);
@@ -247,11 +249,11 @@ module testbench;
             rs_banks.mult[0] = ready_mult_entry(15);
             rs_banks.branch[0] = ready_branch_entry(20);
             rs_banks.mem[0] = ready_mem_entry(25);
-            fu_avails = '0;
-            fu_avails.alu = {`NUM_FU_ALU{1'b1}};
-            fu_avails.mult = {`NUM_FU_MULT{1'b1}};
-            fu_avails.branch = {`NUM_FU_BRANCH{1'b1}};
-            fu_avails.mem = {`NUM_FU_MEM{1'b1}};
+            fu_grants = '0;
+            fu_grants.alu = {`NUM_FU_ALU{1'b1}};
+            fu_grants.mult = {`NUM_FU_MULT{1'b1}};
+            fu_grants.branch = {`NUM_FU_BRANCH{1'b1}};
+            fu_grants.mem = {`NUM_FU_MEM{1'b1}};
 
             @(negedge clock);
             // @(posedge clock);
@@ -261,7 +263,7 @@ module testbench;
             any_mult = |issue_clear.valid_mult;
             any_branch = |issue_clear.valid_branch;
             any_mem = |issue_clear.valid_mem;
-            // Due to allocator oscillation with constant fu_avails=1, single-FU categories
+            // Due to allocator oscillation with constant fu_grants=1, single-FU categories
             // may not all issue in the same cycle. Check that at least ALU and majority of others issue.
             if (any_alu && ((any_mult && any_branch) || (any_mult && any_mem) || (any_branch && any_mem))) begin
                 $display("  PASS: Multiple categories issued (alu=%b, mult=%b, branch=%b, mem=%b)", any_alu, any_mult,
@@ -280,8 +282,8 @@ module testbench;
             logic any_alu_clear;
             rs_banks = '0;
             rs_banks.alu[0] = not_ready_entry(CAT_ALU, 10);
-            fu_avails = '0;
-            fu_avails.alu = {`NUM_FU_ALU{1'b1}};
+            fu_grants = '0;
+            fu_grants.alu = {`NUM_FU_ALU{1'b1}};
 
             @(negedge clock);
             @(negedge clock);
@@ -302,8 +304,8 @@ module testbench;
             logic any_alu_clear;
             rs_banks = '0;
             rs_banks.alu[0] = empty_entry();  // Invalid
-            fu_avails = '0;
-            fu_avails.alu = {`NUM_FU_ALU{1'b1}};
+            fu_grants = '0;
+            fu_grants.alu = {`NUM_FU_ALU{1'b1}};
 
             @(negedge clock);
             @(negedge clock);
@@ -326,8 +328,8 @@ module testbench;
         //     logic any_alu_clear;
         //     rs_banks = '0;
         //     rs_banks.alu[0] = ready_alu_entry(10);
-        //     fu_avails = '0;
-        //     fu_avails.alu = {`NUM_FU_ALU{1'b0}};  // No FUs available
+        //     fu_grants = '0;
+        //     fu_grants.alu = {`NUM_FU_ALU{1'b0}};  // No FUs available
 
         //     @(posedge clock);
         //     #10;
@@ -349,8 +351,8 @@ module testbench;
         begin
             rs_banks = '0;
             rs_banks.alu[0] = ready_alu_entry(10);
-            fu_avails = '0;
-            fu_avails.alu = {`NUM_FU_ALU{1'b1}};
+            fu_grants = '0;
+            fu_grants.alu = {`NUM_FU_ALU{1'b1}};
 
             @(negedge clock);
 
@@ -373,8 +375,8 @@ module testbench;
         begin
             rs_banks = '0;
             rs_banks.alu[0] = ready_alu_entry(10);
-            fu_avails = '0;
-            fu_avails.alu = {`NUM_FU_ALU{1'b1}};
+            fu_grants = '0;
+            fu_grants.alu = {`NUM_FU_ALU{1'b1}};
 
             @(negedge clock);
 
@@ -401,8 +403,8 @@ module testbench;
             rs_banks.alu[0] = ready_alu_entry(10);
             rs_banks.alu[1] = ready_alu_entry(15);
             rs_banks.alu[2] = ready_alu_entry(20);
-            fu_avails = '0;
-            fu_avails.alu = {`NUM_FU_ALU{1'b1}};
+            fu_grants = '0;
+            fu_grants.alu = {`NUM_FU_ALU{1'b1}};
 
             @(negedge clock);
             @(negedge clock);

@@ -217,17 +217,17 @@ module testbench;
             int expected_commits = `N - 1;  // Should retire all but the last position
             int actual_commits = 0;
 
-            // Set up N-1 complete instructions followed by one incomplete
+            // Set up N-1 complete oldest instructions (index 0 .. N-2)
             for (int i = 0; i < `N - 1; i++) begin
-                head_valids[`N-1-i] = 1'b1;  // Start from oldest (N-1) down to youngest available
-                head_entries[`N-1-i] = completed_alu_entry(i + 1, 5 + i, 30 + i, 10 + i);
-                head_idxs[`N-1-i] = ROB_IDX'(i + 1);
+                head_valids[i] = 1'b1;  // oldest first
+                head_entries[i] = completed_alu_entry(i + 1, 5 + i, 30 + i, 10 + i);
+                head_idxs[i] = ROB_IDX'(i + 1);
             end
 
             // Make the youngest position incomplete (should stop here)
-            head_valids[0] = 1'b1;
-            head_entries[0] = incomplete_entry(`N, 5 + `N - 1, 30 + `N - 1, 10 + `N - 1);
-            head_idxs[0] = ROB_IDX'(`N);
+            head_valids[`N-1] = 1'b1;
+            head_entries[`N-1] = incomplete_entry(`N, 5 + `N - 1, 30 + `N - 1, 10 + `N - 1);
+            head_idxs[`N-1] = ROB_IDX'(`N);
 
             @(negedge clock);
 
@@ -243,6 +243,7 @@ module testbench;
                 failed = 1;
             end
         end
+
 
         // Test 5: Branch mispredict detection (direction mispredict)
         $display("\nTest %0d: Branch mispredict detection (direction)", test_num++);

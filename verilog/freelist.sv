@@ -14,11 +14,16 @@ module freelist #(
     input logic [PR_COUNT-1:0] free_mask,  // Bit mask of registers being freed
 
     // Outputs to dispatch
-    output logic [ALLOC_WIDTH-1:0][PR_COUNT-1:0] granted_regs  // Granted physical registers for each allocation request
+    output logic [ALLOC_WIDTH-1:0][PR_COUNT-1:0] granted_regs,  // Granted physical registers for each allocation request
+    output logic [$clog2(PR_COUNT+1)-1:0]        free_slots,   // Number of free physical registers
+    output logic [PR_COUNT-1:0]                  available_regs // Available physical registers (for debug)
 );
 
     // Grant matrix from allocator: grants[requester][resource]
     logic [ALLOC_WIDTH-1:0][PR_COUNT-1:0] grants;
+
+    // Free slots counter
+    logic [$clog2(PR_COUNT+1)-1:0] free_count, free_count_next;
 
     // Create initial availability mask: first ARCH_REG_SZ registers are occupied (0),
     // remaining registers are available (1), resolved at compile time
@@ -34,10 +39,26 @@ module freelist #(
         .clock(clock),
         .req  (alloc_req),  // Allocation requests
         .clear(free_mask),  // Registers being freed
-        .grant(grants)      // Grant matrix
+        .grant(grants),     // Grant matrix
+        .resource_status(available_regs)  // Available registers status
     );
 
-    // Output grant matrix directly
+    // Calculate next free count: +deallocations -allocations
+    always_comb begin
+        free_count_next = free_count + unsigned'($countones(free_mask)) - unsigned'($countones(alloc_req));
+    end
+
+    // Output grant matrix and free slots
     assign granted_regs = grants;
+    assign free_slots = free_count;
+
+    // Update free count register
+    always_ff @(posedge clock) begin
+        if (reset) begin
+            free_count <= unsigned'(PR_COUNT) - unsigned'(`ARCH_REG_SZ);
+        end else begin
+            free_count <= free_count_next;
+        end
+    end
 
 endmodule

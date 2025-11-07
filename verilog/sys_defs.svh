@@ -69,15 +69,22 @@
 
 // cache parameters
 `define ICACHE_ASSOC 2           // 2-way associative I-cache
-`define ICACHE_LINES 32
-`define ICACHE_LINE_BITS $clog2(`ICACHE_LINES)
-`define ICACHE_LINE_BYTES 16     // 16 bytes (4 instructions) for superscalar support
+`define ICACHE_LINES 32          // Number of lines per way/set or total number of lines
+`define ICACHE_LINE_BYTES 8      // 
 `define VICTIM_CACHE_SZ 4        // Small victim cache
+
+`define ISET_INDEX_BITS $clog2(`ICACHE_LINES / `ICACHE_ASSOC)              // indexing into each cache line
+`define IBLOCK_OFFSET_BITS $clog2(`ICACHE_LINE_BYTES)      // indexing into bytes in a cache line/block
+`define ITAG_BITS 32 - `ISET_INDEX_BITS - `IBLOCK_OFFSET_BITS
 
 `define DCACHE_ASSOC 2           // 2-way associative D-cache
 `define DCACHE_LINES 32
-`define DCACHE_LINE_BYTES 8      // 8 bytes/line (2 words; 256 bytes total)
+`define DCACHE_LINE_BYTES 8      // 8 bytes/line 8 * 32 * 2 (2 words; 256 bytes total)
 `define DCACHE_VICTIM_SZ 4       // Small victim cache
+
+`define DSET_INDEX_BITS $clog2(`DCACHE_LINES / `DCACHE_ASSOC)              // indexing into each cache line
+`define DBLOCK_OFFSET_BITS $clog2(`DCACHE_LINE_BYTES)      // indexing into bytes in a cache line/block
+`define DTAG_BITS 32 - `DSET_INDEX_BITS - `DBLOCK_OFFSET_BITS
 
 // Load/Store Queue (not implemented in base design)
 `define LSQ_SZ 8
@@ -132,7 +139,7 @@ typedef logic [`RS_IDX_BITS-1:0] RS_IDX;
 
 // memory tags represent a unique id for outstanding mem transactions
 // 0 is a sentinel value and is not a valid tag
-`define NUM_MEM_TAGS 15
+`define NUM_MEM_TAGS 15  // max number of oustanding mem requests
 typedef logic [3:0] MEM_TAG;
 
 // icache definitions
@@ -142,6 +149,8 @@ typedef logic [3:0] MEM_TAG;
 `define MEM_SIZE_IN_BYTES (64*1024)
 `define MEM_64BIT_LINES (`MEM_SIZE_IN_BYTES/8)
 
+`define CACHE_MODE TRUE
+
 // A memory or cache block
 typedef union packed {
     logic [7:0][7:0]  byte_level;
@@ -149,6 +158,18 @@ typedef union packed {
     logic [1:0][31:0] word_level;
     logic [63:0]      dbbl_level;
 } MEM_BLOCK;
+
+typedef struct packed {
+    logic [`ITAG_BITS-1:0] tag;
+    logic [`ISET_INDEX_BITS-1:0] set_index;
+    logic [`IBLOCK_OFFSET_BITS-1:0] block_offset;
+} I_SASS_ADDR; // ICache Breakdown of Set Associative cache address
+
+typedef struct packed {
+    logic [`DTAG_BITS-1:0] tag;
+    logic [`DSET_INDEX_BITS-1:0] set_index;
+    logic [`DBLOCK_OFFSET_BITS-1:0] block_offset;
+} D_SASS_ADDR; // DCache Breakdown of Set Associative cache address
 
 typedef enum logic [1:0] {
     BYTE   = 2'h0,
@@ -344,7 +365,8 @@ typedef enum logic [3:0] {
     XOR,
     SLL,
     SRL,
-    SRA
+    SRA,
+    HALT
 } ALU_FUNC;
 
 // MULT funct3 code
@@ -394,6 +416,11 @@ typedef struct packed {
 } OP_TYPE;
 
 // Constants for specific ops (assign struct values)
+
+// Halt
+const OP_TYPE OP_HALT = '{category: CAT_ALU, func: HALT};
+
+// Adder operations
 const OP_TYPE OP_ALU_ADD = '{category: CAT_ALU, func: ADD};
 const OP_TYPE OP_ALU_SUB = '{category: CAT_ALU, func: SUB};
 const OP_TYPE OP_ALU_AND = '{category: CAT_ALU, func: AND};
@@ -404,6 +431,7 @@ const OP_TYPE OP_ALU_XOR = '{category: CAT_ALU, func: XOR};
 const OP_TYPE OP_ALU_SLL = '{category: CAT_ALU, func: SLL};
 const OP_TYPE OP_ALU_SRL = '{category: CAT_ALU, func: SRL};
 const OP_TYPE OP_ALU_SRA = '{category: CAT_ALU, func: SRA};
+
 
 // Multiply operations
 const OP_TYPE OP_MULT_MUL = '{category: CAT_MULT, func: MUL};
@@ -622,6 +650,7 @@ typedef struct packed {
     INST [`N-1:0]           inst;           // Full instructions
     logic [`N-1:0]          pred_taken;     // Branch prediction taken
     ADDR [`N-1:0]           pred_target;    // Branch prediction target
+    logic [`N-1:0]          halt;           // Halt instruction flag
 } FETCH_DISP_PACKET;
 
 // Map table communication packets
@@ -654,5 +683,20 @@ typedef struct packed {
     logic [`NUM_FU_MEM-1:0]    valid_mem;
     RS_IDX [`NUM_FU_MEM-1:0]   idxs_mem;
 } RS_CLEAR_SIGNALS;
+
+
+/**
+ * Commit Packet:
+ * This is an output of the processor and used in the testbench for counting
+ * committed instructions
+ */
+typedef struct packed {
+    ADDR    NPC;
+    DATA    data;
+    REG_IDX reg_idx;
+    logic   halt;
+    logic   illegal;
+    logic   valid;
+} COMMIT_PACKET;
 
 `endif  // __SYS_DEFS_SVH__

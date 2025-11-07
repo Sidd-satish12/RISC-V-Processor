@@ -96,7 +96,7 @@
 # there should be no need to change anything for project 3
 
 # this is a global clock period variable used in the tcl script and referenced in testbenches
-export CLOCK_PERIOD = 3.0
+export CLOCK_PERIOD = 11.0
 
 # the Verilog Compiler command and arguments
 VCS = module load vcs/2023.12-SP2-1 && \
@@ -190,7 +190,7 @@ GREP = grep -E --color=auto
 # ---- Modules to Test ---- #
 
 # TODO: add more modules here
-MODULES = cpu mult rob rs regfile map_table stage_issue stage_dispatch stage_execute stage_complete stage_retire
+MODULES = cpu mult rob rs regfile map_table stage_issue stage_dispatch stage_execute stage_complete stage_retire cdb
 
 # TODO: update this if you add more header files
 ALL_HEADERS = $(CPU_HEADERS)
@@ -226,6 +226,12 @@ STAGE_ISSUE_FILES = verilog/sys_defs.svh verilog/allocator.sv verilog/psel_gen.s
 build/stage_issue.simv: $(STAGE_ISSUE_FILES)
 build/stage_issue.cov: $(STAGE_ISSUE_FILES)
 synth/stage_issue.vg: $(STAGE_ISSUE_FILES)
+
+# TODO: add any files required for cdb here (besides test/cdb_test.sv and verilog/cdb.sv)
+CDB_FILES = verilog/sys_defs.svh verilog/psel_gen.sv
+build/cdb.simv: $(CDB_FILES)
+build/cdb.cov: $(CDB_FILES)
+synth/cdb.vg: $(CDB_FILES)
 
 # TODO: add any files required for the ROB here (besides test/rob_test.sv and verilog/rob.sv)
 STAGE_COMPLETE_FILES = verilog/sys_defs.svh
@@ -264,12 +270,22 @@ CPU_SOURCES = verilog/cpu.sv \
 			  verilog/regfile.sv \
               verilog/icache.sv \
               verilog/memDP.sv \
-			  verilog/p3/stage_if.sv \
-			  verilog/p3/stage_id.sv \
-			  verilog/p3/stage_ex.sv \
-			  verilog/p3/stage_mem.sv \
-			  verilog/p3/stage_wb.sv \
-			  verilog/mult.sv
+			  verilog/mult.sv \
+			  verilog/rob.sv \
+			  verilog/rs.sv \
+			  verilog/map_table.sv \
+			  verilog/stage_issue.sv \
+			  verilog/stage_dispatch.sv \
+			  verilog/stage_execute.sv \
+			  verilog/stage_complete.sv \
+			  verilog/stage_retire.sv \
+			  verilog/freelist.sv \
+			  verilog/cdb.sv \
+			  verilog/decoder.sv \
+			  verilog/allocator.sv \
+			  verilog/psel_gen.sv \
+			  verilog/alu.sv \
+			  verilog/branch.sv
 
 build/cpu.simv: $(CPU_SOURCES) $(CPU_HEADERS) $(CPU_TESTBENCH)
 synth/cpu.vg: $(CPU_SOURCES) $(CPU_HEADERS)

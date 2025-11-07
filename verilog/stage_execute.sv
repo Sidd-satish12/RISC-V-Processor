@@ -36,7 +36,24 @@ module stage_execute (
     output EX_COMPLETE_PACKET ex_comp,
 
     // From CDB for grant selection
-    input logic [`N-1:0][`NUM_FU_TOTAL-1:0] gnt_bus
+    input logic [`N-1:0][`NUM_FU_TOTAL-1:0] gnt_bus,
+
+    // Debug outputs
+    output FU_RESULTS fu_results_dbg,
+    output PRF_READ_EN prf_read_en_src1_dbg,
+    output PRF_READ_EN prf_read_en_src2_dbg,
+    output PRF_READ_TAGS prf_read_tag_src1_dbg,
+    output PRF_READ_TAGS prf_read_tag_src2_dbg,
+    output PRF_READ_DATA resolved_src1_dbg,
+    output PRF_READ_DATA resolved_src2_dbg,
+    output logic [`NUM_FU_MULT-1:0] mult_start_dbg,
+    output logic [`NUM_FU_MULT-1:0] mult_done_dbg,
+    output logic [`NUM_FU_BRANCH-1:0] branch_take_dbg,
+    output ADDR [`NUM_FU_BRANCH-1:0] branch_target_dbg,
+    output logic [`NUM_FU_ALU-1:0] alu_executing_dbg,
+    output logic [`NUM_FU_MULT-1:0] mult_executing_dbg,
+    output logic [`NUM_FU_BRANCH-1:0] branch_executing_dbg,
+    output logic [`NUM_FU_MEM-1:0] mem_executing_dbg
 );
 
     // =========================================================================
@@ -66,7 +83,7 @@ module stage_execute (
 
     // BRANCH signals
     DATA [`NUM_FU_BRANCH-1:0] branch_rs1, branch_rs2;
-    logic [2:0][`NUM_FU_BRANCH-1:0] branch_funcs;  // Array of 3-bit func values
+    BRANCH_FUNC [`NUM_FU_BRANCH-1:0] branch_funcs;  // Array of 3-bit func values
     logic [`NUM_FU_BRANCH-1:0] branch_take;
     ADDR [`NUM_FU_BRANCH-1:0] branch_target;
 
@@ -331,12 +348,12 @@ module stage_execute (
         for (int i = 0; i < `NUM_FU_BRANCH; i++) begin
             branch_rs1[i]   = resolved_src1.branch[i];
             branch_rs2[i]   = resolved_src2.branch[i];
-            branch_funcs[i] = issue_entries.branch[i].op_type.func[2:0];
+            branch_funcs[i] = issue_entries.branch[i].op_type.func;
         end
     end
 
     // Instantiate BRANCH modules
-    conditional_branch branch_inst[`NUM_FU_BRANCH-1:0] (
+    branch branch_inst[`NUM_FU_BRANCH-1:0] (
         .rs1 (branch_rs1),
         .rs2 (branch_rs2),
         .func(branch_funcs),  // Connect func array directly
@@ -351,11 +368,19 @@ module stage_execute (
     end
 
     // BRANCH outputs to CDB
+    // Only JAL and JALR produce data results; conditional branches don't
     always_comb begin
-        fu_outputs.branch[0].valid = issue_entries.branch[0].valid;
-        fu_outputs.branch[0].tag   = issue_entries.branch[0].dest_tag;
-        // For branches, data could be PC+4 for branch-and-link or 0 for conditional branches
-        fu_outputs.branch[0].data  = issue_entries.branch[0].PC + 4;  // TODO: check if needed
+        if (issue_entries.branch[0].valid &&
+            (issue_entries.branch[0].op_type.func == JAL ||
+             issue_entries.branch[0].op_type.func == JALR)) begin
+            fu_outputs.branch[0].valid = 1'b1;
+            fu_outputs.branch[0].tag   = issue_entries.branch[0].dest_tag;
+            fu_outputs.branch[0].data  = issue_entries.branch[0].PC + 4;  // Return address for JAL/JALR
+        end else begin
+            fu_outputs.branch[0].valid = 1'b0;
+            fu_outputs.branch[0].tag   = '0;
+            fu_outputs.branch[0].data  = '0;
+        end
     end
 
     // =========================================================================
@@ -373,10 +398,15 @@ module stage_execute (
     end
 
     // Add constants for FU index ranges (to avoid manual offset calculations)
-    localparam int MULT_START = 0;
-    localparam int MEM_START = MULT_START + `NUM_FU_MULT;
-    localparam int ALU_START = MEM_START + `NUM_FU_MEM;
-    localparam int BRANCH_START = ALU_START + `NUM_FU_ALU;
+    // localparam int MULT_START = 0;
+    // localparam int MEM_START = MULT_START + `NUM_FU_MULT;
+    // localparam int ALU_START = MEM_START + `NUM_FU_MEM;
+    // localparam int BRANCH_START = ALU_START + `NUM_FU_ALU;
+    localparam int BRANCH_START = 0;
+    localparam int ALU_START = BRANCH_START + `NUM_FU_BRANCH;
+    localparam int MEM_START = ALU_START + `NUM_FU_ALU;
+    localparam int MULT_START = MEM_START + `NUM_FU_MEM;
+
 
     // Separate grant signals for each FU type (extracted from global gnt_bus)
     logic [`N-1:0][`NUM_FU_MULT-1:0]   gnt_mult;
@@ -484,5 +514,25 @@ module stage_execute (
             end
         end
     end
+
+    // =========================================================================
+    // Debug Output Assignments
+    // =========================================================================
+
+    assign fu_results_dbg = fu_results;
+    assign prf_read_en_src1_dbg = prf_read_en_src1;
+    assign prf_read_en_src2_dbg = prf_read_en_src2;
+    assign prf_read_tag_src1_dbg = prf_read_tag_src1;
+    assign prf_read_tag_src2_dbg = prf_read_tag_src2;
+    assign resolved_src1_dbg = resolved_src1;
+    assign resolved_src2_dbg = resolved_src2;
+    assign mult_start_dbg = mult_start;
+    assign mult_done_dbg = mult_done;
+    assign branch_take_dbg = branch_take;
+    assign branch_target_dbg = branch_target;
+    assign alu_executing_dbg = {fu_outputs.alu[2].valid, fu_outputs.alu[1].valid, fu_outputs.alu[0].valid};
+    assign mult_executing_dbg = {fu_outputs.mult[0].valid};
+    assign branch_executing_dbg = {fu_outputs.branch[0].valid};
+    assign mem_executing_dbg = {fu_outputs.mem[0].valid};
 
 endmodule

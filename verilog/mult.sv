@@ -25,7 +25,7 @@ module mult (
     MULT_FUNC [`MULT_STAGES-2:0] internal_funcs;
     MULT_FUNC func_out;
 
-    logic [`MULT_STAGES-2:0] internal_dones;
+    // logic [`MULT_STAGES-2:0] internal_dones;
     logic [(64*(`MULT_STAGES-1))-1:0] internal_sums, internal_mcands, internal_mpliers;
     logic [`MULT_STAGES-1:0] dones;
 
@@ -40,7 +40,8 @@ module mult (
         .clock      (clock),
         .reset      (reset),
         .func       ({internal_funcs, func}),
-        .start      ({internal_dones, start}),         // forward prev done as next start
+        .start      ({dones[`MULT_STAGES-2:0], start}),
+        //.start      ({internal_dones, start}),         // forward prev done as next start
         .prev_sum   ({internal_sums, 64'h0}),          // start the sum at 0
         .mplier     ({internal_mpliers, mplier}),
         .mcand      ({internal_mcands, mcand}),

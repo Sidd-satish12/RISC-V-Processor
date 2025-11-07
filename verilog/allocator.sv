@@ -35,13 +35,13 @@ module allocator #(
     input logic [ NUM_REQUESTS-1:0] req,
     input logic [NUM_RESOURCES-1:0] clear,
 
-    output logic [NUM_REQUESTS-1:0][NUM_RESOURCES-1:0] grant
+    output logic [NUM_REQUESTS-1:0][NUM_RESOURCES-1:0] grant,
+    output logic [NUM_RESOURCES-1:0] resource_status
 );
 
-    // Represents the current status of all resources.
+    // resource_status is now an output port
     // A '1' in a bit position indicates that the corresponding resource is free/available,
     // while a '0' indicates that the resource is allocated/occupied.
-    logic [NUM_RESOURCES-1:0] resource_status;
 
     // Bit vector used to mark resources that will be allocated in the next cycle.
     // For example, if resources 1 and 2 are to be allocated in the next cycle, then
@@ -57,14 +57,13 @@ module allocator #(
     // which requesters are prioritized when multiple requests arrive simultaneously.
     logic [NUM_REQUESTS-1:0][NUM_REQUESTS-1:0] request_gnt_bus;
 
-
     // Priority selector for resource allocation: grants available resources
     // to incoming requests based on priority (alternating MSB/LSB priority scheme)
     psel_gen #(
         .WIDTH(NUM_RESOURCES),
         .REQS (NUM_REQUESTS)
     ) resource_psel (
-        .req(resource_status),
+        .req(resource_status | clear),
         .gnt_bus(resource_gnt_bus)
     );
 
@@ -118,6 +117,8 @@ module allocator #(
             // - XOR with resource_allocated: resources being allocated become unavailable (0)
             // Note: XOR flips the bit when allocating; the OR with clear handles clearing
             //       This preserves the original parking lot logic behavior
+            // TODO changed from XOR to OR as this prevents stalling for 1 cycle instructions (ALU, BRANCH, ETC)
+            // need to check if this works for mult as it is not a 1 cycle instruction
             resource_status <= (resource_status | clear) ^ resource_allocated;
         end
     end

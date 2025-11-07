@@ -12,7 +12,7 @@ module cdb (
     output FU_GRANTS grants,
 
     // Grant bus output to EX for metadata selection to complete
-    output logic [`N-1:0][`NUM_FU_TOTAL-1:0] gnt_bus_out,
+    output logic [`N-1:0][`NUM_FU_TOTAL-1:0] grant_bus_out,
 
     // CDB inputs (structured)
     input CDB_FU_OUTPUTS fu_outputs,
@@ -21,7 +21,14 @@ module cdb (
     output CDB_EARLY_TAG_ENTRY [`N-1:0] early_tags,
 
     // CDB register outputs broadcasting to Physical Register File, EX stage (data forwarding), and Map Table
-    output CDB_ENTRY [`N-1:0] cdb_output
+    output CDB_ENTRY [`N-1:0] cdb_output,
+
+    // Debug outputs
+    output FU_REQUESTS requests_dbg,
+    output CDB_FU_OUTPUTS fu_outputs_dbg,
+    output logic [`NUM_FU_TOTAL-1:0] grants_flat_dbg,
+    output logic [`N-1:0][`NUM_FU_TOTAL-1:0] gnt_bus_dbg,
+    output CDB_EARLY_TAG_ENTRY [`N-1:0] early_tags_dbg
 );
 
     logic [`N-1:0][`NUM_FU_TOTAL-1:0] gnt_bus, gnt_bus_next;
@@ -30,15 +37,15 @@ module cdb (
     // Flatten fu_outputs in PRIORITY ORDER: BRANCH (highest), ALU, MEM, MULT (lowest)
     // This ordering MUST match the psel_gen request order for correct arbitration
     CDB_ENTRY [`NUM_FU_TOTAL-1:0] fu_outputs_flat;
-    assign fu_outputs_flat = '{fu_outputs.mult, fu_outputs.mem, fu_outputs.alu, fu_outputs.branch};
+    assign fu_outputs_flat = {fu_outputs.mult, fu_outputs.mem, fu_outputs.alu, fu_outputs.branch};
 
     psel_gen #(
         .WIDTH(`NUM_FU_TOTAL),  // 6
-        .REQS (`N)              // 2
+        .REQS (`N)              // 3
     ) cdb_arbiter (
         // CRITICAL: Priority order is BRANCH (highest), ALU, MEM, MULT (lowest)
         // This concatenation order determines arbitration priority
-        .req('{requests.mult, requests.mem, requests.alu, requests.branch}),
+        .req({requests.mult, requests.mem, requests.alu, requests.branch}),
         .gnt(grants_flat_next),
         .gnt_bus(gnt_bus_next)
     );
@@ -61,9 +68,9 @@ module cdb (
     end
 
     // Unflatten grants back to structured format, maintaining same order
-    assign '{grants.mult, grants.mem, grants.alu, grants.branch} = grants_flat;
+    // grants_flat order: [mult, mem, alu, branch] (same as request concatenation)
+    assign {grants.mult, grants.mem, grants.alu, grants.branch} = grants_flat;
     assign cdb_output = cdb;
-    assign gnt_bus_next_out = gnt_bus;
 
     always_ff @(posedge clock) begin
         if (reset) begin
@@ -76,5 +83,15 @@ module cdb (
             cdb <= cdb_next;
         end
     end
+
+    // Connect grant_bus to output
+    assign grant_bus_out = gnt_bus;
+
+    // Debug assignments
+    assign requests_dbg = requests;
+    assign fu_outputs_dbg = fu_outputs;
+    assign grants_flat_dbg = grants_flat;
+    assign gnt_bus_dbg = gnt_bus;  // Keep gnt_bus name for debug consistency
+    assign early_tags_dbg = early_tags;
 
 endmodule
