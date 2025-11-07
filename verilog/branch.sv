@@ -1,8 +1,8 @@
 `include "sys_defs.svh"
 
-// Conditional branch module: compute whether to take conditional branches
+// Branch module: compute whether to take branches (conditional and unconditional)
 // This module is purely combinational
-module conditional_branch (
+module branch (
     input DATA rs1,
     input DATA rs2,
     input BRANCH_FUNC func,  // Which branch condition to check
@@ -12,14 +12,16 @@ module conditional_branch (
 
     always_comb begin
         case (func)
-            3'b000:  take = signed'(rs1) == signed'(rs2);  // BEQ
-            3'b001:  take = signed'(rs1) != signed'(rs2);  // BNE
-            3'b010:  take = signed'(rs1) < signed'(rs2);  // BLT
-            3'b011:  take = signed'(rs1) >= signed'(rs2);  // BGE
-            3'b100:  take = rs1 < rs2;  // BLTU
-            3'b101:  take = rs1 >= rs2;  // BGEU
+            EQ:   take = signed'(rs1) == signed'(rs2);  // BEQ
+            NE:   take = signed'(rs1) != signed'(rs2);  // BNE
+            LT:   take = signed'(rs1) < signed'(rs2);   // BLT
+            GE:   take = signed'(rs1) >= signed'(rs2);  // BGE
+            LTU:  take = rs1 < rs2;                     // BLTU
+            GEU:  take = rs1 >= rs2;                    // BGEU
+            JAL:  take = `TRUE;                         // JAL is always taken
+            JALR: take = `TRUE;                         // JALR is always taken
             default: take = `FALSE;
         endcase
     end
 
-endmodule  // conditional_branch
+endmodule  // branch
