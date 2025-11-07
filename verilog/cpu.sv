@@ -332,7 +332,7 @@ module cpu (
     always_comb begin
         fetch_valid_mask = '0;
         for (int i = 0; i < `N; i++) begin
-            if (i < ff_nvalid) fetch_valid_mask[i] = 1'b1;
+            if (unsigned'(i) < ff_nvalid) fetch_valid_mask[i] = 1'b1;
         end
     end
 
@@ -363,7 +363,7 @@ module cpu (
             endcase
 
             // PC and instruction info from fake fetch
-            fetch_disp_packet.PC[i]          = ff_pc + 32'(4 * i);
+            fetch_disp_packet.PC[i]          = ff_pc + 32'(4 * unsigned'(i));
             fetch_disp_packet.inst[i]        = ff_instr[i];
 
             // No branch prediction for now
@@ -920,7 +920,7 @@ module cpu (
     assign map_table_snapshot_dbg = map_table_0.map_table_reg;
 
     // Freelist debug output (available physical registers)
-    assign freelist_available_dbg = freelist_0.reg_allocator.resource_status;
+    assign freelist_available_dbg = freelist_0.available_regs;
 
     // CDB debug outputs
     assign cdb_output_dbg         = cdb_output;
