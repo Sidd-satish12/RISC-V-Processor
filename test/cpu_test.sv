@@ -253,7 +253,11 @@ module testbench;
         .mem_executing_dbg(mem_executing),
 
         // ---- Fake-Fetch interface ----
+`ifdef SYNTH
+        .ff_instr       ({fake_instr[2], fake_instr[1], fake_instr[0]}),
+`else
         .ff_instr       (fake_instr),
+`endif
         .ff_pc          (fake_pc),
         .ff_nvalid      (fake_nvalid),
         .ff_consumed    (fake_consumed),
@@ -421,8 +425,8 @@ module testbench;
 
             // Optional: print CDB broadcasts
             for (integer i = 0; i < `N; i++) begin
-                $display("  CDB[%0d]: valid=%b, tag=%0d, data=%h", i, verisimpleV.cdb_output[i].valid,
-                         verisimpleV.cdb_output[i].tag, verisimpleV.cdb_output[i].data);
+                $display("  CDB[%0d]: valid=%b, tag=%0d, data=%h", i, cdb_output[i].valid,
+                         cdb_output[i].tag, cdb_output[i].data);
             end
 
 

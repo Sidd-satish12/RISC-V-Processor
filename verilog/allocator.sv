@@ -35,13 +35,13 @@ module allocator #(
     input logic [ NUM_REQUESTS-1:0] req,
     input logic [NUM_RESOURCES-1:0] clear,
 
-    output logic [NUM_REQUESTS-1:0][NUM_RESOURCES-1:0] grant
+    output logic [NUM_REQUESTS-1:0][NUM_RESOURCES-1:0] grant,
+    output logic [NUM_RESOURCES-1:0] resource_status
 );
 
-    // Represents the current status of all resources.
+    // resource_status is now an output port
     // A '1' in a bit position indicates that the corresponding resource is free/available,
     // while a '0' indicates that the resource is allocated/occupied.
-    logic [NUM_RESOURCES-1:0] resource_status;
 
     // Bit vector used to mark resources that will be allocated in the next cycle.
     // For example, if resources 1 and 2 are to be allocated in the next cycle, then
