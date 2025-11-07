@@ -353,7 +353,7 @@ module stage_execute (
     end
 
     // Instantiate BRANCH modules
-    conditional_branch branch_inst[`NUM_FU_BRANCH-1:0] (
+    branch branch_inst[`NUM_FU_BRANCH-1:0] (
         .rs1 (branch_rs1),
         .rs2 (branch_rs2),
         .func(branch_funcs),  // Connect func array directly
