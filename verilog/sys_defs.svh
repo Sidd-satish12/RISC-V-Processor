@@ -79,11 +79,11 @@
 
 `define DCACHE_ASSOC 2           // 2-way associative D-cache
 `define DCACHE_LINES 32
-`define DCACHE_LINE_BYTES 8      // 8 bytes/line 8 * 32 * 2 (2 words; 256 bytes total)
+`define DCACHE_LINE_BYTES 8      // 8 bytes/line 8 * 32 (2 words; 256 bytes total)
 `define DCACHE_VICTIM_SZ 4       // Small victim cache
 
-`define DSET_INDEX_BITS $clog2(`DCACHE_LINES / `DCACHE_ASSOC)              // indexing into each cache line
-`define DBLOCK_OFFSET_BITS $clog2(`DCACHE_LINE_BYTES)      // indexing into bytes in a cache line/block
+`define DSET_INDEX_BITS $clog2(`DCACHE_LINES / `DCACHE_ASSOC)   // indexing into each cache line
+`define DBLOCK_OFFSET_BITS $clog2(`DCACHE_LINE_BYTES)           // indexing into bytes in a cache line/block
 `define DTAG_BITS 32 - `DSET_INDEX_BITS - `DBLOCK_OFFSET_BITS
 
 // Load/Store Queue (not implemented in base design)
