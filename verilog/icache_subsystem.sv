@@ -56,7 +56,7 @@ endmodule
 // ============================================================================
 // Two memDP modules for odd/even banking to support 2 simultaneous reads
 // Each bank is fully associative (16 lines per bank = 32 total lines)
-// Uses LFSR for pseudo-random replacement policy within each bank
+// Uses LFSR for pseudo-random eviction policy within each bank
 module icache (
     input clock,
     input reset,
@@ -67,18 +67,19 @@ module icache (
 
     // Fill interface from MSHR (when data returns from memory)
     // Instruction fetch never have to wrtie back
-    input logic      write_en,
-    input I_ADDR     write_addr,
-    input MEM_BLOCK  write_data,
+    input logic       write_en,
+    input I_ADDR      write_addr,
+    input MEM_BLOCK   write_data,
 
     // Eviction interface to victim cache
-    output ADDR      evict_addr,
+    output ADDR       evict_addr,
     output CACHE_DATA evict_data
 );
 
-    MEM_BLOCK bank0_data_out, bank1_data_out, cache_in;
-    logic [1:0][(`ICACHE_LINES/`ICACHE_ASSOC)-1:0] valids;
-    logic [1:0][(`ICACHE_LINES/`ICACHE_ASSOC)-1:0] tags [`ITAG_BITS-1:0];
+    MEM_BLOCK bank0_data_out, bank1_data_out;
+    logic [1:0][(`ICACHE_LINES/`ICACHE_ASSOC)-1:0] valids, valids_next;
+    logic [1:0][(`ICACHE_LINES/`ICACHE_ASSOC)-1:0][`ITAG_BITS-1:0] tags, tags_next;
+    logic [1:0][`I_INDEX_BITS-1:0] bank_data_in_index;
     
     // Bank 0: 16 lines, fully associative (addr[3] = 0, even lines)
     memDP #(
@@ -93,8 +94,8 @@ module icache (
         .raddr(read_addr.index),
         .rdata(bank0_data_out),
         .we   (write_en && ~write_addr.bank),
-        .waddr(), // fully associative so write can't depend on index
-        .wdata(cache_in)
+        .waddr(bank_data_in_index[0]), // fully associative so write can't depend on index
+        .wdata(write_data)
     );
 
     // Bank 1: 16 lines, fully associative (addr[3] = 1, odd lines)
@@ -110,15 +111,100 @@ module icache (
         .raddr(read_addr.index),
         .rdata(bank1_data_out),
         .we   (write_en && write_addr.bank),
-        .waddr(), // fully associative so write can't depend on index
-        .wdata(cache_in)
+        .waddr(bank_data_in_index[1]), // fully associative so write can't depend on index
+        .wdata(write_data)
     );
 
     // Read logic
     // Address break down [31:16] 0s, [15:9] tag, [8:4] index, [3] bank, [2:0] one mem_block
-    assign cache_out.valid = read_addr.tag == tags[read_addr.bank][read_addr.index] && valids[read_addr.bank][read_addr.index];
+    assign cache_out.valid = (read_addr.tag == tags[read_addr.bank][read_addr.index]) && 
+                              valids[read_addr.bank][read_addr.index];
     assign cache_out.cache_line = read_addr.bank ? bank1_data_out : bank0_data_out;
 
+
+    logic [1:0][(`ICACHE_LINES / `ICACHE_ASSOC)-1:0]  one_hot_write_selection;
+    logic [`I_INDEX_BITS-1:0]                         eviction_index;
+    logic [1:0][`I_INDEX_BITS-1:0]                    bank_write_index;
+
+    psel_gen #(
+        WIDTH(`ICACHE_LINES / `ICACHE_ASSOC),
+        REQS(1)
+    ) psel_bank[1:0] (
+        .req(valids),
+        .gn(one_hot_write_selection)
+    );
+
+    LFSR #(
+        NUM_BITS(`I_INDEX_BITS)
+    ) LFSR0 (
+        .clock(clock),
+        .reset(reset),
+        .seed_data(`LFSR_SEED),
+        .data_out(eviction_index)
+    );
+
+    one_hot_to_index #(
+        .WIDTH(`ICACHE_LINES / `ICACHE_ASSOC)
+    ) one_hot_convert[1:0] (
+        .one_hot(one_hot_write_selection),
+        .index(bank_write_index)
+    );
+
+    // Write logic
+    assign bank_data_in_index[0] = ~(|one_hot_write_selection[0]) ? eviction_index :
+                                                                bank_write_index[0];
+
+    assign bank_data_in_index[1] = ~(|one_hot_write_selection[1]) ? eviction_index :
+                                                                bank_write_index[1];
+
+    logic evicting_bank0, evicting_bank1, writing_bank0, writing_bank1;
+    CACHE_DATA eviction_data;
+
+    always_comb begin
+        valids_next = valids;
+        tags_next = tags;
+        writing_bank0 = '0;
+        writing_bank1 = '0;
+        evicting_bank0 = '0;
+        evicting_bank1 = '0;
+        eviction_data = '0;
+        if (write_en && ~write_addr.bank) begin         // writing to bank0
+            writing_bank0 = '1;
+            if (~(|one_hot_write_selection[0])) begin   // evicting from bank0
+                evicting_bank0 = '1;
+            end
+        end else if (write_en && write_addr.bank) begin // writing to bank1
+            writing_bank1 = '1;
+            if (~(|one_hot_write_selection[1])) begin   // evicting from bank1
+                evicting_bank1 = '1;
+            end
+        end
+
+        if (writing_bank0) begin
+            valids_next[0][bank_data_in_index[0]] = '1;
+            tags_next[0][bank_data_in_index[0]] = write_addr.tag;
+        end
+
+        if (writing_bank1) begin
+            valids_next[1][bank_data_in_index[1]] = '1;
+            tags_next[1][bank_data_in_index[1]] = write_addr.tag;
+        end
+
+        if (evicting_bank0 | evicting_bank1) begin
+            
+        end
+
+    end
+
+    always_ff @(posedge clock) begin
+        if (reset) begin
+            valids <= '0;
+            tags <= '0;
+        end else begin
+            valids = valids_next;
+            tags = tags_next;
+        end
+    end
 endmodule
 
 
@@ -200,6 +286,22 @@ module prefetcher (
 
     // Internal: 4-entry stream buffer (holds prefetched lines)
     // TODO: Implement stream buffer storage and prefetch generation logic
+
+endmodule
+
+module one_hot_to_index #(
+    parameter int INPUT_WIDTH = 1
+) (
+    input  logic [WIDTH-1:0] one_hot,
+    output wor   [((WIDTH <= 1) ? 1 : $clog2(WIDTH))-1:0] index
+);
+
+    localparam INDEX_WIDTH = (WIDTH <= 1) ? 1 : $clog2(WIDTH);
+
+    assign index = '0;
+    for (genvar i = 0; i < WIDTH; i++) begin : gen_index_terms
+        assign index = {INDEX_WIDTH{one_hot[i]}} & i;
+    end
 
 endmodule
 
