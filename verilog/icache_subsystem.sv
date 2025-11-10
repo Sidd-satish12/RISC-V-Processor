@@ -23,7 +23,7 @@ module icache_subsystem (
     input MEM_TAG   Imem2proc_data_tag,         // Tag for returned data (0 = no data)
 
     // From arbiter to MSHR
-    input logic arbiter_accept,                 // Arbiter accepted our memory request this cycle
+    input logic      arbiter_accept,            // Arbiter accepted our memory request this cycle
 
     // From victim cache to MEM request logic and icache for reinstatement
     input logic      victim_cache_hit,
@@ -61,25 +61,10 @@ module icache_subsystem (
     ADDR        evict_addr;
     CACHE_DATA  evict_data;
     logic       victim_cache_hit;
-    // TODO: actually this shouldn't be here Dcache needs to access it as well
-    victim_cache victim_cache_inst (
-        // Write port (from icache eviction)
-        .write_addr(evict_addr),
-        .write_data(evict_data),
 
-        // Read port (for reinstatement / icache lookup)
-        .read_addr(victim_cache_lookup_addr),
-        .write_data(victim_cache_data),
-
-        // Outputs
-        .hit(victim_cache_hit),
-        .reinstate_addr(),
-        .reinstate_data()
-    );
 
 endmodule
 
-// TODO: needs to be put in verilog/ drectory, so it can be instantiate in CPU wired with data cache as well
 module victim_cache (
     // for when you icache is evicting something from MSHR trying to write to a full bank, takes priority
     input ADDR write_addr,
@@ -112,6 +97,7 @@ module victim_cache (
     );
 
 endmodule
+
 // ============================================================================
 // ICache (2-way banked, fully associative per bank)
 // ============================================================================
@@ -119,6 +105,21 @@ endmodule
 // Each bank is fully associative (16 lines per bank = 32 total lines)
 // Uses LFSR for pseudo-random eviction policy within each bank
 // Prioritize victim cache eviction read over fetch read, might change later
+// when read hit in victim cache/prefetcher, it empties that line in victim cache and reinstate to icache
+// if icache was full, it evict a random one to victim cache, that's practically a swap.
+// what if I just don't promote when icache is already full?
+// but when I write to full icache again, it may overwrite that just used victim cache line
+// and being in victim cache is more line to be overwritten than being in a icache bank
+// because icache bank has 16 lines, victim cache only has 4 and is sharing with dcache
+// therefore, we should do the swap
+// there could be promotion write and reinstatement write
+// each write request means it's a hit this cycle, which means only one of them can be valid
+// so we don't have to decide priority between them.
+// I still need to decide the prioirty between MSHR write and victim/prefetcher write
+// those could happen in the same cycle
+// if delay MSHR, there needs to be a structure to save it
+// if delay victim/prefetcher, i also need a buffer to save it
+// sicne a buffer is required, I might as well prioritize fetch stage read over eviction read
 module icache (
     input clock,
     input reset,
@@ -128,19 +129,14 @@ module icache (
     input I_ADDR      [1:0] read_addr,
     output CACHE_DATA [1:0] cache_out, // cache hit, if cache_out.valid == 1
 
-    // Fill interface from MSHR (when data returns from memory)
+    // Write input from MSHR (when data returns from memory), victim cache, or prefetcher
     input I_ADDR       write_addr,
     input CACHE_DATA   write_data,
-
-    // TODO: add promotion input from pre-fetcher
-    // TODO: add reinstate input from victim cache
-    // TODO: decide priority between MSHR, victim cache reinstatement, prefetcher promotion write
-    // Also need to decide whether promotion and reinstatement should cause eviction to victim cache
-
 
     // Eviction interface to victim cache
     output ADDR        evict_addr,
     output CACHE_DATA  evict_data
+
     // TODO: add signals outputing whether each fetch read was a hit 
     output logic [1:0] hit
 );
