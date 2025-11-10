@@ -30,9 +30,8 @@ module icache_subsystem (
     input MEM_BLOCK  victim_cache_data,
 
     // fetch stage, icache read
-    input ADDR       [1:0] proc2Icache_addr,
-    output MEM_BLOCK [1:0] Icache_data_out,           // Instruction data output
-    output logic     [1:0] Icache_valid_out,          // Data is valid
+    input  ADDR       [1:0] read_addr,
+    output CACHE_DATA [1:0] cache_out,           // Instruction data output
 
     // To arbiter (for memory requests)
     output logic        mem_req_valid,          // Request to send to memory
@@ -41,24 +40,78 @@ module icache_subsystem (
 
     // To victim cache (for lookup)
     output ADDR victim_cache_lookup_addr,
-
-
 );
 
-    // TODO: Wire up connections between icache, prefetcher, MSHR
-    icache instruction_cache (
+    logic [1:0] icache_hit;
+    // TODO verify icache_subsystem total hit with icache hit victim cache hit and prefetcher hit
+    // if miss mem request
+
+    icache icache_inst (
         .clock(clock),
         .reset(reset),
-        .read_addr(),
-        .cache_out(),
+        .read_addr(read_addr),
+        .cache_out(cache_out),
         .write_addr(),
-        .write_data(),
-        .evict_addr(),
-        .evict_data()
+        .write_data(Icache_data_out),
+        .evict_addr(evict_addr),
+        .evict_data(evict_data)
+        .hit(icache_hit)
     )
+
+    ADDR        evict_addr;
+    CACHE_DATA  evict_data;
+    logic       victim_cache_hit;
+    // TODO: actually this shouldn't be here Dcache needs to access it as well
+    victim_cache victim_cache_inst (
+        // Write port (from icache eviction)
+        .write_addr(evict_addr),
+        .write_data(evict_data),
+
+        // Read port (for reinstatement / icache lookup)
+        .read_addr(victim_cache_lookup_addr),
+        .write_data(victim_cache_data),
+
+        // Outputs
+        .hit(victim_cache_hit),
+        .reinstate_addr(),
+        .reinstate_data()
+    );
 
 endmodule
 
+// TODO: needs to be put in verilog/ drectory, so it can be instantiate in CPU wired with data cache as well
+module victim_cache (
+    // for when you icache is evicting something from MSHR trying to write to a full bank, takes priority
+    input ADDR write_addr,
+    input cache_data write_data,
+
+    // fetch stage read
+    input ADDR read_addr,
+    output cache_data write_data,
+
+    output hit,
+    output ADDR reinstate_addr,
+    output cache_data reinstate_data;
+    // TODO: if hit, needs to output cache line back to icache
+)
+    // TODO finish victim cache
+    memDP #(
+        .WIDTH   ($BITS(MEM_BLOCK)),
+        .DEPTH   (4),      // victim cache only allowed 4 mem_blocks
+        .READ_PORTS(1),
+        .BYPASS_EN (0)
+    ) cache_bank[1:0] (
+        .clock(clock),
+        .reset(reset),
+        .re   ('1),
+        .raddr(),
+        .rdata(),
+        .we(),
+        .waddr(),
+        .wdata(write_data.cache_line)
+    );
+
+endmodule
 // ============================================================================
 // ICache (2-way banked, fully associative per bank)
 // ============================================================================
@@ -84,11 +137,12 @@ module icache (
     // TODO: decide priority between MSHR, victim cache reinstatement, prefetcher promotion write
     // Also need to decide whether promotion and reinstatement should cause eviction to victim cache
 
-    // TODO: add signals outputing whether each fetch read was a miss 
 
     // Eviction interface to victim cache
     output ADDR        evict_addr,
     output CACHE_DATA  evict_data
+    // TODO: add signals outputing whether each fetch read was a hit 
+    output logic [1:0] hit
 );
     localparam BANK_INDEX_BITS = `ICACHE_LINES/`ICACHE_ASSOC;
 
