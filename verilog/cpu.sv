@@ -244,13 +244,49 @@ module cpu (
 
     //////////////////////////////////////////////////
     //                                              //
-    //                Memory Outputs                //
+    //                Memory                        //
     //                                              //
     //////////////////////////////////////////////////
+    victim_cache victim_cache_inst (
+        // Write port (from icache eviction)
+        .write_addr(),
+        .write_data(),
 
-    // these signals go to and from the processor and memory
-    // we give precedence to the mem stage over instruction fetch
-    // there is a 100ns latency to memory 
+        // Read port (for reinstatement / icache lookup)
+        .read_addr(),
+
+        // Outputs
+        .hit(),
+        .reinstate_addr(),
+        .reinstate_data()
+    );
+
+    icache_subsystem icache_subsystem_inst (
+        .clock(),
+        .reset(),
+        // From memory to MSHR (via arbiter)
+        .Imem2proc_transaction_tag(),
+        .Imem2proc_data(),
+        .Imem2proc_data_tag(),
+        // From arbiter to MSHR
+        .arbiter_accept(),
+        // From victim cache to MEM request logic and icache for reinstatement
+        .victim_cache_hit(),
+        .victim_cache_data(),
+        // fetch stage, icache read
+        .read_addr(),
+        .cache_out(),
+        // To arbiter (for memory requests)
+        .mem_req_valid(),
+        .mem_req_addr(),
+        .mem_req_command(),
+        // To victim cache (for lookup)
+        .victim_cache_lookup_addr()
+    );
+
+    dcache_subsystem dcache_subsystem_inst (
+
+    );
 
     always_comb begin
         // Using fake fetch - only handle data memory operations
