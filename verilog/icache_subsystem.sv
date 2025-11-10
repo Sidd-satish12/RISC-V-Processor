@@ -17,36 +17,45 @@ module icache_subsystem (
     input clock,
     input reset,
 
-    // From memory (via arbiter)
+    // From memory to MSHR (via arbiter)
     input MEM_TAG   Imem2proc_transaction_tag,  // Memory accepted request with this tag (0 = rejected)
     input MEM_BLOCK Imem2proc_data,             // Data returning from memory
     input MEM_TAG   Imem2proc_data_tag,         // Tag for returned data (0 = no data)
 
-    // From arbiter
+    // From arbiter to MSHR
     input logic arbiter_accept,                 // Arbiter accepted our memory request this cycle
 
-    // From victim cache (external module)
+    // From victim cache to MEM request logic and icache for reinstatement
     input logic      victim_cache_hit,
     input MEM_BLOCK  victim_cache_data,
 
-    // From fetch stage
-    input ADDR proc2Icache_addr,
-    
+    // fetch stage, icache read
+    input ADDR       [1:0] proc2Icache_addr,
+    output MEM_BLOCK [1:0] Icache_data_out,           // Instruction data output
+    output logic     [1:0] Icache_valid_out,          // Data is valid
+
     // To arbiter (for memory requests)
     output logic        mem_req_valid,          // Request to send to memory
     output ADDR         mem_req_addr,           // Address for memory request
-    output MEM_COMMAND  mem_req_command,        // Memory command (MEM_LOAD)
+    output MEM_COMMAND  mem_req_command,        // Memory command (ßMEM_LOAD)
 
     // To victim cache (for lookup)
     output ADDR victim_cache_lookup_addr,
 
-    // To fetch stage
-    output MEM_BLOCK Icache_data_out,           // Instruction data output
-    output logic     Icache_valid_out           // Data is valid
+
 );
 
-    // Internal signals between submodules
     // TODO: Wire up connections between icache, prefetcher, MSHR
+    icache instruction_cache (
+        .clock(clock),
+        .reset(reset),
+        .read_addr(),
+        .cache_out(),
+        .write_addr(),
+        .write_data(),
+        .evict_addr(),
+        .evict_data()
+    )
 
 endmodule
 
@@ -56,17 +65,26 @@ endmodule
 // Two memDP modules for odd/even banking to support 2 simultaneous reads
 // Each bank is fully associative (16 lines per bank = 32 total lines)
 // Uses LFSR for pseudo-random eviction policy within each bank
+// Prioritize victim cache eviction read over fetch read, might change later
 module icache (
     input clock,
     input reset,
 
+    // TODO: needs to add support for reading two cache lines at the same time
     // Lookup interface from fetch stage
-    input I_ADDR       read_addr,
-    output CACHE_DATA  cache_out, // cache hit, if cache_out.valid == 1
+    input I_ADDR      [1:0] read_addr,
+    output CACHE_DATA [1:0] cache_out, // cache hit, if cache_out.valid == 1
 
     // Fill interface from MSHR (when data returns from memory)
     input I_ADDR       write_addr,
-    input CACHE_DATA    write_data,
+    input CACHE_DATA   write_data,
+
+    // TODO: add promotion input from pre-fetcher
+    // TODO: add reinstate input from victim cache
+    // TODO: decide priority between MSHR, victim cache reinstatement, prefetcher promotion write
+    // Also need to decide whether promotion and reinstatement should cause eviction to victim cache
+
+    // TODO: add signals outputing whether each fetch read was a miss 
 
     // Eviction interface to victim cache
     output ADDR        evict_addr,
@@ -206,8 +224,6 @@ module icache (
     end
 
 endmodule
-
-
 
 
 // ============================================================================
