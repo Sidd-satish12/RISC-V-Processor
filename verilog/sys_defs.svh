@@ -129,16 +129,13 @@ typedef logic [3:0] MEM_TAG;
 `define MEM_64BIT_LINES (`MEM_SIZE_IN_BYTES/8)
 
 // cache parameters
-`define ICACHE_ASSOC 2           // 2-way associative I-cache
 `define ICACHE_LINES 32          // total number of lines in I-cache
 `define ICACHE_LINE_BYTES 8      // bytes in a cache line/mem_block
 `define VICTIM_CACHE_SZ 4        // Small victim cache
-// log2(32 / 2) = log2(16) = 4
-`define I_INDEX_BITS $clog2(`ICACHE_LINES / `ICACHE_ASSOC)  // indexing into each cache line
 // log2(8) = 3
 `define IBLOCK_OFFSET_BITS $clog2(`ICACHE_LINE_BYTES)          // indexing into bytes in a cache line/block
-// 16 - 4 - 3 = 9, 16 because our memory size is 2^16 bytes
-`define ITAG_BITS 16 - `I_INDEX_BITS - `IBLOCK_OFFSET_BITS
+// 16 - 3 = 13, 16 because our memory size is 2^16 bytes
+`define ITAG_BITS 16 - `IBLOCK_OFFSET_BITS
 `define LFSR_SEED 9
 
 `define DCACHE_ASSOC 2           // 2-way associative D-cache
@@ -167,8 +164,6 @@ typedef struct packed {
 typedef struct packed {
     logic [15:0]                    zeros;        // [31:16] 16 bits
     logic [`ITAG_BITS-1:0]          tag;          // [15:8]  8 bits
-    logic [`I_INDEX_BITS-1:0]       index;        // [7:4]   4 bits
-    logic                           bank;         // [3]     1 bit
     logic [`IBLOCK_OFFSET_BITS-1:0] block_offset; // [2:0]   3 bit
 } I_ADDR; // ICache Breakdown of I-cache address
 
