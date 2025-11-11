@@ -3,8 +3,8 @@ module branch_predictor #(
   parameter int unsigned PHT_BITS  = 10,  // PHT entries = 2^PHT_BITS
   parameter int unsigned BTB_BITS  = 8    // BTB entries = 2^BTB_BITS
 )(
-  input  logic                 clock_i,
-  input  logic                 reset_i,
+  input  logic                 clock,
+  input  logic                 reset,
 
   // ---------- Predict request (Inputs from Instruction Fetch) ----------
   input  logic                 predict_req_valid_i,
@@ -47,15 +47,13 @@ module branch_predictor #(
   btb_entry_t                 btb_array [BTB_ENTRY_COUNT];
 
   // Predict path indices
-  wire [PHT_BITS-1:0]        pht_index_predict =
-    predict_req_pc_i[2 +: PHT_BITS] ^ global_history_reg[PHT_BITS-1:0];
+  wire [PHT_BITS-1:0] pht_index_predict = predict_req_pc_i[2 +: PHT_BITS] ^ {{(PHT_BITS-GH){1'b0}}, global_history_reg};
 
   wire [BTB_BITS-1:0]        btb_index_predict = predict_req_pc_i[2 +: BTB_BITS];
   wire [BTB_TAG_BITS-1:0]    btb_tag_predict   = predict_req_pc_i[2+BTB_BITS +: BTB_TAG_BITS];
 
   // Train path indices
-  wire [PHT_BITS-1:0]        pht_index_train =
-    train_pc_i[2 +: PHT_BITS] ^ train_ghr_snapshot_i[PHT_BITS-1:0];
+  wire [PHT_BITS-1:0] pht_index_train = train_pc_i[2 +: PHT_BITS] ^ {{(PHT_BITS-GH){1'b0}}, train_ghr_snapshot_i};
 
   wire [BTB_BITS-1:0]        btb_index_train = train_pc_i[2 +: BTB_BITS];
   wire [BTB_TAG_BITS-1:0]    btb_tag_train   = train_pc_i[2+BTB_BITS +: BTB_TAG_BITS];
@@ -64,18 +62,14 @@ module branch_predictor #(
   always_comb begin
     saturating_counter2_t pht_counter_predict_sanitized;
     logic                 btb_hit_predict;
-    // Snapshot the precise history used for this prediction
-    predict_ghr_snapshot_o = global_history_reg;
+    predict_ghr_snapshot_o = global_history_reg; // Snapshot the precise history used for this prediction
     unique case (pattern_history_table[pht_index_predict])
       2'b00, 2'b01, 2'b10, 2'b11: pht_counter_predict_sanitized = pattern_history_table[pht_index_predict];
       default                   : pht_counter_predict_sanitized = 2'b01;
     endcase
-    // MSB of counter is the taken bit (10/11 => 1)
-    predict_taken_o = predict_req_valid_i ? pht_counter_predict_sanitized[1] : 1'b0;
-    // BTB hit requires: req valid, predicted taken, entry valid, tag match
-    btb_hit_predict = predict_req_valid_i && predict_taken_o && btb_array[btb_index_predict].entry_valid && (btb_array[btb_index_predict].entry_tag == btb_tag_predict);
-    // Provide target only on a definite BTB hit
-    predict_target_o = btb_hit_predict ? btb_array[btb_index_predict].entry_target : 32'h0;
+    predict_taken_o = predict_req_valid_i ? pht_counter_predict_sanitized[1] : 1'b0; // MSB of counter is the taken bit (10/11 => 1)
+    btb_hit_predict = predict_req_valid_i && predict_taken_o && btb_array[btb_index_predict].entry_valid && (btb_array[btb_index_predict].entry_tag == btb_tag_predict); // BTB hit requires: req valid, predicted taken, entry valid, tag match
+    predict_target_o = btb_hit_predict ? btb_array[btb_index_predict].entry_target : 32'h0; // Provide target only on a definite BTB hit
   end
 
   // -------------------- GHR next ---------------
@@ -87,8 +81,8 @@ module branch_predictor #(
   end
 
   // -------------------- Mispredict and Recovery -------
-  always_ff @(posedge clock_i) begin
-    if (reset_i) begin
+  always_ff @(posedge clock) begin
+    if (reset) begin
       global_history_reg <= '0;
     end else if (recover_mispredict_pulse_i) begin
       global_history_reg <= recover_ghr_snapshot_i;
@@ -97,8 +91,8 @@ module branch_predictor #(
     end
   end
 
-  always_ff @(posedge clock_i) begin
-    if (reset_i) begin
+  always_ff @(posedge clock) begin
+    if (reset) begin
       // ---------- Initialize: run once after reset ----------
       for (init_idx = 0; init_idx < PHT_ENTRY_COUNT; init_idx++) begin
         pattern_history_table[init_idx] <= 2'b01;

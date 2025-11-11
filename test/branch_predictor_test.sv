@@ -43,8 +43,8 @@ module branch_predictor_test_all;
     .PHT_BITS(PHT_BITS),
     .BTB_BITS(BTB_BITS)
   ) dut (
-    .clock_i                    (clock),
-    .reset_i                    (reset),
+    .clock                   (clock),
+    .reset                   (reset),
 
     .predict_req_valid_i        (predict_req_valid),
     .predict_req_pc_i           (predict_req_pc),
