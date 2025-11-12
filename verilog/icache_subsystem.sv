@@ -72,7 +72,6 @@ module icache (
     input  I_ADDR             write_addr,
     input  CACHE_DATA         write_in,
 
-    output logic        [1:0] hit,
     output logic              full
 );
     localparam MEM_WIDTH = `ICACHE_LINES + `PREFETCH_SIZE;
@@ -108,7 +107,7 @@ module icache (
         .index(read_addr_index)
     );
 
-    wor MEM_BLOCK [1:0]                       cache_lines_out;
+    wor MEM_BLOCK [1:0]                    cache_lines_out;
 
     // Fetch Read logic
     for (genvar i = 0; i < MEM_WIDTH; i++) begin : read_cache // Anding and Or-reducing
@@ -119,15 +118,15 @@ module icache (
         assign cache_lines_out[1] = cache_lines[i] & {$bits(MEM_BLOCK){read_addr_one_hot[1][i]}};
     end
 
-    assign cache_out[0].cache_line = write_addr.valid && write_addr.tag == read_addr[0].tag ? // forwarding
+    assign cache_out[0].cache_line = write_in.valid && write_addr.tag == read_addr[0].tag ? // forwarding
                         write_in.cache_line : cache_lines_out[0];
-    assign cache_out[1].cache_line = write_addr.valid && write_addr.tag == read_addr[1].tag ? // forwarding
+    assign cache_out[1].cache_line = write_in.valid && write_addr.tag == read_addr[1].tag ? // forwarding
                         write_in.cache_line : cache_lines_out[1];
 
     assign cache_out[0].valid = (valids[read_addr_index[0]] & |read_addr_one_hot[0]) ||
-                                (write_addr.valid && write_addr.tag == read_addr[0].tag);     // forwarding
+                                (write_in.valid && write_addr.tag == read_addr[0].tag);     // forwarding
     assign cache_out[1].valid = (valids[read_addr_index[1]] & |read_addr_one_hot[1]) ||
-                                (write_addr.valid && write_addr.tag == read_addr[1].tag);     // forwarding
+                                (write_in.valid && write_addr.tag == read_addr[1].tag);     // forwarding
 
     logic [MEM_WIDTH-1:0]  cache_write_one_hot;
 
@@ -155,16 +154,17 @@ module icache (
     logic [MEM_WIDTH-1:0] evict_index_one_hot;
 
     index_to_onehot #(
-        .INPUT_WIDTH(I_INDEX_BITS)
+        .OUTPUT_WIDTH(MEM_WIDTH)
     ) evict_index_to_onehot_inst (
         .idx(evict_index),
         .one_hot(evict_index_one_hot)
     );
 
-    assign cache_write_enable_mask = (|cache_write_one_hot) ? cache_write_one_hot : evict_index_one_hot;
+    assign cache_write_enable_mask = write_in.valid ? 
+        ((|cache_write_one_hot) ? cache_write_one_hot : evict_index_one_hot) : 
+        '0;
 
-    assign hit = ;
-
+    assign full = &valids;
     // Valid and tags logic
     always_comb begin
         valids_next = valids;
@@ -321,5 +321,24 @@ module LFSR #(
     end
 
     assign data_out = LFSR;
+
+endmodule
+
+module index_to_onehot #
+#(
+    parameter OUTPUT_WIDTH = 1
+) (
+    input  logic [$clog2(OUTPUT_WIDTH)-1:0] idx,
+    output logic [OUTPUT_WIDTH-1:0] one_hot
+);
+
+    integer i;
+    always_comb begin
+        one_hot = '0;
+        for (i = 0; i < OUTPUT_WIDTH; i = i + 1) begin
+            if (idx == i[$clog2(OUTPUT_WIDTH)-1:0])
+                one_hot[i] = 1'b1;
+        end
+    end
 
 endmodule
