@@ -1,93 +1,124 @@
 `include "sys_defs.svh"
 
-module stage_if (
+module stage_if #(
+  parameter int unsigned GH = GHR_BITS  
+)(
   input  logic                 clock,
   input  logic                 reset,
-  output logic                 icache_req_valid_o,
-  output ADDR         [`N-1:0] icache_req_addr_o,
-  input  logic        [`N-1:0] icache_resp_valid_i,
-  input  logic [31:0] [`N-1:0] icache_resp_instr_i,
-  output CACHE_DATA   [`N-1:0] cache_out_o,
-  output logic                 fetch_stall_o,
-
+  output ADDR                  icache_read_addr_o [`N-1:0],
+  input  CACHE_DATA            icache_cache_out_i [`N-1:0],
+  input  logic                 ib_stall_i,         
+  output logic                 ib_bundle_valid_o,  
+  output FETCH_ENTRY           ib_fetch_o        [`N-1:0], 
   output logic                 bp_predict_req_valid_o,
   output ADDR                  bp_predict_req_pc_o,
   output logic                 bp_predict_req_used_o,
   input  logic                 bp_predict_taken_i,
   input  ADDR                  bp_predict_target_i,
-
-  input  logic                 ex_redirect_valid_i,  
-  input  ADDR                  ex_redirect_pc_i,      
-
-  // -------- Global fetch enable (freeze whole IF) ----------------
-  input  logic                 fetch_enable_i
+  input  logic [GH-1:0]        bp_predict_ghr_snapshot_i,
+  input  logic                 ex_redirect_valid_i,
+  input  ADDR                  ex_redirect_pc_i,
+  input  logic                 fetch_enable_i,
+  output logic                 fetch_stall_o
 );
 
-  // -------------------- PC state (owned by IF) --------------------
   ADDR pc_reg, pc_next;
+  ADDR bundle_pc [`N-1:0];
+  logic        lane_valid     [`N-1:0];
+  logic [31:0] lane_instr     [`N-1:0];
+  logic        lane_is_branch [`N-1:0];
+  logic        found_branch;
+  int          first_branch_idx;
+  logic        all_lanes_ready;
+  logic        icache_stall_if;
+  logic        ibuf_stall_if;
+  logic        fetch_blocked_if;
 
-  // Convenience: compute the N PCs we’ll request this cycle
-  ADDR bundle_pc[`N];
+  function automatic logic is_predictable_branch(input logic [31:0] instr);
+    logic [6:0] opcode;
+    opcode = instr[6:0];
+    return (opcode == 7'b1100011);
+  endfunction
   always_comb begin
-    bundle_pc[0] = pc_reg;
-    // straight-line: each instruction is 4 bytes
-    if (`N > 1) bundle_pc[1] = pc_reg + 32'd4;
-    if (`N > 2) bundle_pc[2] = pc_reg + 32'd8;
-    // (extend similarly if N > 3)
-  end
-
-  // Drive ICache request whenever fetch is enabled
-  always_comb begin
-    icache_req_valid_o = fetch_enable_i;
-    icache_req_addr_o  = bundle_pc;
-  end
-
-  // Stall if ANY lane isn’t ready
-  wire all_lanes_ready = &icache_resp_valid_i;
-  assign fetch_stall_o = ~all_lanes_ready;
-
-  // Pack outputs to Decode
-  always_comb begin
-    foreach (cache_out_o[i]) begin
-      cache_out_o[i].valid = icache_resp_valid_i[i];
-      cache_out_o[i].pc    = bundle_pc[i];
-      cache_out_o[i].instr = icache_resp_instr_i[i];
+    for (int i = 0; i < `N; i++) begin
+      bundle_pc[i] = pc_reg + (ADDR'(i) << 2);  // pc + 4*i
     end
   end
-
-  // ---------------- Branch Predictor request ----------------
-  // Query BP with the *first* PC in the bundle (lane 0).
-  // Mark “used” only if we’re actually consuming the bundle this cycle.
   always_comb begin
-    bp_predict_req_valid_o = fetch_enable_i;
-    bp_predict_req_pc_o    = bundle_pc[0];
-    bp_predict_req_used_o  = fetch_enable_i & ~fetch_stall_o;
+    for (int i = 0; i < `N; i++) begin
+      icache_read_addr_o[i] = bundle_pc[i];
+    end
   end
-
-  // ---------------- Next-PC selection (priority mux) -------------
-  // Priority each cycle:
-  // 1) Redirect from Execute (actual mispredict fix)
-  // 2) Use BP target if predicted taken AND we’re consuming this fetch
-  // 3) Sequential: pc + 4*N (consume straight-line bundle)
   always_comb begin
-    pc_next = pc_reg;  // hold by default
+    for (int i = 0; i < `N; i++) begin
+      lane_valid[i] = icache_cache_out_i[i].valid;
+      lane_instr[i] = icache_cache_out_i[i].cache_line[31:0];
+    end
+  end
+  always_comb begin
+    all_lanes_ready = 1'b1;
+    for (int i = 0; i < `N; i++) begin
+      if (!lane_valid[i]) begin
+        all_lanes_ready = 1'b0;
+      end
+    end
+  end
+  assign icache_stall_if  = ~all_lanes_ready;
+  assign ibuf_stall_if    = ib_stall_i;
+  assign fetch_blocked_if = icache_stall_if | ibuf_stall_if;
+  assign fetch_stall_o    = fetch_blocked_if;
+  always_comb begin
+    for (int i = 0; i < `N; i++) begin
+      lane_is_branch[i] = lane_valid[i] && is_predictable_branch(lane_instr[i]);
+    end
+    found_branch     = 1'b0;
+    first_branch_idx = 0;
+    for (int i = 0; i < `N; i++) begin
+      if (!found_branch && lane_is_branch[i]) begin
+        found_branch     = 1'b1;
+        first_branch_idx = i;
+      end
+    end
+  end
+  always_comb begin
+    bp_predict_req_valid_o = fetch_enable_i && found_branch;
+    bp_predict_req_pc_o    = found_branch ? bundle_pc[first_branch_idx] : '0;
+    bp_predict_req_used_o  = fetch_enable_i && ~fetch_blocked_if && ~ex_redirect_valid_i && found_branch;
+  end
+  always_comb begin
+    ib_bundle_valid_o = fetch_enable_i  && all_lanes_ready  && ~ib_stall_i  && ~ex_redirect_valid_i;
+    for (int i = 0; i < `N; i++) begin
+      ib_fetch_o[i].pc              = bundle_pc[i];
+      ib_fetch_o[i].inst            = lane_instr[i];
+
+      ib_fetch_o[i].is_branch       = 1'b0;
+      ib_fetch_o[i].bp_pred_taken   = 1'b0;
+      ib_fetch_o[i].bp_pred_target  = '0;
+      ib_fetch_o[i].bp_ghr_snapshot = '0;
+    end
+    if (ib_bundle_valid_o && found_branch) begin
+      ib_fetch_o[first_branch_idx].is_branch       = 1'b1;
+      ib_fetch_o[first_branch_idx].bp_pred_taken   = bp_predict_taken_i;
+      ib_fetch_o[first_branch_idx].bp_pred_target  = bp_predict_target_i;
+      ib_fetch_o[first_branch_idx].bp_ghr_snapshot = bp_predict_ghr_snapshot_i;
+    end
+  end
+  always_comb begin
+    pc_next = pc_reg;
 
     if (fetch_enable_i) begin
       if (ex_redirect_valid_i) begin
-        pc_next = ex_redirect_pc_i;                         // (1) redirect
-      end else if ((~fetch_stall_o) && bp_predict_taken_i) begin
-        pc_next = bp_predict_target_i;                      // (2) predicted-taken redirect
-      end else if (~fetch_stall_o) begin
-        pc_next = pc_reg + (32'(4 * `N));                   // (3) sequential advance
+        pc_next = ex_redirect_pc_i;
+      end else if (~fetch_blocked_if && found_branch && bp_predict_taken_i) begin
+        pc_next = bp_predict_target_i;
+      end else if (~fetch_blocked_if) begin
+        pc_next = pc_reg + (ADDR'(`N) << 2);
       end
-      // else: stall => hold pc_next = pc_reg
     end
   end
-
-  // ---------------- PC register ----------------
   always_ff @(posedge clock) begin
     if (reset) begin
-      pc_reg <= '0;            // your reset fetch address
+      pc_reg <= '0;  
     end else begin
       pc_reg <= pc_next;
     end
