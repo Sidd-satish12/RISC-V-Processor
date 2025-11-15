@@ -6,102 +6,127 @@
 // - All acks and outputs are registered (no combinational assigns)
 // - Allows same-cycle enqueue+dequeue
 // -----------------------------------------------------------------------------
+
 `include "sys_defs.svh"
 
-module store_queue_fifo (
-  input  logic  clock,
-  input  logic  reset,
+module store_queue (
+    input logic clock,
+    input logic reset,
 
-  // ---------------- Enqueue side (from store creation) -----------------------
-  input  logic                        enqueue_request_i,
-  input  logic [$bits(ADDR)-1:0]      enqueue_store_address_i,
-  input  logic [$bits(DATA)-1:0]      enqueue_store_data_i,
-  input  logic [($bits(DATA)/8)-1:0]  enqueue_store_byte_enable_i,
-  output logic                        enqueue_accepted_o,    // 1-cycle pulse
+    // ============================================================
+    // Dispatch I/O
+    // ============================================================
+    input  STOREQ_ENTRY [               `N-1:0] sq_dispatch_packet,  // must be contiguous valid
+    output logic        [$clog2(`LSQ_SZ+1)-1:0] free_slots,          // number of free SQ slots
+    output STOREQ_IDX   [               `N-1:0] sq_alloc_idxs,       // allocation indices
 
-  // ---------------- Dequeue side (to retirement/commit) ----------------------
-  input  logic                        dequeue_request_i,
-  output logic [$bits(ADDR)-1:0]      dequeue_store_address_o,
-  output logic [$bits(DATA)-1:0]      dequeue_store_data_o,
-  output logic [($bits(DATA)/8)-1:0]  dequeue_store_byte_enable_o,
-  output logic                        dequeue_accepted_o     // 1-cycle pulse
+    // ============================================================
+    // Retire I/O (May not be needed)
+    // ============================================================
+    output STOREQ_ENTRY [`N-1:0] sq_head_entries,  // up to N entries to retire
+    output STOREQ_IDX   [`N-1:0] sq_head_idxs,
+    output logic        [`N-1:0] sq_head_valids
 );
 
-  // ====== Config from sys_defs ======
-  localparam int unsigned STORE_QUEUE_DEPTH = `LSQ_SZ;
-  localparam int unsigned PTR_WIDTH =
-      (STORE_QUEUE_DEPTH <= 1) ? 1 : $clog2(STORE_QUEUE_DEPTH);
+    // ============================================================
+    // Storage
+    // ============================================================
+    STOREQ_ENTRY [`LSQ_SZ-1:0] sq_entries, sq_entries_next;
 
-  // ====== Storage and state ======
-  store_queue_entry_t             circular_buffer [STORE_QUEUE_DEPTH];
-  logic [PTR_WIDTH-1:0]           head_index_q;   // oldest valid entry
-  logic [PTR_WIDTH-1:0]           tail_index_q;   // next free slot
-  logic [PTR_WIDTH:0]             entry_count_q;  // 0..STORE_QUEUE_DEPTH
+    logic [$clog2(`LSQ_SZ+1)-1:0] free_count, free_count_next;
+    logic [$clog2(`LSQ_SZ)-1:0] head_idx, head_idx_next;
+    logic [$clog2(`LSQ_SZ)-1:0] tail_idx, tail_idx_next;
 
-  // Wrap-safe pointer increment
-  function automatic logic [PTR_WIDTH-1:0]
-    next_index(input logic [PTR_WIDTH-1:0] idx);
-    if (idx == STORE_QUEUE_DEPTH - 1)
-      next_index = '0;
-    else
-      next_index = idx + 1'b1;
-  endfunction
+    logic [`N-1:0] dispatch_valid_bits;
+    logic [$clog2(`N+1)-1:0] retire_count;
+    logic [$clog2(`N+1)-1:0] num_retired, num_dispatched;
 
-  // ====== Sequential logic only ======
-  always_ff @(posedge clock) begin
-    if (reset) begin
-      head_index_q                 <= '0;
-      tail_index_q                 <= '0;
-      entry_count_q                <= '0;
+    // ============================================================
+    // Combinational Logic
+    // ============================================================
+    always_comb begin
+        sq_entries_next = sq_entries;
+        free_count_next = free_count;
+        retire_count    = '0;
 
-      enqueue_accepted_o           <= 1'b0;
-      dequeue_accepted_o           <= 1'b0;
+        for (int i = 0; i < `N; i++) begin
 
-      dequeue_store_address_o      <= '0;
-      dequeue_store_data_o         <= '0;
-      dequeue_store_byte_enable_o  <= '0;
+            // ====================================================
+            // Dispatch (enqueue) — contiguous valid bits required
+            // ====================================================
+            if (sq_dispatch_packet[i].valid) begin
+                sq_entries_next[(tail_idx+i)%`LSQ_SZ] = sq_dispatch_packet[i];
+            end
 
-    end else begin
-      // default: deassert 1-cycle pulses
-      enqueue_accepted_o <= 1'b0;
-      dequeue_accepted_o <= 1'b0;
+            dispatch_valid_bits[i] = sq_dispatch_packet[i].valid;
 
-      // availability
-      logic queue_is_not_empty = (entry_count_q != 0);
-      logic queue_is_not_full  = (entry_count_q != STORE_QUEUE_DEPTH);
+            // ====================================================
+            // Retire (longest in-order prefix of valid entries)
+            // ====================================================
+            if ((i == retire_count) && sq_entries[(head_idx+i)%`LSQ_SZ].valid) begin
+                retire_count = retire_count + 1;
+            end
+        end
 
-      // decide operations (allow enqueue if a same-cycle dequeue makes room)
-      logic will_dequeue = (dequeue_request_i && queue_is_not_empty);
-      logic will_enqueue = (enqueue_request_i &&
-                            (queue_is_not_full || (dequeue_request_i && queue_is_not_empty)));
+        num_dispatched = $countones(dispatch_valid_bits);
+        num_retired    = retire_count;
 
-      // -------- Dequeue first: present head to outputs, advance head --------
-      if (will_dequeue) begin
-        dequeue_store_address_o      <= circular_buffer[head_index_q].store_address;
-        dequeue_store_data_o         <= circular_buffer[head_index_q].store_data;
-        dequeue_store_byte_enable_o  <= circular_buffer[head_index_q].store_byte_enable;
-        head_index_q                 <= next_index(head_index_q);
-        dequeue_accepted_o           <= 1'b1;
-      end
+        // ========================================================
+        // Invalidate retired entries
+        // ========================================================
+        for (int i = 0; i < retire_count; i++) begin
+            sq_entries_next[(head_idx+i)%`LSQ_SZ].valid = 1'b0;
+        end
 
-      // -------- Enqueue: write at tail, advance tail ------------------------
-      if (will_enqueue) begin
-        circular_buffer[tail_index_q] <= '{
-          store_address     : enqueue_store_address_i,
-          store_data        : enqueue_store_data_i,
-          store_byte_enable : enqueue_store_byte_enable_i
-        };
-        tail_index_q        <= next_index(tail_index_q);
-        enqueue_accepted_o  <= 1'b1;
-      end
+        // ========================================================
+        // Update free count
+        // ========================================================
+        free_count_next = free_count + num_retired - num_dispatched;
 
-      // -------- Maintain occupancy counter ---------------------------------
-      unique case ({will_enqueue, will_dequeue})
-        2'b10: entry_count_q <= entry_count_q + 1'b1; // enqueue only
-        2'b01: entry_count_q <= entry_count_q - 1'b1; // dequeue only
-        default: /* both or neither => no net change */ ;
-      endcase
+        // ========================================================
+        // Update head/tail
+        // ========================================================
+        head_idx_next   = (head_idx + retire_count) % `LSQ_SZ;
+        tail_idx_next   = (tail_idx + num_dispatched) % `LSQ_SZ;
     end
-  end
+
+    // ============================================================
+    // Allocation indices (dispatch)
+    // ============================================================
+    always_comb begin
+        for (int i = 0; i < `N; i++) begin
+            sq_alloc_idxs[i] = STOREQ_IDX'((tail_idx + i) % `LSQ_SZ);
+        end
+    end
+
+    // ============================================================
+    // Exposure of head window (for retiring stores)
+    // ============================================================
+    always_comb begin
+        for (int i = 0; i < `N; i++) begin
+            sq_head_entries[i] = sq_entries[(head_idx + i) % `LSQ_SZ];
+            sq_head_idxs[i]    = STOREQ_IDX'((head_idx + i) % `LSQ_SZ);
+            sq_head_valids[i]  = sq_entries[(head_idx + i) % `LSQ_SZ].valid;
+        end
+    end
+
+    assign free_slots = free_count;
+
+    // ============================================================
+    // Sequential
+    // ============================================================
+    always_ff @(posedge clock) begin
+        if (reset) begin
+            sq_entries <= '0;
+            head_idx   <= '0;
+            tail_idx   <= '0;
+            free_count <= `LSQ_SZ;
+        end else begin
+            sq_entries <= sq_entries_next;
+            head_idx   <= head_idx_next;
+            tail_idx   <= tail_idx_next;
+            free_count <= free_count_next;
+        end
+    end
 
 endmodule

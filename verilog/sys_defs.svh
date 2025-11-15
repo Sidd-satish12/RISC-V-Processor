@@ -36,9 +36,10 @@
 `define PHYS_REG_SZ_R10K (32 + `ROB_SZ)  // 64 physical registers for R10K
 
 // physical register and index bit widths
-`define PHYS_TAG_BITS $clog2(`PHYS_REG_SZ_R10K)  // 6 bits for phys tag
+`define PHYS_TAG_BITS $clog2(`PHYS_REG_SZ_R10K) // 6 bits for phys tag
 `define ROB_IDX_BITS $clog2(`ROB_SZ)            // 5 bits for ROB index
 `define RS_IDX_BITS $clog2(`RS_SZ)              // 4 bits for RS index
+`define STOREQ_IDX_BITS $clog2(`LSQ_SZ)         // 3 bits for STOREQ index
 `define NUM_CATS 4                              // Number of OP_CATEGORY values (0-4)
 
 // branch prediction
@@ -635,6 +636,14 @@ typedef struct packed {
     logic          halt;           // Is this a halt?
     logic          illegal;        // Is this illegal?
 } ROB_ENTRY;
+
+// Store Queue Entry structure
+typedef struct packed {
+    ADDR                   address;   // Store address
+    DATA                   data;      // Store data
+    STOREQ_IDX             idx;       // Position in store queue
+    logic                  valid;     // Entry occupancy bit
+} STOREQ_ENTRY;
 
 // Individual entry for FU metadata (AoS - Array of Structs for internal use)
 typedef struct packed {

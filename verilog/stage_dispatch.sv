@@ -22,6 +22,7 @@ module stage_dispatch (
     // Structural hazard inputs
     input logic   [          $clog2(`ROB_SZ+1)-1:0] free_slots_rob,
     input ROB_IDX [                         `N-1:0] rob_alloc_idxs,
+    input logic   [          $clog2(`LSQ_SZ+1)-1:0] store_queue_free_slots,
     input logic   [$clog2(`PHYS_REG_SZ_R10K+1)-1:0] freelist_free_slots,
     input logic   [       $clog2(`RS_ALU_SZ+1)-1:0] rs_alu_free_slots,
     input logic   [     $clog2(`RS_MULT_SZ+1)-1:0] rs_mult_free_slots,
@@ -34,6 +35,9 @@ module stage_dispatch (
 
     // To ROB: allocation entries
     output ROB_ENTRY [`N-1:0] rob_entry_packet,
+
+    // To Store Queue: allocation entries
+    output STOREQ_ENTRY [`N-1:0] store_queue_entry_packet,
 
     // To RS: allocation requests
     output RS_ALLOC_BANKS rs_alloc,
@@ -62,6 +66,10 @@ module stage_dispatch (
     int mult_used;
     int branch_used;
     int mem_used;
+
+    // store queue usage
+    int storeq_used;
+
 
     // Map table read results
     logic [`PHYS_TAG_BITS-1:0] local_reg1_tag[`N-1:0];
@@ -113,6 +121,8 @@ module stage_dispatch (
         branch_used = 0;
         mem_used = 0;
 
+        storeq_used = 0;
+
         for (int i = 0; i < `N; i++) begin
             if (i >= num_valid_from_fetch) break;  // No more valid instructions
 
@@ -121,6 +131,11 @@ module stage_dispatch (
 
             // Check freelist space (only if instruction uses a destination register)
             if (decode_uses_rd[i] && freelist_slots_used >= freelist_free_slots) break;
+
+            // checks if there is space in store queue if instruction is a store
+            if (fetch_packet.op_type[i].category == CAT_MEM && !fetch_packet.uses_rd[i]) begin
+                if (storeq_used >= store_queue_free_slots) break;
+            end
 
             // Check RS bank space for this instruction's functional unit
             case (decode_op_type[i].category)
@@ -132,9 +147,14 @@ module stage_dispatch (
             endcase
 
             // This instruction can be dispatched
+
             num_to_dispatch++;
             rob_slots_used++;
             if (decode_uses_rd[i]) freelist_slots_used++;
+
+            if (fetch_packet.op_type[i].category == CAT_MEM && !fetch_packet.uses_rd[i]) begin
+                storeq_used++;
+            end
 
             // Reserve RS slot for this instruction type
             case (decode_op_type[i].category)
@@ -152,6 +172,7 @@ module stage_dispatch (
         rs_alloc = '0;
         free_alloc_valid = '0;
         rob_entry_packet = '0;
+        store_queue_entry_packet = '0;
 
         // Read register mappings from map table
         for (int i = 0; i < `N; i++) begin
