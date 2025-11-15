@@ -13,6 +13,8 @@
 // all files should `include "sys_defs.svh" to at least define the timescale
 `timescale 1ns / 100ps
 
+
+
 ///////////////////////////////////
 // ---- Starting Parameters ---- //
 ///////////////////////////////////
@@ -42,7 +44,11 @@
 `define NUM_CATS 4                              // Number of OP_CATEGORY values (0-4)
 
 // branch prediction
-`define BRANCH_PRED_SZ 512  // Branch predictor size
+`define BP_GH 8                              // number of global history bits
+`define BP_PHT_BITS 10                       // PHT entries = 2^PHT_BITS
+`define BP_BTB_BITS 8                        // BTB entries = 2^BTB_BITS
+`define BP_PC_WORD_ALIGN_BITS 2              // PC[1:0] are word-aligned (ignore)
+`define BP_BTB_TAG_BITS (32 - `BP_PC_WORD_ALIGN_BITS - `BP_BTB_BITS)  // Tag = upper PC bits above index + word-align
 
 // functional units
 `define NUM_FU_ALU 3      // Enough for superscalar width
@@ -160,14 +166,14 @@ typedef union packed {
 
 typedef struct packed {
     logic valid;
-    MEM_BLOCK cache_line;   // Cached data block
+    MEM_BLOCK cache_line;  // Cached data block
 } CACHE_DATA;
 
 typedef struct packed {
-    logic [15:0]                    zeros;        // [31:16] 16 bits
-    logic [`ITAG_BITS-1:0]          tag;          // [15:8]  8 bits
-    logic [`IBLOCK_OFFSET_BITS-1:0] block_offset; // [2:0]   3 bit
-} I_ADDR; // ICache Breakdown of I-cache address
+    logic [15:0]                    zeros;         // [31:16] 16 bits
+    logic [`ITAG_BITS-1:0]          tag;           // [15:8]  8 bits
+    logic [`IBLOCK_OFFSET_BITS-1:0] block_offset;  // [2:0]   3 bit
+} I_ADDR;  // ICache Breakdown of I-cache address
 
 typedef struct packed {
     logic [15:0]                    zeros;
@@ -175,7 +181,7 @@ typedef struct packed {
     logic [`DSET_INDEX_BITS-1:0]    index;
     logic                           bank;
     logic [`DBLOCK_OFFSET_BITS-1:0] block_offset;
-} D_ADDR; // DCache Breakdown of D-cache address
+} D_ADDR;  // DCache Breakdown of D-cache address
 
 typedef enum logic [1:0] {
     BYTE   = 2'h0,
@@ -614,18 +620,67 @@ typedef struct packed {
     logic          illegal;        // Is this illegal?
 } ROB_ENTRY;
 
+// Branch predictor counter states (2-bit saturating counter)
+typedef enum logic [1:0] {
+    STRONGLY_NOT_TAKEN = 2'b00,
+    WEAKLY_NOT_TAKEN   = 2'b01,
+    WEAKLY_TAKEN       = 2'b10,
+    STRONGLY_TAKEN     = 2'b11
+} BP_COUNTER_STATE;
 
-localparam int unsigned GHR_BITS = 8;
+// Branch predictor typedefs
+typedef BP_COUNTER_STATE saturating_counter2_t;
+
+// Branch predictor I/O structures
+typedef struct packed {
+    logic valid;  // Valid prediction request
+    ADDR  pc;     // PC to predict
+    logic used;   // Whether to shift GHR (from fetch)
+} BP_PREDICT_REQUEST;
 
 typedef struct packed {
-  ADDR                 pc;               // PC of this instruction
-  logic [31:0]         inst;             // raw 32-bit instruction
+    logic              valid;          // Valid training update
+    ADDR               pc;             // PC of branch that was executed
+    logic              actual_taken;   // Actual outcome
+    ADDR               actual_target;  // Actual target (if taken)
+    logic [`BP_GH-1:0] ghr_snapshot;   // GHR snapshot from prediction
+} BP_TRAIN_REQUEST;
 
-  // Branch prediction metadata (for branch instructions)
-  logic                is_branch;        // 1 if this inst is a branch
-  logic                bp_pred_taken;    // predictor's taken/not-taken decision
-  ADDR                 bp_pred_target;   // predicted target (if taken)
-  logic [GHR_BITS-1:0] bp_ghr_snapshot;  // GHR snapshot used for this prediction
+typedef struct packed {
+    logic              pulse;         // Mispredict recovery pulse
+    logic [`BP_GH-1:0] ghr_snapshot;  // GHR snapshot to restore
+} BP_RECOVER_REQUEST;
+
+typedef struct packed {
+    logic              taken;         // Prediction result
+    ADDR               target;        // Predicted target (if taken)
+    logic [`BP_GH-1:0] ghr_snapshot;  // GHR snapshot used for prediction
+} BP_PREDICT_RESPONSE;
+
+// BTB entry structure
+typedef struct packed {
+    logic                        valid;
+    logic [`BP_BTB_TAG_BITS-1:0] tag;
+    logic [31:0]                 target;
+} BP_BTB_ENTRY;
+
+// Branch predictor index structure
+typedef struct packed {
+    logic [`BP_PHT_BITS-1:0]     pht_idx;
+    logic [`BP_BTB_BITS-1:0]     btb_idx;
+    logic [`BP_BTB_TAG_BITS-1:0] btb_tag;
+} BP_INDICES;
+
+
+typedef struct packed {
+    ADDR         pc;    // PC of this instruction
+    logic [31:0] inst;  // raw 32-bit instruction
+
+    // Branch prediction metadata (for branch instructions)
+    logic              is_branch;        // 1 if this inst is a branch
+    logic              bp_pred_taken;    // predictor's taken/not-taken decision
+    ADDR               bp_pred_target;   // predicted target (if taken)
+    logic [`BP_GH-1:0] bp_ghr_snapshot;  // GHR snapshot used for this prediction
 } FETCH_ENTRY;
 
 // Individual entry for FU metadata (AoS - Array of Structs for internal use)
@@ -716,13 +771,13 @@ typedef struct packed {
 // Icache miss packet (from fetch stage)
 typedef struct packed {
     logic [`N-1:0] valid;  // Valid bits for cache misses
-    ADDR  [`N-1:0] addrs;  // Addresses that missed in cache
+    ADDR [`N-1:0]  addrs;  // Addresses that missed in cache
 } ICACHE_MISS_PACKET;
 
 // MSHR request packet (includes both cache misses and prefetch requests)
 typedef struct packed {
     logic [`N + `PREFETCH_WIDTH - 1:0] valid;  // Valid bits for each request
-    ADDR  [`N + `PREFETCH_WIDTH - 1:0] addrs;  // Addresses to request from memory
+    ADDR [`N + `PREFETCH_WIDTH - 1:0]  addrs;  // Addresses to request from memory
 } MSHR_REQUEST_PACKET;
 
 `endif  // __SYS_DEFS_SVH__
