@@ -1,6 +1,6 @@
 `include "sys_defs.svh"
 
-module stage_if #(
+module stage_fetch #(
   parameter int unsigned GH = GHR_BITS  
 )(
   input  logic                 clock,
