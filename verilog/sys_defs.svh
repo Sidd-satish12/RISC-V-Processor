@@ -150,9 +150,9 @@ typedef logic [3:0] MEM_TAG;
 
 // A memory or cache block
 typedef struct packed {
-    logic        mem_req_valid;
-    ADDR         mem_req_addr;
-    MEM_COMMAND  mem_req_command;
+    logic        valid;
+    ADDR         addr;
+    MEM_COMMAND  command;
 } MEM_REQUEST_PACKET;
 
 typedef union packed {
@@ -705,14 +705,18 @@ typedef struct packed {
 
 // Icache miss packet (from fetch stage)
 typedef struct packed {
-    logic [`N-1:0] valid;  // Valid bits for cache misses
-    ADDR  [`N-1:0] addrs;  // Addresses that missed in cache
+    logic [1:0] valid;  // Valid bits for cache misses
+    ADDR  [1:0] addr;  // Addresses that missed in cache
 } ICACHE_MISS_PACKET;
 
-// MSHR request packet (includes both cache misses and prefetch requests)
+// Icache miss packet (from fetch stage)
 typedef struct packed {
-    logic [`N + `PREFETCH_WIDTH - 1:0] valid;  // Valid bits for each request
-    ADDR  [`N + `PREFETCH_WIDTH - 1:0] addrs;  // Addresses to request from memory
-} MSHR_REQUEST_PACKET;
+    logic [1:0] valid;  // Valid bits for cache misses
+    ADDR  [1:0] addr;  // Addresses that missed in cache
+} PREFETCH_MEM_PACKET;
 
-`endif  // __SYS_DEFS_SVH__
+typedef struct packed {
+    logic   valid;
+    MEM_TAG mem_tag;
+    ADDR    addr;
+} MSHR_PACKET;
