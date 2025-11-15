@@ -138,7 +138,6 @@ typedef logic [3:0] MEM_TAG;
 `define ITAG_BITS 16 - `IBLOCK_OFFSET_BITS
 `define PREFETCH_SIZE 4
 `define LFSR_SEED 9
-`define PREFETCH_WIDTH 2         // Number of instructions to prefetch per cycle
 
 `define DCACHE_ASSOC 2           // 2-way associative D-cache
 `define DCACHE_LINES 32          // total number of lines in D-cache
@@ -150,13 +149,18 @@ typedef logic [3:0] MEM_TAG;
 `define DTAG_BITS 16 - `DSET_INDEX_BITS - `DBLOCK_OFFSET_BITS
 
 // A memory or cache block
+typedef struct packed {
+    logic        mem_req_valid;
+    ADDR         mem_req_addr;
+    MEM_COMMAND  mem_req_command;
+} MEM_REQUEST_PACKET;
+
 typedef union packed {
     logic [7:0][7:0]  byte_level;
     logic [3:0][15:0] half_level;
     logic [1:0][31:0] word_level;
     logic [63:0]      dbbl_level;
 } MEM_BLOCK;
-
 
 typedef struct packed {
     logic valid;

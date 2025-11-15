@@ -9,15 +9,34 @@ module icache_subsystem (
     input  MEM_BLOCK   Imem2proc_data,             // Mem requested data coming back
     input  MEM_TAG     Imem2proc_data_tag,         // Tag for returned data (0 = no data)
     input  logic       mem_request_success,        // Mem reading request was successful
-    output logic       mem_req_valid,
-    output ADDR        mem_req_addr,
-    output MEM_COMMAND mem_req_command,
+    output MEM_REQUEST_PACKET mem_req,
 
     // Fetch
     input  ADDR       [1:0] read_addr,
     output CACHE_DATA [1:0] cache_out
 );
 
+    icache icache_inst (
+        .clock                (clock),
+        .reset                (reset),
+        .read_addr            (read_addr),
+        .cache_out            (cache_out),
+        .write_addr           (),
+        .write_in             (),
+        .full                 ()
+
+    );
+
+    prefetcher #(
+        .PREFETCH_WIDTH(`PREFETCH_WIDTH)
+    ) prefetcher_inst (
+        .clock                (clock),
+        .reset                (reset),
+        .icache_miss          (), // Connect with actual ICACHE_MISS_PACKET if available
+        .icache_full          (), // Connect with actual icache_full signal if available
+        .mshr_free_slots      (), // Connect with actual mshr_free_slots signal if available
+        .mshr_req             (mem_req)  // Connect to where MSHR_REQUEST_PACKET should go
+    );
 
 endmodule
 
@@ -25,11 +44,17 @@ endmodule
 // ============================================================================
 // Prefetcher Module
 // ============================================================================
-// Sequential prefetcher that predicts next N cache lines based on access patterns
-// Monitors available MSHR slots and cache fullness to avoid resource conflicts
-module prefetcher #(
-    parameter PREFETCH_WIDTH = `PREFETCH_WIDTH
-) (
+// on the first cycle fetch the entire size of the MSHR
+// after that if there is a miss
+// and there isnt already a pending request for that address in the MSHR
+// invalidate everything in the MSHR that doesnt have a pending request
+// queue the misses right below the youngest pending requests, so it's to be requested next
+// prefetch the prefetch width on top of the miss
+// Size the mshr to be superscalar width above the maximum number of requests to memory
+// never prefetch above the maximum number of requests to memory
+
+// address is 32 bits
+module prefetcher (
     input clock,
     input reset,
 
@@ -42,23 +67,53 @@ module prefetcher #(
     input logic [$clog2(`NUM_MEM_TAGS):0] mshr_free_slots,  // Number of free slots in MSHR
 
     // MSHR requests output (misses + prefetches)
-    output MSHR_REQUEST_PACKET mshr_req
+    output MSHR_REQUEST_PACKET mem_req
 );
+    // Control Path
+    localparam XInit = 2'b0;
+    localparam XFirst_Miss = 2'b1;
+    localparam XSubsequent_Miss = 2'b10;
 
-    // on the first cycle fetch the entire size of the MSHR
-    // after that if there is a miss
-    // and there isnt already a open request for that address in the MSHR
-    // invalidate everything in the MSHR that doesnt have a open request
-    // insert the misses on top of the entries in the MSHR that have open requests
-    // prefetch the prefetch width on top of the miss
-    // Size the mshr to be superscalar width above the maximum number of requests to memory
-    // never prefetch above the maximum number of requests to memory
+    logic [1:0] X, X_next;
+
+    always_comb begin
+        case (X)
+            XInit:
+
+            XFirst_Miss:
+
+            XSubsequent_Miss:
+
+        endcase
+
+    end
+
+    always_ff @(posedge clock) begin
+        if (reset) begin
+            X <= XInit;
+        end else begin
+            X <= X_next
+        end
+    end
+
+    // Data Path
+
+    logic 
 
 endmodule
 
+// Instructin Miss Status History Table
+// used as record for pending memory requests
+module i_mshr #(
+    parameter MSHR_WIDTH = `NUM_MEM_TAGS
+);
+
+
+
+endmodule
 
 // ============================================================================
-// ICache (2-way banked, fully associative per bank)
+// ICache fully associative
 // ============================================================================
 module icache (
     input clock,
@@ -82,29 +137,29 @@ module icache (
     MEM_BLOCK [MEM_WIDTH-1:0]             cache_lines;
 
     memDP #(
-        .WIDTH   ($BITS(MEM_BLOCK)),
-        .DEPTH   (1'b1),
-        .READ_PORTS (1),
-        .BYPASS_EN  (0)
-    ) cache_bank[MEM_WIDTH-1:0] (
-        .clock(clock),
-        .reset(reset),
-        .re   (1'b1),
-        .raddr(1'b0),
-        .rdata(cache_lines),
-        .we   (cache_write_enable_mask),
-        .waddr(1'b0),
-        .wdata(write_in.cache_line)
+        .WIDTH        ($BITS(MEM_BLOCK)),
+        .DEPTH        (1'b1),
+        .READ_PORTS   (1),
+        .BYPASS_EN    (0)
+    ) cache_bank [MEM_WIDTH-1:0] (
+        .clock        (clock),
+        .reset        (reset),
+        .re           (1'b1),
+        .raddr        (1'b0),
+        .rdata        (cache_lines),
+        .we           (cache_write_enable_mask),
+        .waddr        (1'b0),
+        .wdata        (write_in.cache_line)
     );
 
     logic [1:0][MEM_WIDTH-1:0]            read_addr_one_hot;
     logic [1:0][$clog2(MEM_WIDTH)-1:0]    read_addr_index;
 
     one_hot_to_index #(
-        .OUTPUT_WIDTH (MEM_WIDTH)
+        .OUTPUT_WIDTH   (MEM_WIDTH)
     ) one_hot_to_index_inst[1:0] (
-        .one_hot(read_addr_one_hot),
-        .index(read_addr_index)
+        .one_hot        (read_addr_one_hot),
+        .index          (read_addr_index)
     );
 
     wor MEM_BLOCK [1:0]                    cache_lines_out;
@@ -132,32 +187,32 @@ module icache (
 
     // Write logic
     psel_gen #(
-        .WIDTH(MEM_WIDTH),
-        .REQS(1)
+        .WIDTH (MEM_WIDTH),
+        .REQS  (1)
     ) psel_bank (
-        .req(~valids),
-        .gn(cache_write_one_hot)
+        .req   (~valids),
+        .gn    (cache_write_one_hot)
     );
 
     logic [I_INDEX_BITS-1:0] evict_index;
     logic [MEM_WIDTH-1:0] cache_write_enable_mask;
 
     LFSR #(
-        .NUM_BITS(I_INDEX_BITS)
+        .NUM_BITS        (I_INDEX_BITS)
     ) LFSR0 (
-        .clock(clock),
-        .reset(reset),
-        .seed_data(`LFSR_SEED),
-        .data_out(evict_index)
+        .clock           (clock),
+        .reset           (reset),
+        .seed_data       (`LFSR_SEED),
+        .data_out        (evict_index)
     );
 
     logic [MEM_WIDTH-1:0] evict_index_one_hot;
 
     index_to_onehot #(
-        .OUTPUT_WIDTH(MEM_WIDTH)
+        .OUTPUT_WIDTH    (MEM_WIDTH)
     ) evict_index_to_onehot_inst (
-        .idx(evict_index),
-        .one_hot(evict_index_one_hot)
+        .idx             (evict_index),
+        .one_hot         (evict_index_one_hot)
     );
 
     assign cache_write_enable_mask = write_in.valid ? 
