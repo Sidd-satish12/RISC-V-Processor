@@ -601,23 +601,24 @@ typedef struct packed {
 
 // ROB entry structure
 typedef struct packed {
-    logic          valid;          // Entry occupied
-    ADDR           PC;             // PC of instruction
-    INST           inst;           // Full instruction
-    REG_IDX        arch_rd;        // Architectural destination reg
-    PHYS_TAG       phys_rd;        // Assigned physical dest reg
-    PHYS_TAG       prev_phys_rd;   // Previous physical mapping (for free on commit)
-    DATA           value;          // Computed value (from Complete, if needed)
-    logic          complete;       // Instruction has completed
-    EXCEPTION_CODE exception;      // Any exception code
-    logic          branch;         // Is this a branch?
-    ADDR           branch_target;  // Resolved branch target
-    logic          branch_taken;   // Resolved taken/not taken
-    ADDR           pred_target;    // Predicted branch target
-    logic          pred_taken;     // Predicted taken/not taken
-    logic          mispredict;     // Branch misprediction flag
-    logic          halt;           // Is this a halt?
-    logic          illegal;        // Is this illegal?
+    logic              valid;          // Entry occupied
+    ADDR               PC;             // PC of instruction
+    INST               inst;           // Full instruction
+    REG_IDX            arch_rd;        // Architectural destination reg
+    PHYS_TAG           phys_rd;        // Assigned physical dest reg
+    PHYS_TAG           prev_phys_rd;   // Previous physical mapping (for free on commit)
+    DATA               value;          // Computed value (from Complete, if needed)
+    logic              complete;       // Instruction has completed
+    EXCEPTION_CODE     exception;      // Any exception code
+    logic              branch;         // Is this a branch?
+    ADDR               branch_target;  // Resolved branch target
+    logic              branch_taken;   // Resolved taken/not taken
+    ADDR               pred_target;    // Predicted branch target
+    logic              pred_taken;     // Predicted taken/not taken
+    logic              mispredict;     // Branch misprediction flag
+    logic              halt;           // Is this a halt?
+    logic              illegal;        // Is this illegal?
+    logic [`BP_GH-1:0] ghr_snapshot;   // GHR snapshot from prediction
 } ROB_ENTRY;
 
 // Branch predictor counter states (2-bit saturating counter)
@@ -707,19 +708,20 @@ typedef struct packed {
 
 // Fetch to Dispatch packet (superscalar bundle)
 typedef struct packed {
-    REG_IDX [`N-1:0]        rs1_idx;        // Source register 1 indices
-    REG_IDX [`N-1:0]        rs2_idx;        // Source register 2 indices
-    REG_IDX [`N-1:0]        rd_idx;         // Destination register indices
-    logic [`N-1:0]          uses_rd;        // Whether instruction writes to rd
-    OP_TYPE [`N-1:0]        op_type;        // Operation type (category + func)
-    ALU_OPA_SELECT [`N-1:0] opa_select;     // ALU operand A select
-    ALU_OPB_SELECT [`N-1:0] opb_select;     // ALU operand B select
-    DATA [`N-1:0]           rs2_immediate;  // Immediate value for src2
-    ADDR [`N-1:0]           PC;             // Program counters
-    INST [`N-1:0]           inst;           // Full instructions
-    logic [`N-1:0]          pred_taken;     // Branch prediction taken
-    ADDR [`N-1:0]           pred_target;    // Branch prediction target
-    logic [`N-1:0]          halt;           // Halt instruction flag
+    REG_IDX [`N-1:0]           rs1_idx;        // Source register 1 indices
+    REG_IDX [`N-1:0]           rs2_idx;        // Source register 2 indices
+    REG_IDX [`N-1:0]           rd_idx;         // Destination register indices
+    logic [`N-1:0]             uses_rd;        // Whether instruction writes to rd
+    OP_TYPE [`N-1:0]           op_type;        // Operation type (category + func)
+    ALU_OPA_SELECT [`N-1:0]    opa_select;     // ALU operand A select
+    ALU_OPB_SELECT [`N-1:0]    opb_select;     // ALU operand B select
+    DATA [`N-1:0]              rs2_immediate;  // Immediate value for src2
+    ADDR [`N-1:0]              PC;             // Program counters
+    INST [`N-1:0]              inst;           // Full instructions
+    logic [`N-1:0]             pred_taken;     // Branch prediction taken
+    ADDR [`N-1:0]              pred_target;    // Branch prediction target
+    logic [`BP_GH-1:0][`N-1:0] ghr_snapshot;   // GHR snapshots for branches
+    logic [`N-1:0]             halt;           // Halt instruction flag
 } FETCH_DISP_PACKET;
 
 // Map table communication packets

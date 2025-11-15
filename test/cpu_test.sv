@@ -148,13 +148,19 @@ module testbench;
     PRF_READ_DATA resolved_src1, resolved_src2;
     logic [`NUM_FU_MULT-1:0] mult_request, mult_start, mult_done;
     logic [`NUM_FU_BRANCH-1:0] branch_take;
-    ADDR [`NUM_FU_BRANCH-1:0] branch_target;
+    ADDR  [`NUM_FU_BRANCH-1:0] branch_target;
 
     // Execute stage functional unit validity
-    logic [`NUM_FU_ALU-1:0] alu_executing;
-    logic [`NUM_FU_MULT-1:0] mult_executing;
+    logic [   `NUM_FU_ALU-1:0] alu_executing;
+    logic [  `NUM_FU_MULT-1:0] mult_executing;
     logic [`NUM_FU_BRANCH-1:0] branch_executing;
-    logic [`NUM_FU_MEM-1:0] mem_executing;
+    logic [   `NUM_FU_MEM-1:0] mem_executing;
+
+    // NEW: Fake fetch prediction and mispredict signals
+    logic                      predicted_branch_taken;
+    ADDR                       predicted_branch_target;
+    logic                      mispredict_out;
+    logic [              31:0] mispredict_count_out;
 
 
     // Instantiate the Pipeline
@@ -162,6 +168,7 @@ module testbench;
         // Inputs
         .clock(clock),
         .reset(reset),
+
         // Disconnected: mem2proc portions (fake-fetch)
         // .mem2proc_transaction_tag(mem2proc_transaction_tag),
         // .mem2proc_data           (mem2proc_data),
@@ -252,15 +259,21 @@ module testbench;
         .branch_executing_dbg(branch_executing),
         .mem_executing_dbg(mem_executing),
 
+        // NEW: Predicted branch outputs for fake fetch
+        .predicted_branch_taken (predicted_branch_taken),
+        .predicted_branch_target(predicted_branch_target),
+        .mispredict_out         (mispredict_out),
+        .mispredict_count_out   (mispredict_count_out),
+
         // ---- Fake-Fetch interface ----
 `ifdef SYNTH
-        .ff_instr       ({fake_instr[2], fake_instr[1], fake_instr[0]}),
+        .ff_instr         ({fake_instr[2], fake_instr[1], fake_instr[0]}),
 `else
-        .ff_instr       (fake_instr),
+        .ff_instr         (fake_instr),
 `endif
-        .ff_pc          (fake_pc),
-        .ff_nvalid      (fake_nvalid),
-        .ff_consumed    (fake_consumed),
+        .ff_pc            (fake_pc),
+        .ff_nvalid        (fake_nvalid),
+        .ff_consumed      (fake_consumed),
         .branch_taken_out (ff_branch_taken),
         .branch_target_out(ff_branch_target)
     );
@@ -298,8 +311,10 @@ module testbench;
         if (reset) begin
             fake_pc <= '0;
         end else begin
-            if (ff_branch_taken) begin
-                fake_pc <= ff_branch_target;
+            if (mispredict_out) begin
+                fake_pc <= ff_branch_target;  // Recover to actual branch target on mispredict
+            end else if (predicted_branch_taken) begin
+                fake_pc <= predicted_branch_target;  // Jump on predicted taken branch
             end else begin
                 // Advance by 4*X where X = fake_consumed from CPU
                 fake_pc <= fake_pc + 32'(4 * fake_consumed);
@@ -425,8 +440,7 @@ module testbench;
 
             // Optional: print CDB broadcasts
             for (integer i = 0; i < `N; i++) begin
-                $display("  CDB[%0d]: valid=%b, tag=%0d, data=%h", i, cdb_output[i].valid,
-                         cdb_output[i].tag, cdb_output[i].data);
+                $display("  CDB[%0d]: valid=%b, tag=%0d, data=%h", i, cdb_output[i].valid, cdb_output[i].tag, cdb_output[i].data);
             end
 
 
@@ -434,6 +448,9 @@ module testbench;
             if (error_status != NO_ERROR || clock_count > `TB_MAX_CYCLES) begin
 
                 $display("  %16t : Processor Finished", $realtime);
+
+                // NEW: Display mispredict count
+                $display("Total mispredicts: %0d", mispredict_count_out);
 
                 // close the writeback output file (pipeline output disabled)
                 // close_pipeline_output_file();
@@ -798,20 +815,18 @@ module testbench;
         $display("\n--- MAP TABLES ---");
         $display("Architected Map Table (speculative):");
         for (integer i = 0; i < `ARCH_REG_SZ; i += 4) begin
-            $display("  r%0d->P%0d  r%0d->P%0d  r%0d->P%0d  r%0d->P%0d",
-                     i, arch_table_snapshot[i].phys_reg,
-                     i+1, arch_table_snapshot[i+1].phys_reg,
-                     i+2, arch_table_snapshot[i+2].phys_reg,
-                     i+3, arch_table_snapshot[i+3].phys_reg);
+            $display("  r%0d->P%0d  r%0d->P%0d  r%0d->P%0d  r%0d->P%0d", i, arch_table_snapshot[i].phys_reg, i + 1,
+                     arch_table_snapshot[i+1].phys_reg, i + 2, arch_table_snapshot[i+2].phys_reg, i + 3,
+                     arch_table_snapshot[i+3].phys_reg);
         end
 
         $display("Working Map Table (speculative):");
         for (integer i = 0; i < `ARCH_REG_SZ; i += 4) begin
-            $display("  r%0d->P%0d%s  r%0d->P%0d%s  r%0d->P%0d%s  r%0d->P%0d%s",
-                     i, map_table_snapshot[i].phys_reg, map_table_snapshot[i].ready ? "+" : "",
-                     i+1, map_table_snapshot[i+1].phys_reg, map_table_snapshot[i+1].ready ? "+" : "",
-                     i+2, map_table_snapshot[i+2].phys_reg, map_table_snapshot[i+2].ready ? "+" : "",
-                     i+3, map_table_snapshot[i+3].phys_reg, map_table_snapshot[i+3].ready ? "+" : "");
+            $display("  r%0d->P%0d%s  r%0d->P%0d%s  r%0d->P%0d%s  r%0d->P%0d%s", i, map_table_snapshot[i].phys_reg,
+                     map_table_snapshot[i].ready ? "+" : "", i + 1, map_table_snapshot[i+1].phys_reg,
+                     map_table_snapshot[i+1].ready ? "+" : "", i + 2, map_table_snapshot[i+2].phys_reg,
+                     map_table_snapshot[i+2].ready ? "+" : "", i + 3, map_table_snapshot[i+3].phys_reg,
+                     map_table_snapshot[i+3].ready ? "+" : "");
         end
 
         // FREE LIST

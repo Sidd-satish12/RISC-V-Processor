@@ -278,7 +278,6 @@ CPU_TESTBENCH = test/pipeline_print.c \
 # verilog/cpu.sv is implicit
 CPU_SOURCES = verilog/cpu.sv \
 			  verilog/regfile.sv \
-              verilog/icache.sv \
               verilog/memDP.sv \
 			  verilog/mult.sv \
 			  verilog/rob.sv \
@@ -295,7 +294,8 @@ CPU_SOURCES = verilog/cpu.sv \
 			  verilog/allocator.sv \
 			  verilog/psel_gen.sv \
 			  verilog/alu.sv \
-			  verilog/branch.sv
+			  verilog/branch.sv \
+			  verilog/bp.sv
 
 build/cpu.simv: $(CPU_SOURCES) $(CPU_HEADERS) $(CPU_TESTBENCH)
 synth/cpu.vg: $(CPU_SOURCES) $(CPU_HEADERS)

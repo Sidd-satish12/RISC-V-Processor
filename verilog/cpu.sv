@@ -14,6 +14,7 @@
 module cpu (
     input clock,  // System clock
     input reset,  // System reset
+    // input logic bp_enabled = 1'b1,  // NEW: Enable/disable branch predictor
 
     // Memory interface (data only - instruction fetch is fake)
     input MEM_TAG   mem2proc_transaction_tag,  // Memory tag for current transaction
@@ -29,12 +30,12 @@ module cpu (
     output COMMIT_PACKET [`N-1:0] committed_insts,
 
     // Fake-fetch interface
-    input  DATA                     ff_instr       [`N-1:0],  // Instruction bundle from testbench
-    input  ADDR                     ff_pc,                    // Current PC from testbench
-    input  logic [$clog2(`N+1)-1:0] ff_nvalid,                // Number of valid instructions from testbench
-    output logic [$clog2(`N+1)-1:0] ff_consumed,              // Number consumed by CPU
-    output logic                    branch_taken_out,         // Branch taken signal to testbench
-    output ADDR                     branch_target_out,        // Branch target to testbench
+    input  DATA                     ff_instr         [`N-1:0],  // Instruction bundle from testbench
+    input  ADDR                     ff_pc,                      // Current PC from testbench
+    input  logic [$clog2(`N+1)-1:0] ff_nvalid,                  // Number of valid instructions from testbench
+    output logic [$clog2(`N+1)-1:0] ff_consumed,                // Number consumed by CPU
+    output logic                    branch_taken_out,           // Branch taken signal to testbench
+    output ADDR                     branch_target_out,          // Branch target to testbench
 
 
     // Additional debug outputs for OOO processor debugging
@@ -110,7 +111,11 @@ module cpu (
     output logic [`NUM_FU_ALU-1:0] alu_executing_dbg,
     output logic [`NUM_FU_MULT-1:0] mult_executing_dbg,
     output logic [`NUM_FU_BRANCH-1:0] branch_executing_dbg,
-    output logic [`NUM_FU_MEM-1:0] mem_executing_dbg
+    output logic [`NUM_FU_MEM-1:0] mem_executing_dbg,
+    output logic predicted_branch_taken,  // NEW: Predicted branch taken for fake fetch
+    output ADDR predicted_branch_target,  // NEW: Predicted branch target for fake fetch
+    output logic mispredict_out,  // NEW: Mispredict signal for testbench recovery
+    output logic [31:0] mispredict_count_out  // NEW: Mispredict counter for debugging
 
 );
 
@@ -182,29 +187,63 @@ module cpu (
     PRF_READ_EN prf_read_en_src1, prf_read_en_src2;
     PRF_READ_TAGS prf_read_tag_src1, prf_read_tag_src2;
     PRF_READ_DATA prf_read_data_src1, prf_read_data_src2;
-    logic [`NUM_FU_MULT-1:0] mult_request;
+    logic               [`NUM_FU_MULT-1:0] mult_request;
 
     // PRF read data now comes from the regfile instantiation below
     // For now, assume src2 data comes from CDB forwarding or immediates
     //assign prf_read_data_src2 = '0;  // TODO: Implement proper src2 reading if needed
 
     // Retire stage signals
-    ROB_ENTRY [`N-1:0] rob_head_entries;
-    logic     [`N-1:0] rob_head_valids;
-    ROB_IDX   [`N-1:0] rob_head_idxs;
-    logic              rob_mispredict;
-    ROB_IDX            rob_mispred_idx;
-    logic              bp_recover_en;
-    logic     [`N-1:0] arch_write_enables;
-    REG_IDX   [`N-1:0] arch_write_addrs;
-    PHYS_TAG  [`N-1:0] arch_write_phys_regs;
+    ROB_ENTRY           [          `N-1:0] rob_head_entries;
+    logic               [          `N-1:0] rob_head_valids;
+    ROB_IDX             [          `N-1:0] rob_head_idxs;
+    logic                                  rob_mispredict;
+    ROB_IDX                                rob_mispred_idx;
+    logic                                  bp_recover_en;
+    logic               [          `N-1:0] arch_write_enables;
+    REG_IDX             [          `N-1:0] arch_write_addrs;
+    PHYS_TAG            [          `N-1:0] arch_write_phys_regs;
+
+    // NEW: Branch Predictor wires
+    BP_PREDICT_REQUEST                     predict_req;
+    BP_PREDICT_RESPONSE                    predict_resp;
+    BP_TRAIN_REQUEST                       train_req;
+    BP_RECOVER_REQUEST                     recover_req;
+    logic                                  has_branch;
+    logic               [  $clog2(`N)-1:0] branch_pos;
+    logic               [            31:0] mispredict_count;
+
+    // NEW: Branch Predictor enable (enabled)
+    logic                                  bp_enabled = 1'b1;
 
     // DEBUG signal for committed instructions:
-    COMMIT_PACKET [`N-1:0] retire_commits_dbg;
+    COMMIT_PACKET       [          `N-1:0] retire_commits_dbg;
+
+    // NEW: Branch Predictor wires
+    BP_PREDICT_REQUEST                     predict_req;
+    BP_PREDICT_RESPONSE                    predict_resp;
+    BP_PREDICT_RESPONSE                    bp_predict_resp;
 
     // Global mispredict signal
-    logic              mispredict;
+    logic                                  mispredict;
     assign mispredict = rob_mispredict;
+
+    // NEW: Mispredict counter
+    always_ff @(posedge clock) begin
+        if (reset) begin
+            mispredict_count <= 32'd0;
+        end else if (mispredict) begin
+            mispredict_count <= mispredict_count + 32'd1;
+        end
+    end
+
+    assign mispredict_count_out = mispredict_count;
+
+    // CDB requests: single-cycle FUs request during issue, multi-cycle during execute
+    assign cdb_requests.alu    = issue_cdb_requests.alu;  // From issue stage
+    assign cdb_requests.mult   = mult_request;  // From execute stage (when completing)
+    assign cdb_requests.branch = issue_cdb_requests.branch;  // From issue stage
+    assign cdb_requests.mem    = issue_cdb_requests.mem;  // From issue stage
 
     // Memory interface placeholders (TODO: implement proper data memory stages)
     logic                        Dmem_command_filtered = MEM_NONE;
@@ -214,12 +253,6 @@ module cpu (
 
     // Arch map table signals
     MAP_ENTRY [`ARCH_REG_SZ-1:0] arch_table_snapshot_dbg;
-
-    // CDB requests: single-cycle FUs request during issue, multi-cycle during execute
-    assign cdb_requests.alu    = issue_cdb_requests.alu;  // From issue stage
-    assign cdb_requests.mult   = mult_request;  // From execute stage (when completing)
-    assign cdb_requests.branch = issue_cdb_requests.branch;  // From issue stage
-    assign cdb_requests.mem    = issue_cdb_requests.mem;  // From issue stage
 
     // cdb_fu_outputs connected from execute stage via fu_outputs
 
@@ -321,6 +354,19 @@ module cpu (
         end
     endgenerate
 
+    // NEW: Branch Predictor instantiation
+    bp bp_0 (
+        .clock(clock),
+        .reset(reset),
+        .predict_req_i(predict_req),
+        .predict_resp_o(bp_predict_resp),
+        .train_req_i('{default: 0}),
+        .recover_req_i('{default: 0})
+    );
+
+    // Select predict_resp based on bp_enabled
+    assign predict_resp = bp_enabled ? bp_predict_resp : '{taken: 1'b0, target: 32'h0, ghr_snapshot: '0};
+
     //////////////////////////////////////////////////
     //                                              //
     //                Dispatch-Stage                //
@@ -328,11 +374,45 @@ module cpu (
     //////////////////////////////////////////////////
 
 
+    // NEW: Branch prediction logic
+    logic [`N-1:0] is_branch;
+    logic has_branch;
+    logic [$clog2(`N)-1:0] branch_pos;
+
+    always_comb begin
+        is_branch = '0;
+        for (int i = 0; i < `N; i++) begin
+            is_branch[i] = (decode_opb_select[i] == OPB_IS_B_IMM);
+        end
+    end
+
+    always_comb begin
+        has_branch = 1'b0;
+        branch_pos = '0;
+        for (int i = 0; i < `N; i++) begin
+            if (unsigned'(i) < ff_nvalid && is_branch[i]) begin
+                has_branch = 1'b1;
+                branch_pos = i;
+                break;
+            end
+        end
+    end
+
+    assign predict_req.valid = 1'b0 && has_branch;
+    assign predict_req.pc = ff_pc + 32'(4 * branch_pos);
+    assign predict_req.used = 1'b0 && has_branch;
+
     // Convert ff_nvalid count to bit mask for dispatch stage
     always_comb begin
         fetch_valid_mask = '0;
         for (int i = 0; i < `N; i++) begin
-            if (unsigned'(i) < ff_nvalid) fetch_valid_mask[i] = 1'b1;
+            if (unsigned'(i) < ff_nvalid) begin
+                if (bp_enabled && has_branch && predict_resp.taken && (i > branch_pos)) begin
+                    fetch_valid_mask[i] = 1'b0;
+                end else begin
+                    fetch_valid_mask[i] = 1'b1;
+                end
+            end
         end
     end
 
@@ -363,15 +443,22 @@ module cpu (
             endcase
 
             // PC and instruction info from fake fetch
-            fetch_disp_packet.PC[i]          = ff_pc + 32'(4 * unsigned'(i));
-            fetch_disp_packet.inst[i]        = ff_instr[i];
+            fetch_disp_packet.PC[i]           = ff_pc + 32'(4 * unsigned'(i));
+            fetch_disp_packet.inst[i]         = ff_instr[i];
 
-            // No branch prediction for now
-            fetch_disp_packet.pred_taken[i]  = 1'b0;
-            fetch_disp_packet.pred_target[i] = '0;
-            fetch_disp_packet.halt[i]        = decode_halt[i];
+            fetch_disp_packet.halt[i]         = decode_halt[i];
+
+            // NEW: Branch predictions conditional on branch position
+            fetch_disp_packet.pred_taken[i]   = (bp_enabled && has_branch && (i == branch_pos)) ? predict_resp.taken : 1'b0;
+            fetch_disp_packet.pred_target[i]  = (bp_enabled && has_branch && (i == branch_pos)) ? predict_resp.target : '0;
+            fetch_disp_packet.ghr_snapshot[i] = (bp_enabled && has_branch && (i == branch_pos)) ? predict_resp.ghr_snapshot : '0;
         end
     end
+
+    // NEW: Predicted outputs for fake fetch
+    assign predicted_branch_taken = bp_enabled && has_branch && predict_resp.taken;
+    assign predicted_branch_target = bp_enabled ? predict_resp.target : '0;
+    assign mispredict_out = mispredict;
 
     // Dispatch stage
     stage_dispatch stage_dispatch_0 (
@@ -383,8 +470,8 @@ module cpu (
         .fetch_valid (fetch_valid_mask),   // Convert count to bit mask
 
         // From ROB/Freelist
-        .free_slots_rob    (rob_free_slots),
-        .rob_alloc_idxs    (rob_alloc_idxs),
+        .free_slots_rob     (rob_free_slots),
+        .rob_alloc_idxs     (rob_alloc_idxs),
         .freelist_free_slots(freelist_free_slots),
 
         // From RS Banks: free slot counts
@@ -851,6 +938,7 @@ module cpu (
     stage_retire stage_retire_0 (
         .clock(clock),
         .reset(reset),
+        .bp_enabled(bp_enabled),
 
         // From ROB: head window (N-1 = oldest, 0 = youngest)
         .head_entries(rob_head_entries),
@@ -871,15 +959,20 @@ module cpu (
         .arch_write_enables  (arch_write_enables),
         .arch_write_addrs    (arch_write_addrs),
         .arch_write_phys_regs(arch_write_phys_regs),
-        .retire_commits_dbg(retire_commits_dbg),
+        .retire_commits_dbg  (retire_commits_dbg),
 
         // To fake fetch
-        .branch_taken_out(branch_taken_out),
+        .branch_taken_out (branch_taken_out),
         .branch_target_out(branch_target_out),
 
         // From PRF for committed data
-        .regfile_entries(regfile_entries_dbg)
+        .regfile_entries(regfile_entries_dbg),
+        .train_req_o(train_req),
+        .recover_req_o(recover_req)
     );
+
+    // NEW: Branch Predictor training and recovery logic (enabled only if bp_enabled)
+    // This block is now handled by stage_retire
 
     //////////////////////////////////////////////////
     //                                              //
@@ -889,7 +982,7 @@ module cpu (
 
     // Output the committed instructions to the testbench for counting
     // For superscalar, show the oldest ready instruction (whether retired or not)
-    assign committed_insts = retire_commits_dbg;
+    assign committed_insts        = retire_commits_dbg;
 
 
     // Fake-fetch outputs

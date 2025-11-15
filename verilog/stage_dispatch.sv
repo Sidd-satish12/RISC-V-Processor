@@ -14,9 +14,9 @@ module stage_dispatch (
     input ROB_IDX [                         `N-1:0] rob_alloc_idxs,
     input logic   [$clog2(`PHYS_REG_SZ_R10K+1)-1:0] freelist_free_slots,
     input logic   [       $clog2(`RS_ALU_SZ+1)-1:0] rs_alu_free_slots,
-    input logic   [     $clog2(`RS_MULT_SZ+1)-1:0] rs_mult_free_slots,
-    input logic   [   $clog2(`RS_BRANCH_SZ+1)-1:0] rs_branch_free_slots,
-    input logic   [      $clog2(`RS_MEM_SZ+1)-1:0] rs_mem_free_slots,
+    input logic   [      $clog2(`RS_MULT_SZ+1)-1:0] rs_mult_free_slots,
+    input logic   [    $clog2(`RS_BRANCH_SZ+1)-1:0] rs_branch_free_slots,
+    input logic   [       $clog2(`RS_MEM_SZ+1)-1:0] rs_mem_free_slots,
 
 
     // To fetch: dispatch count (0 = stall)
@@ -121,7 +121,7 @@ module stage_dispatch (
                 default:    break;
             endcase
 
-            
+
 
             // This instruction can be dispatched
             num_to_dispatch++;
@@ -197,11 +197,11 @@ module stage_dispatch (
                 if (fetch_valid[i]) begin
                     // First apply forwarding from previous renames to this instruction
                     if (has_rename[fetch_packet.rs1_idx[i]]) begin
-                        local_reg1_tag[i] = dispatch_renames[fetch_packet.rs1_idx[i]];
+                        local_reg1_tag[i]   = dispatch_renames[fetch_packet.rs1_idx[i]];
                         local_reg1_ready[i] = 1'b0;
                     end
                     if (has_rename[fetch_packet.rs2_idx[i]] && fetch_packet.opb_select[i] == OPB_IS_RS2) begin
-                        local_reg2_tag[i] = dispatch_renames[fetch_packet.rs2_idx[i]];
+                        local_reg2_tag[i]   = dispatch_renames[fetch_packet.rs2_idx[i]];
                         local_reg2_ready[i] = 1'b0;
                     end
 
@@ -216,7 +216,7 @@ module stage_dispatch (
 
         // Setup register remapping writes
         for (int i = 0; i < `N; i++) begin
-            if (i < dispatch_count && fetch_valid[i] && fetch_packet.uses_rd[i])  begin
+            if (i < dispatch_count && fetch_valid[i] && fetch_packet.uses_rd[i]) begin
                 maptable_write_reqs[i].valid    = 1'b1;
                 maptable_write_reqs[i].addr     = fetch_packet.rd_idx[i];
                 maptable_write_reqs[i].phys_reg = allocated_phys[i];
@@ -246,6 +246,7 @@ module stage_dispatch (
                     branch: (fetch_packet.op_type[i].category == CAT_BRANCH),
                     pred_target: fetch_packet.pred_target[i],
                     pred_taken: fetch_packet.pred_taken[i],
+                    ghr_snapshot: fetch_packet.ghr_snapshot[i],
                     halt: fetch_packet.halt[i],
                     default: '0
                 };

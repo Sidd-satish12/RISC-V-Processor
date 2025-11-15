@@ -8,6 +8,7 @@ module stage_retire #(
 ) (
     input logic clock,
     input logic reset,
+    input logic bp_enabled = 1'b1,
 
     // From ROB: head window (0 = oldest, N-1 = youngest)
     input ROB_ENTRY [N-1:0] head_entries,
@@ -34,7 +35,9 @@ module stage_retire #(
 
     // to Fake fetch for branching
     output logic branch_taken_out,
-    output ADDR  branch_target_out,
+    output ADDR branch_target_out,
+    output BP_TRAIN_REQUEST train_req_o,
+    output BP_RECOVER_REQUEST recover_req_o,
 
     // to read committed data from PRF
     input DATA [`PHYS_REG_SZ_R10K-1:0] regfile_entries
@@ -45,10 +48,16 @@ module stage_retire #(
 
     ROB_ENTRY entry;
     logic recover;
+    logic trained;
     logic mispred_dir, mispred_tgt, mispred;
+    logic found;
+    logic [$clog2(N)-1:0] mispred_w;
 
     always_comb begin
         {rob_mispredict, rob_mispred_idx, bp_recover_en, free_mask} = '0;
+        train_req_o = '{default: 0};
+        recover_req_o = '{default: 0};
+        trained = 1'b0;
         arch_write_enables = '0;
         arch_write_addrs = '0;
         arch_write_phys_regs = '0;
@@ -60,9 +69,8 @@ module stage_retire #(
         retire_commits_dbg = '0;
 
         // branch info for fake fetch
-        branch_taken_out  = 1'b0;
+        branch_taken_out = 1'b0;
         branch_target_out = '0;
-
 
         // Walk oldest -> youngest and commit until first incomplete
         for (int w = 0; w < N; w++) begin
@@ -92,8 +100,7 @@ module stage_retire #(
                 arch_write_addrs[w]    = entry.arch_rd;
                 arch_write_phys_regs[w] = entry.phys_rd;
 
-                if ((entry.prev_phys_rd != '0) && (entry.prev_phys_rd < PHYS_REGS))
-                    free_mask[entry.prev_phys_rd] = 1'b1;
+                if ((entry.prev_phys_rd != '0) && (entry.prev_phys_rd < PHYS_REGS)) free_mask[entry.prev_phys_rd] = 1'b1;
             end
 
             // If this entry is a branch, check for mispredict (compare prediction vs actual)
@@ -113,16 +120,42 @@ module stage_retire #(
                 if (mispred) begin
                     // Commit this branch (we already did commits for this entry above),
                     rob_mispredict  = 1'b1;
-                    rob_mispred_idx = head_idxs[w];   // ROB index of the mispredicted branch
-                    bp_recover_en   = 1'b1;           
+                    rob_mispred_idx = head_idxs[w];  // ROB index of the mispredicted branch
+                    bp_recover_en   = 1'b1;
                     recover         = 1'b1;
 
                     // stop committing younger entries
                     break;
                 end
+
+                // Train on completed branches (first one only)
+                if (bp_enabled && !trained && $isunknown(entry.branch_target)) begin
+                    train_req_o.valid = 1'b1;
+                    train_req_o.pc = entry.PC;
+                    train_req_o.actual_taken = entry.branch_taken;
+                    train_req_o.actual_target = entry.branch_target;
+                    train_req_o.ghr_snapshot = entry.ghr_snapshot;
+                    trained = 1'b1;
+                end
             end
 
         end
+
+        // Recovery on mispredict
+        found = 1'b0;
+        for (int w = 0; w < N; w++) begin
+            if (head_valids[w] && (head_idxs[w] == rob_mispred_idx)) begin
+                mispred_w = w;
+                found = 1'b1;
+                break;
+            end
+        end
+        if (bp_enabled && rob_mispredict && found) begin
+            recover_req_o.pulse = 1'b1;
+            recover_req_o.ghr_snapshot = head_entries[mispred_w].ghr_snapshot;
+        end
+
+        bp_recover_en = bp_enabled && recover_req_o.pulse;
     end
 
 
