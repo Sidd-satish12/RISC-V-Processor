@@ -8,13 +8,16 @@ module icache_subsystem (
     input  MEM_TAG     Imem2proc_transaction_tag,  // Tag of current mem request (0 = rejected)
     input  MEM_BLOCK   Imem2proc_data,             // Mem requested data coming back
     input  MEM_TAG     Imem2proc_data_tag,         // Tag for returned data (0 = no data)
-    input  logic       mem_request_success,        // Mem reading request was successful
+    input  logic       mem_req_accepted,        // Mem reading request was successful
     output MEM_REQUEST_PACKET mem_req,
 
     // Fetch
-    input  ADDR       [1:0] read_addr,
+    input  ADDR       [1:0] read_addr,   // assume read_addr[0] is older instructions
     output CACHE_DATA [1:0] cache_out
 );
+
+    logic icache_full;
+    ICACHE_MISS_PACKET oldest_icache_miss;
 
     icache icache_inst (
         .clock                (clock),
@@ -23,98 +26,87 @@ module icache_subsystem (
         .cache_out            (cache_out),
         .write_addr           (),
         .write_in             (),
-        .full                 ()
-
+        .full                 (icache_full)
     );
 
-    prefetcher #(
-        .PREFETCH_WIDTH(`PREFETCH_WIDTH)
-    ) prefetcher_inst (
+    assign oldest_icache_miss.valid = cache_out[0].valid | cache_out[1].valid;
+    assign oldest_icache_miss.addr = ~cache_out[0].valid ? cache_out[0].addr :
+                                    (~cache_out[1].valid ? cache_out[1].addr : '0);
+    prefetcher prefetcher_inst (
         .clock                (clock),
         .reset                (reset),
-        .icache_miss          (), // Connect with actual ICACHE_MISS_PACKET if available
-        .icache_full          (), // Connect with actual icache_full signal if available
-        .mshr_free_slots      (), // Connect with actual mshr_free_slots signal if available
-        .mshr_req             (mem_req)  // Connect to where MSHR_REQUEST_PACKET should go
+        .icache_miss          (oldest_icache_miss),
+        .icache_full          (icache_full),
+        .mem_req_accepted     (mem_req_accepted),
+        .mem_req              (mem_req)
+    );
+
+    i_mshr i_mshr_inst (
+        
     );
 
 endmodule
 
+// Instruction Miss Status History Table
+module i_mshr #(
+    parameter MSHR_WIDTH = `NUM_MEM_TAGS
+) (
+    input MSHR_PACKET mshr_in
+)
 
-// ============================================================================
-// Prefetcher Module
-// ============================================================================
-// on the first cycle fetch the entire size of the MSHR
-// after that if there is a miss
-// and there isnt already a pending request for that address in the MSHR
-// invalidate everything in the MSHR that doesnt have a pending request
-// queue the misses right below the youngest pending requests, so it's to be requested next
-// prefetch the prefetch width on top of the miss
-// Size the mshr to be superscalar width above the maximum number of requests to memory
-// never prefetch above the maximum number of requests to memory
 
-// address is 32 bits
+
+endmodule
+
 module prefetcher (
     input clock,
     input reset,
 
-    // Icache misses from fetch stage
-    input ICACHE_MISS_PACKET icache_miss,
-    input logic              icache_full,  // High when Icache is full
+    input ICACHE_MISS_PACKET   icache_miss,
+    input logic                icache_full,
 
-
-    // MSHR status
-    input logic [$clog2(`NUM_MEM_TAGS):0] mshr_free_slots,  // Number of free slots in MSHR
-
-    // MSHR requests output (misses + prefetches)
-    output MSHR_REQUEST_PACKET mem_req
+    input logic                mem_req_accepted,
+    output PREFETCH_MEM_PACKET mem_req;
 );
-    // Control Path
-    localparam XInit = 2'b0;
-    localparam XFirst_Miss = 2'b1;
-    localparam XSubsequent_Miss = 2'b10;
 
-    logic [1:0] X, X_next;
+    ICACHE_MISS_PACKET last_requested_icache_miss, next_last_requested_icache_miss;
+    ADDR addr_incrementor, next_addr_incrementor;
 
     always_comb begin
-        case (X)
-            XInit:
+        addr_incrementor_next = addr_incrementor;
+        mem_req.valid = '0;
 
-            XFirst_Miss:
-
-            XSubsequent_Miss:
-
-        endcase
-
+        if (icache_miss.valid && 
+           (icache_miss.addr != last_requested_icache_miss.addr || ~last_requested_icache_miss.valid)) begin
+            mem_req.valid = '1;
+            mem_req.addr = icache_miss.addr;
+            if (mem_req_accepted) begin
+                next_last_requested_icache_miss.valid = '1;
+                next_last_requested_icache_miss.addr = icache_miss.addr;
+                addr_incrementor_next = icache_miss.addr;
+            end
+        end else if (~icache_full) begin
+            mem_req.valid = '1;
+            mem_req.addr = addr_incrementor + 'h4;
+            if (mem_req_accepted) begin
+                next_addr_incrementor = addr_incrementor + 'h4;
+            end
+        end
     end
 
     always_ff @(posedge clock) begin
         if (reset) begin
-            X <= XInit;
+            last_requested_icache_miss.valid <= '0;
+            last_requested_icache_miss.addr <= '0;
+            addr_incrementor <= '0;
         end else begin
-            X <= X_next
+            last_requested_icache_miss <= next_last_requested_icache_miss;
+            addr_incrementor <= next_addr_incrementor;
         end
     end
-
-    // Data Path
-
-    logic 
-
 endmodule
 
-// Instructin Miss Status History Table
-// used as record for pending memory requests
-module i_mshr #(
-    parameter MSHR_WIDTH = `NUM_MEM_TAGS
-);
 
-
-
-endmodule
-
-// ============================================================================
-// ICache fully associative
-// ============================================================================
 module icache (
     input clock,
     input reset,
@@ -122,6 +114,10 @@ module icache (
     // Fetch read
     input  I_ADDR       [1:0] read_addr,
     output CACHE_DATA   [1:0] cache_out,
+
+    // Prefetcher read
+    input  I_ADDR             prefetch_addr,
+    output logic              prefetch_addr_already_in,
 
     // Write to icache
     input  I_ADDR             write_addr,
@@ -163,6 +159,13 @@ module icache (
     );
 
     wor MEM_BLOCK [1:0]                    cache_lines_out;
+
+    // Pre-fetch read logic
+    logic [MEM_WIDTH-1:0] prefetch_addr_match_one_hot;
+    for (genvar i = 0; i < MEM_WIDTH; i++) begin
+        assign prefetch_addr_match_one_hot[i] = prefetch_addr.tag == tags[i];
+    end
+    assign prefetch_addr_already_in = |prefetch_addr_match_one_hot;
 
     // Fetch Read logic
     for (genvar i = 0; i < MEM_WIDTH; i++) begin : read_cache // Anding and Or-reducing
@@ -244,7 +247,6 @@ module icache (
 
 endmodule
 
-// Basically a lookup table very efficient
 module one_hot_to_index #(
     parameter int INPUT_WIDTH = 1
 ) (
