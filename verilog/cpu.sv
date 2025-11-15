@@ -247,46 +247,29 @@ module cpu (
     //                Memory                        //
     //                                              //
     //////////////////////////////////////////////////
-    victim_cache victim_cache_inst (
-        // Write port (from icache eviction)
-        .write_addr(),
-        .write_data(),
-
-        // Read port (for reinstatement / icache lookup)
-        .read_addr(),
-
-        // Outputs
-        .hit(),
-        .reinstate_addr(),
-        .reinstate_data()
-    );
+    MEM_REQUEST_PACKET instr_mem_request, data_mem_request;
 
     icache_subsystem icache_subsystem_inst (
-        .clock(),
-        .reset(),
-        // From memory to MSHR (via arbiter)
-        .Imem2proc_transaction_tag(),
-        .Imem2proc_data(),
-        .Imem2proc_data_tag(),
-        // From arbiter to MSHR
-        .arbiter_accept(),
-        // From victim cache to MEM request logic and icache for reinstatement
-        .victim_cache_hit(),
-        .victim_cache_data(),
-        // fetch stage, icache read
+        .clock(clock),
+        .reset(reset),
+
+        // Memory
+        .Imem2proc_transaction_tag(mem2proc_transaction_tag),
+        .Imem2proc_data(mem2proc_data),
+        .Imem2proc_data_tag(mem2proc_data_tag),
+        .mem_request_success(),
+        .mem_req(instr_mem_request),
+
+        // Fetch
         .read_addr(),
-        .cache_out(),
-        // To arbiter (for memory requests)
-        .mem_req_valid(),
-        .mem_req_addr(),
-        .mem_req_command(),
-        // To victim cache (for lookup)
-        .victim_cache_lookup_addr()
+        .cache_out()
     );
 
     dcache_subsystem dcache_subsystem_inst (
 
     );
+
+    // Arbiter
 
     always_comb begin
         // Using fake fetch - only handle data memory operations
