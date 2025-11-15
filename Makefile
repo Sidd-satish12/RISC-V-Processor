@@ -190,7 +190,7 @@ GREP = grep -E --color=auto
 # ---- Modules to Test ---- #
 
 # TODO: add more modules here
-MODULES = cpu mult rob rs regfile map_table stage_issue stage_dispatch stage_execute stage_complete stage_retire cdb branch_predictor stage_fetch
+MODULES = cpu mult rob rs regfile map_table stage_issue stage_dispatch stage_execute stage_complete stage_retire cdb bp stage_fetch
 
 # TODO: update this if you add more header files
 ALL_HEADERS = $(CPU_HEADERS)
@@ -249,10 +249,10 @@ build/stage_execute.simv: $(STAGE_EXECUTE_FILES)
 build/stage_execute.cov: $(STAGE_EXECUTE_FILES)
 synth/stage_execute.vg: $(STAGE_EXECUTE_FILES)
 
-BR_PRED_FILES = verilog/sys_defs.svh
-build/branch_predictor.simv: $(BR_PRED_FILES)
-build/branch_predictor.cov:  $(BR_PRED_FILES)
-synth/branch_predictor.vg:   $(BR_PRED_FILES)
+BP_FILES = verilog/sys_defs.svh
+build/bp.simv: $(BP_FILES)
+build/bp.cov:  $(BR_PRED_FILES)
+synth/bp.vg:   $(BR_PRED_FILES)
 
 STAGE_FETCH_FILES = verilog/sys_defs.svh
 build/stage_fetch.simv: $(STAGE_FETCH_FILES)

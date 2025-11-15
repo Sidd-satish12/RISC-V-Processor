@@ -34,6 +34,7 @@ module instr_buffer #(
   assign pop_bp_pred_taken_o   = mem[head].bp_pred_taken;
   assign pop_bp_pred_target_o  = mem[head].bp_pred_target;
   assign pop_bp_ghr_snapshot_o = mem[head].bp_ghr_snapshot;
+
   always_ff @(posedge clock) begin
     if (reset) begin
       head  <= '0;
