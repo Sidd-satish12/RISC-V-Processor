@@ -136,7 +136,7 @@ typedef logic [3:0] MEM_TAG;
 `define IBLOCK_OFFSET_BITS $clog2(`ICACHE_LINE_BYTES)          // indexing into bytes in a cache line/block
 // 16 - 3 = 13, 16 because our memory size is 2^16 bytes
 `define ITAG_BITS 16 - `IBLOCK_OFFSET_BITS
-`define PREFETCH_SIZE 4
+`define PREFETCH_STREAM_BUFFER_SIZE 4
 `define LFSR_SEED 9
 
 `define DCACHE_ASSOC 2           // 2-way associative D-cache
@@ -165,6 +165,24 @@ typedef struct packed {
     logic [`ITAG_BITS-1:0]          tag;          // [15:8]  8 bits
     logic [`IBLOCK_OFFSET_BITS-1:0] block_offset; // [2:0]   3 bit
 } I_ADDR; // ICache Breakdown of I-cache address
+
+typedef logic [`ITAG_BITS-1:0]      I_TAG;  
+
+typedef struct packed {
+    logic valid;
+    ADDR  addr;
+} ADDR_PACKET;
+
+typedef struct packed {
+    logic valid;
+    I_TAG  addr;
+} I_TAG_PACKET;
+
+typedef struct packed {
+    logic   valid;
+    MEM_TAG mem_tag;
+    I_TAG   i_addr;
+} MSHR_PACKET;
 
 typedef struct packed {
     logic [15:0]                    zeros;
@@ -696,13 +714,3 @@ typedef struct packed {
     logic   valid;
 } COMMIT_PACKET;
 
-typedef struct packed {
-    logic [1:0] valid;
-    ADDR  [1:0] addr;
-} ADDR_PACKET;
-
-typedef struct packed {
-    logic   valid;
-    MEM_TAG mem_tag;
-    ADDR    addr;
-} MSHR_PACKET;
