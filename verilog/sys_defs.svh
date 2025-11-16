@@ -44,9 +44,9 @@
 `define NUM_CATS 4                              // Number of OP_CATEGORY values (0-4)
 
 // branch prediction
-`define BP_GH 8                              // number of global history bits
-`define BP_PHT_BITS 10                       // PHT entries = 2^PHT_BITS
-`define BP_BTB_BITS 8                        // BTB entries = 2^BTB_BITS
+`define BP_GH 7                              // number of global history bits
+`define BP_PHT_BITS `BP_GH + 1               // PHT entries = GH + 1
+`define BP_BTB_BITS 7                        // BTB entries = 2^BTB_BITS
 `define BP_PC_WORD_ALIGN_BITS 2              // PC[1:0] are word-aligned (ignore)
 `define BP_BTB_TAG_BITS (32 - `BP_PC_WORD_ALIGN_BITS - `BP_BTB_BITS)  // Tag = upper PC bits above index + word-align
 

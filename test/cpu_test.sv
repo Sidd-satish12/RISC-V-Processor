@@ -36,7 +36,7 @@ import "DPI-C" function string decode_inst(int inst);
 // import "DPI-C" function void close_pipeline_output_file();
 
 
-`define TB_MAX_CYCLES 800
+`define TB_MAX_CYCLES 10000
 
 
 module testbench;
@@ -147,20 +147,60 @@ module testbench;
     PRF_READ_TAGS prf_read_tag_src1, prf_read_tag_src2;
     PRF_READ_DATA resolved_src1, resolved_src2;
     logic [`NUM_FU_MULT-1:0] mult_request, mult_start, mult_done;
-    logic [`NUM_FU_BRANCH-1:0] branch_take;
-    ADDR  [`NUM_FU_BRANCH-1:0] branch_target;
+    logic            [`NUM_FU_BRANCH-1:0] branch_take;
+    ADDR             [`NUM_FU_BRANCH-1:0] branch_target;
 
     // Execute stage functional unit validity
-    logic [   `NUM_FU_ALU-1:0] alu_executing;
-    logic [  `NUM_FU_MULT-1:0] mult_executing;
-    logic [`NUM_FU_BRANCH-1:0] branch_executing;
-    logic [   `NUM_FU_MEM-1:0] mem_executing;
+    logic            [   `NUM_FU_ALU-1:0] alu_executing;
+    logic            [  `NUM_FU_MULT-1:0] mult_executing;
+    logic            [`NUM_FU_BRANCH-1:0] branch_executing;
+    logic            [   `NUM_FU_MEM-1:0] mem_executing;
+
+    // BP debug signals
+    logic                                 bp_predict_req_valid;
+    logic                                 bp_predict_taken;
+    ADDR                                  bp_predict_target;
+    logic                                 bp_train_req_valid;
+    logic                                 bp_recover_pulse;
+
+    // Add new BP training debug wires after existing BP debug wires
+    logic                                 bp_train_actual_taken;
+    logic            [  `BP_PHT_BITS-1:0] bp_train_pht_idx;
+    BP_COUNTER_STATE                      bp_train_pht_old_entry;
+    BP_COUNTER_STATE                      bp_train_pht_new_entry;
+    logic                                 bp_train_valid;
+
+    // Stage retire debug signals
+    logic                                 bp_enabled_retire;
+    logic                                 branch_retired_retire;
+    logic                                 branch_taken_retire;
+    logic                                 is_branch_target_unknown_retire;
+    logic                                 train_triggered_retire;
+    logic                                 retire_valid_retire;
+
+    // BP internal debug signals
+    logic            [        `BP_GH-1:0] bp_ghr;
+    logic            [  `BP_PHT_BITS-1:0] bp_pht_idx;
+    BP_COUNTER_STATE                      bp_pht_entry;
+    logic                                 bp_btb_hit;
 
     // NEW: Fake fetch prediction and mispredict signals
-    logic                      predicted_branch_taken;
-    ADDR                       predicted_branch_target;
-    logic                      mispredict_out;
-    logic [              31:0] mispredict_count_out;
+    logic                                 predicted_branch_taken;
+    ADDR                                  predicted_branch_target;
+    logic                                 mispredict_out;
+    logic            [              31:0] mispredict_count_out;
+
+    // Add wires
+    logic            [        `BP_GH-1:0] bp_next_ghr;
+    logic            [        `BP_GH-1:0] bp_recovery_next;
+    logic            [        `BP_GH-1:0] bp_recover_snapshot;
+    logic            [        `BP_GH-1:0] bp_train_snapshot;
+    logic                                 bp_recovery_active;
+    logic            [        `BP_GH-1:0] bp_ghr_next_ff;
+    logic                                 bp_recovery_active_comb;
+    logic                                 bp_recover_pulse_comb;
+    logic                                 bp_train_valid_comb;
+    logic            [        `BP_GH-1:0] bp_ghr_next_value_comb;
 
 
     // Instantiate the Pipeline
@@ -260,10 +300,40 @@ module testbench;
         .mem_executing_dbg(mem_executing),
 
         // NEW: Predicted branch outputs for fake fetch
-        .predicted_branch_taken (predicted_branch_taken),
-        .predicted_branch_target(predicted_branch_target),
-        .mispredict_out         (mispredict_out),
-        .mispredict_count_out   (mispredict_count_out),
+        .predicted_branch_taken             (predicted_branch_taken),
+        .predicted_branch_target            (predicted_branch_target),
+        .mispredict_out                     (mispredict_out),
+        .mispredict_count_out               (mispredict_count_out),
+        .bp_predict_req_valid_dbg           (bp_predict_req_valid),
+        .bp_predict_taken_dbg               (bp_predict_taken),
+        .bp_predict_target_dbg              (bp_predict_target),
+        .bp_train_req_valid_dbg             (bp_train_req_valid),
+        .bp_recover_pulse_dbg               (bp_recover_pulse),
+        .bp_ghr_dbg                         (bp_ghr),
+        .bp_pht_idx_dbg                     (bp_pht_idx),
+        .bp_pht_entry_dbg                   (bp_pht_entry),
+        .bp_btb_hit_dbg                     (bp_btb_hit),
+        .bp_enabled_retire_dbg              (bp_enabled_retire),
+        .branch_retired_retire_dbg          (branch_retired_retire),
+        .branch_taken_retire_dbg            (branch_taken_retire),
+        .is_branch_target_unknown_retire_dbg(is_branch_target_unknown_retire),
+        .train_triggered_retire_dbg         (train_triggered_retire),
+        .retire_valid_retire_dbg            (retire_valid_retire),
+        .bp_train_actual_taken_dbg          (bp_train_actual_taken),
+        .bp_train_pht_idx_dbg               (bp_train_pht_idx),
+        .bp_train_pht_old_entry_dbg         (bp_train_pht_old_entry),
+        .bp_train_pht_new_entry_dbg         (bp_train_pht_new_entry),
+        .bp_train_valid_dbg                 (bp_train_valid),
+        .bp_next_ghr_dbg                    (bp_next_ghr),
+        .bp_recovery_next_dbg               (bp_recovery_next),
+        .bp_recover_snapshot_dbg            (bp_recover_snapshot),
+        .bp_train_snapshot_dbg              (bp_train_snapshot),
+        .bp_recovery_active_dbg             (bp_recovery_active),
+        .bp_ghr_next_ff_dbg                 (bp_ghr_next_ff),
+        .bp_recovery_active_comb_dbg        (bp_recovery_active_comb),
+        .bp_recover_pulse_comb_dbg          (bp_recover_pulse_comb),
+        .bp_train_valid_comb_dbg            (bp_train_valid_comb),
+        .bp_ghr_next_value_comb_dbg         (bp_ghr_next_value_comb),
 
         // ---- Fake-Fetch interface ----
 `ifdef SYNTH
@@ -419,8 +489,8 @@ module testbench;
             if ((clock_count % 10000) == 0) $display("  %16t : %0d cycles", $realtime, clock_count);
 
             // Optional: peek at fake-fetch behavior
-            $display("%0t [FF] pc=%h consumed=%0d br=%0d tgt=%h", $time, fake_pc, fake_consumed, ff_branch_taken,
-                     ff_branch_target);
+            // $display("%0t [FF] pc=%h consumed=%0d br=%0d tgt=%h", $time, fake_pc, fake_consumed, ff_branch_taken,
+            //          ff_branch_target);
 
             // Pipeline printing disabled for OOO processor
             // print_cycles(clock_count - 1);
@@ -560,25 +630,32 @@ module testbench;
     // endtask
 
     task print_custom_data;
-        integer prf_count;
-        integer i;
-
-        $display("\n=================================================================================");
-        $display("CPU STATE SNAPSHOT - Cycle %0d", clock_count - 1);
-        $display("=================================================================================");
-
-        // FETCH/DISPATCH STAGE
-        $display("\n--- FETCH/DISPATCH STAGE ---");
-        $display("Dispatch count: %0d", dispatch_count);
-        $display("Fake PC: 0x%08h | Consumed: %0d", fake_pc, fake_consumed);
-
-        for (integer i = 0; i < `N; i++) begin
-            if (i < dispatch_count) begin
-                $display("DISP[%0d]: PC=0x%08h | Inst=0x%08h | Uses_RD=%b | RD=%0d", i, fetch_disp_packet.PC[i],
-                         fetch_disp_packet.inst[i], fetch_disp_packet.uses_rd[i], fetch_disp_packet.rd_idx[i]);
+        // BP debug info
+        if (branch_retired_retire) begin
+            $display(
+                "BP: predict_req_valid=%b taken=%b target=0x%h train_valid=%b recover=%b ghr=%b pht_idx=%d pht_entry=%b btb_hit=%b",
+                bp_predict_req_valid, bp_predict_taken, bp_predict_target, bp_train_req_valid, bp_recover_pulse, bp_ghr,
+                bp_pht_idx, bp_pht_entry, bp_btb_hit);
+            if (bp_train_valid) begin
+                $display("Train: actual_taken=%b train_pht_idx=%d old_entry=%b new_entry=%b", bp_train_actual_taken,
+                         bp_train_pht_idx, bp_train_pht_old_entry, bp_train_pht_new_entry);
             end
+            $display(
+                "Retire: bp_enabled=%b branch_retired=%b taken=%b target_unknown=%b train_triggered=%b mispredict=%b valid=%b",
+                bp_enabled_retire, branch_retired_retire, branch_taken_retire, is_branch_target_unknown_retire,
+                train_triggered_retire, mispredict_out, retire_valid_retire);
         end
+        if (bp_recover_pulse || bp_train_valid) begin
+            $display(
+                "GHR Debug: current=%b next=%b recovery_next=%b recover_snap=%b train_snap=%b recovery_active=%b ghr_next_ff=%b",
+                bp_ghr, bp_next_ghr, bp_recovery_next, bp_recover_snapshot, bp_train_snapshot, bp_recovery_active,
+                bp_ghr_next_ff);
+            $display("GHR Comb: recovery_active_comb=%b recover_pulse_comb=%b train_valid_comb=%b ghr_next_value_comb=%b",
+                     bp_recovery_active_comb, bp_recover_pulse_comb, bp_train_valid_comb, bp_ghr_next_value_comb);
+        end
+    endtask
 
+    /*  // Commented out verbose debug logs
         // RESERVATION STATIONS
         $display("\n--- RESERVATION STATIONS ---");
 
@@ -900,7 +977,7 @@ module testbench;
         if (prf_count == 0) $display("  (All registers are zero)");
 
         $display("=================================================================================\n");
-    endtask
+    */  // End comment of verbose logs
 
 
 endmodule  // module testbench

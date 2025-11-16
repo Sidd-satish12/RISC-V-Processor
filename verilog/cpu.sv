@@ -69,6 +69,14 @@ module cpu (
     // rs_alu Debug output
     output RS_ENTRY [`RS_ALU_SZ-1:0] rs_alu_entries_dbg,
 
+    // Stage retire debug outputs
+    output logic bp_enabled_retire_dbg,
+    output logic branch_retired_retire_dbg,
+    output logic branch_taken_retire_dbg,
+    output logic is_branch_target_unknown_retire_dbg,
+    output logic train_triggered_retire_dbg,
+    output logic retire_valid_retire_dbg,
+
     // Additional RS debug outputs
     output RS_ENTRY [  `RS_MULT_SZ-1:0] rs_mult_entries_dbg,
     output RS_ENTRY [`RS_BRANCH_SZ-1:0] rs_branch_entries_dbg,
@@ -115,7 +123,33 @@ module cpu (
     output logic predicted_branch_taken,  // NEW: Predicted branch taken for fake fetch
     output ADDR predicted_branch_target,  // NEW: Predicted branch target for fake fetch
     output logic mispredict_out,  // NEW: Mispredict signal for testbench recovery
-    output logic [31:0] mispredict_count_out  // NEW: Mispredict counter for debugging
+    output logic [31:0] mispredict_count_out,  // NEW: Mispredict counter for debugging
+    // BP debug outputs
+    output logic bp_predict_req_valid_dbg,
+    output logic bp_predict_taken_dbg,
+    output ADDR bp_predict_target_dbg,
+    output logic bp_train_req_valid_dbg,
+    output logic bp_recover_pulse_dbg,
+    output logic [`BP_GH-1:0] bp_ghr_dbg,
+    output logic [`BP_PHT_BITS-1:0] bp_pht_idx_dbg,
+    output BP_COUNTER_STATE bp_pht_entry_dbg,
+    output logic bp_btb_hit_dbg,
+    // CPU output ports for BP debug (add these new ones)
+    output logic bp_train_actual_taken_dbg,
+    output logic [`BP_PHT_BITS-1:0] bp_train_pht_idx_dbg,
+    output BP_COUNTER_STATE bp_train_pht_old_entry_dbg,
+    output BP_COUNTER_STATE bp_train_pht_new_entry_dbg,
+    output logic bp_train_valid_dbg,
+    output logic [`BP_GH-1:0] bp_next_ghr_dbg,
+    output logic [`BP_GH-1:0] bp_recovery_next_dbg,
+    output logic [`BP_GH-1:0] bp_recover_snapshot_dbg,
+    output logic [`BP_GH-1:0] bp_train_snapshot_dbg,
+    output logic bp_recovery_active_dbg,
+    output logic [`BP_GH-1:0] bp_ghr_next_ff_dbg,
+    output logic bp_recovery_active_comb_dbg,
+    output logic bp_recover_pulse_comb_dbg,
+    output logic bp_train_valid_comb_dbg,
+    output logic [`BP_GH-1:0] bp_ghr_next_value_comb_dbg
 
 );
 
@@ -197,9 +231,8 @@ module cpu (
     ROB_ENTRY           [          `N-1:0] rob_head_entries;
     logic               [          `N-1:0] rob_head_valids;
     ROB_IDX             [          `N-1:0] rob_head_idxs;
-    logic                                  rob_mispredict;
+    logic                                  mispredict;  // Consolidated mispredict signal from retire
     ROB_IDX                                rob_mispred_idx;
-    logic                                  bp_recover_en;
     logic               [          `N-1:0] arch_write_enables;
     REG_IDX             [          `N-1:0] arch_write_addrs;
     PHYS_TAG            [          `N-1:0] arch_write_phys_regs;
@@ -213,20 +246,35 @@ module cpu (
     logic               [  $clog2(`N)-1:0] branch_pos;
     logic               [            31:0] mispredict_count;
 
-    // NEW: Branch Predictor enable (enabled)
+    // NEW: Branch Predictor enable
     logic                                  bp_enabled = 1'b1;
 
-    // DEBUG signal for committed instructions:
-    COMMIT_PACKET       [          `N-1:0] retire_commits_dbg;
+    // Internal wires for BP debug (single declaration only)
+    logic               [      `BP_GH-1:0] bp_ghr_internal;
+    logic               [`BP_PHT_BITS-1:0] bp_pht_idx_internal;
+    BP_COUNTER_STATE                       bp_pht_entry_internal;
+    logic                                  bp_btb_hit_internal;
+    logic                                  bp_train_actual_taken_internal;
+    logic               [`BP_PHT_BITS-1:0] bp_train_pht_idx_internal;
+    BP_COUNTER_STATE                       bp_train_pht_old_internal;
+    BP_COUNTER_STATE                       bp_train_pht_new_internal;
+    logic                                  bp_train_valid_internal;
 
-    // NEW: Branch Predictor wires
-    BP_PREDICT_REQUEST                     predict_req;
-    BP_PREDICT_RESPONSE                    predict_resp;
+    // Add the missing ones for next GHR debug
+    logic               [      `BP_GH-1:0] bp_next_ghr_internal;
+    logic               [      `BP_GH-1:0] bp_recovery_next_internal;
+    logic               [      `BP_GH-1:0] bp_recover_snapshot_internal;
+    logic               [      `BP_GH-1:0] bp_train_snapshot_internal;
+    logic                                  bp_recovery_active_internal;
+    logic               [      `BP_GH-1:0] bp_ghr_next_ff_internal;
+    logic                                  bp_recovery_active_comb_internal;
+    logic                                  bp_recover_pulse_comb_internal;
+    logic                                  bp_train_valid_comb_internal;
+    logic               [      `BP_GH-1:0] bp_ghr_next_value_comb_internal;
+
     BP_PREDICT_RESPONSE                    bp_predict_resp;
 
-    // Global mispredict signal
-    logic                                  mispredict;
-    assign mispredict = rob_mispredict;
+    // Global mispredict signal (now comes directly from retire stage)
 
     // NEW: Mispredict counter
     always_ff @(posedge clock) begin
@@ -267,6 +315,9 @@ module cpu (
 
     // debug for architecture map table
     MAP_ENTRY [`ARCH_REG_SZ-1:0] arch_table_snapshot_dbg_next;
+
+    // Add this declaration near other debug wires, e.g., after COMMIT_PACKET related wires
+    COMMIT_PACKET [`N-1:0] retire_commits_dbg;
 
 
     //////////////////////////////////////////////////
@@ -360,8 +411,27 @@ module cpu (
         .reset(reset),
         .predict_req_i(predict_req),
         .predict_resp_o(bp_predict_resp),
-        .train_req_i('{default: 0}),
-        .recover_req_i('{default: 0})
+        .train_req_i(train_req),
+        .recover_req_i(recover_req),
+        .ghr_dbg(bp_ghr_internal),
+        .pht_idx_dbg(bp_pht_idx_internal),
+        .pht_entry_dbg(bp_pht_entry_internal),
+        .btb_hit_dbg(bp_btb_hit_internal),
+        .train_actual_taken_dbg(bp_train_actual_taken_internal),
+        .train_pht_idx_dbg(bp_train_pht_idx_internal),
+        .train_pht_old_entry_dbg(bp_train_pht_old_internal),
+        .train_pht_new_entry_dbg(bp_train_pht_new_internal),
+        .train_valid_dbg(bp_train_valid_internal),
+        .next_ghr_dbg(bp_next_ghr_internal),
+        .recovery_next_dbg(bp_recovery_next_internal),
+        .recover_snapshot_dbg(bp_recover_snapshot_internal),
+        .train_snapshot_dbg(bp_train_snapshot_internal),
+        .recovery_active_dbg(bp_recovery_active_internal),
+        .ghr_next_ff_dbg(bp_ghr_next_ff_internal),
+        .recovery_active_comb_dbg(bp_recovery_active_comb_internal),
+        .recover_pulse_comb_dbg(bp_recover_pulse_comb_internal),
+        .train_valid_comb_dbg(bp_train_valid_comb_internal),
+        .ghr_next_value_comb_dbg(bp_ghr_next_value_comb_internal)
     );
 
     // Select predict_resp based on bp_enabled
@@ -398,9 +468,9 @@ module cpu (
         end
     end
 
-    assign predict_req.valid = 1'b0 && has_branch;
+    assign predict_req.valid = bp_enabled && has_branch;
     assign predict_req.pc = ff_pc + 32'(4 * branch_pos);
-    assign predict_req.used = 1'b0 && has_branch;
+    assign predict_req.used = bp_enabled && has_branch;
 
     // Convert ff_nvalid count to bit mask for dispatch stage
     always_comb begin
@@ -507,7 +577,7 @@ module cpu (
 
     rob rob_0 (
         .clock(clock),
-        .reset(reset | rob_mispredict), // Reset on mispredict
+        .reset(reset | mispredict), // Reset on mispredict
 
         // Dispatch
         .rob_entry_packet(rob_entry_packet),
@@ -802,7 +872,7 @@ module cpu (
         // Mispredict recovery
         .table_snapshot(),
         .table_restore(arch_table_snapshot_dbg),
-        .table_restore_en(bp_recover_en)
+        .table_restore_en(mispredict && bp_enabled)
     );
 
     //////////////////////////////////////////////////
@@ -883,7 +953,7 @@ module cpu (
 
     cdb cdb_0 (
         .clock(clock),
-        .reset(reset || rob_mispredict),
+        .reset(reset || mispredict),
 
         // Arbiter inputs (structured)
         .requests(cdb_requests),
@@ -946,11 +1016,8 @@ module cpu (
         .head_idxs   (rob_head_idxs),
 
         // To ROB: flush younger if head is a mispredicted branch
-        .rob_mispredict (rob_mispredict),
+        .mispredict(mispredict),
         .rob_mispred_idx(rob_mispred_idx),
-
-        // Global recovery pulse (tables react internally)
-        .bp_recover_en(bp_recover_en),
 
         // To freelist: bitmap of PRs to free (all committed lanes' Told this cycle)
         .free_mask(freelist_free_mask),
@@ -959,7 +1026,15 @@ module cpu (
         .arch_write_enables  (arch_write_enables),
         .arch_write_addrs    (arch_write_addrs),
         .arch_write_phys_regs(arch_write_phys_regs),
-        .retire_commits_dbg  (retire_commits_dbg),
+
+        // Debug outputs
+        .bp_enabled_dbg(bp_enabled_retire_dbg),
+        .branch_retired_dbg(branch_retired_retire_dbg),
+        .branch_taken_dbg(branch_taken_retire_dbg),
+        .is_branch_target_unknown_dbg(is_branch_target_unknown_retire_dbg),
+        .train_triggered_dbg(train_triggered_retire_dbg),
+        .retire_valid_dbg(retire_valid_retire_dbg),
+        .retire_commits_dbg(retire_commits_dbg),
 
         // To fake fetch
         .branch_taken_out (branch_taken_out),
@@ -982,46 +1057,72 @@ module cpu (
 
     // Output the committed instructions to the testbench for counting
     // For superscalar, show the oldest ready instruction (whether retired or not)
-    assign committed_insts        = retire_commits_dbg;
+    assign committed_insts             = retire_commits_dbg;
 
 
     // Fake-fetch outputs
-    assign ff_consumed            = dispatch_count;  // Number of instructions consumed by dispatch
+    assign ff_consumed                 = dispatch_count;  // Number of instructions consumed by dispatch
 
 
     // Additional debug outputs
-    assign rob_head_valids_dbg    = rob_head_valids;
-    assign rob_head_entries_dbg   = rob_head_entries;
-    assign rob_head_idxs_dbg      = rob_head_idxs;
-    assign dispatch_count_dbg     = dispatch_count;
-    assign rs_granted_dbg         = rs_granted;
-    assign rs_alu_ready_dbg       = rs_alu_ready;
-    assign issue_entries_dbg      = issue_entries_debug;
+    assign rob_head_valids_dbg         = rob_head_valids;
+    assign rob_head_entries_dbg        = rob_head_entries;
+    assign rob_head_idxs_dbg           = rob_head_idxs;
+    assign dispatch_count_dbg          = dispatch_count;
+    assign rs_granted_dbg              = rs_granted;
+    assign rs_alu_ready_dbg            = rs_alu_ready;
+    assign issue_entries_dbg           = issue_entries_debug;
 
     // Execute stage debug outputs
-    assign ex_valid_dbg           = ex_valid;
-    assign ex_comp_dbg            = ex_comp;
-    assign fu_gnt_bus_dbg         = cdb_0.grant_bus_out;
-    assign mult_request_dbg       = mult_request;
+    assign ex_valid_dbg                = ex_valid;
+    assign ex_comp_dbg                 = ex_comp;
+    assign fu_gnt_bus_dbg              = cdb_0.grant_bus_out;
+    assign mult_request_dbg            = mult_request;
 
     // Additional RS debug outputs
-    assign rs_mult_entries_dbg    = rs_mult_entries;
-    assign rs_branch_entries_dbg  = rs_branch_entries;
-    assign rs_mem_entries_dbg     = rs_mem_entries;
+    assign rs_mult_entries_dbg         = rs_mult_entries;
+    assign rs_branch_entries_dbg       = rs_branch_entries;
+    assign rs_mem_entries_dbg          = rs_mem_entries;
 
     // Map table debug output
-    assign map_table_snapshot_dbg = map_table_0.map_table_reg;
+    assign map_table_snapshot_dbg      = map_table_0.map_table_reg;
 
     // Freelist debug output (available physical registers)
-    assign freelist_available_dbg = freelist_0.available_regs;
+    assign freelist_available_dbg      = freelist_0.available_regs;
 
     // CDB debug outputs
-    assign cdb_output_dbg         = cdb_output;
+    assign cdb_output_dbg              = cdb_output;
 
     // Dispatch packet debug output
-    assign fetch_disp_packet_dbg  = fetch_disp_packet;
+    assign fetch_disp_packet_dbg       = fetch_disp_packet;
 
     // Issue clear signals debug output
-    assign rs_clear_signals_dbg   = rs_clear_signals;
+    assign rs_clear_signals_dbg        = rs_clear_signals;
+
+    // BP debug outputs
+    assign bp_predict_req_valid_dbg    = predict_req.valid;
+    assign bp_predict_taken_dbg        = predict_resp.taken;
+    assign bp_predict_target_dbg       = predict_resp.target;
+    assign bp_train_req_valid_dbg      = train_req.valid;
+    assign bp_recover_pulse_dbg        = recover_req.pulse;
+    assign bp_ghr_dbg                  = bp_ghr_internal;
+    assign bp_pht_idx_dbg              = bp_pht_idx_internal;
+    assign bp_pht_entry_dbg            = bp_pht_entry_internal;
+    assign bp_btb_hit_dbg              = bp_btb_hit_internal;
+    assign bp_train_actual_taken_dbg   = bp_train_actual_taken_internal;
+    assign bp_train_pht_idx_dbg        = bp_train_pht_idx_internal;
+    assign bp_train_pht_old_entry_dbg  = bp_train_pht_old_internal;
+    assign bp_train_pht_new_entry_dbg  = bp_train_pht_new_internal;
+    assign bp_train_valid_dbg          = bp_train_valid_internal;
+    assign bp_next_ghr_dbg             = bp_next_ghr_internal;
+    assign bp_recovery_next_dbg        = bp_recovery_next_internal;
+    assign bp_recover_snapshot_dbg     = bp_recover_snapshot_internal;
+    assign bp_train_snapshot_dbg       = bp_train_snapshot_internal;
+    assign bp_recovery_active_dbg      = bp_recovery_active_internal;
+    assign bp_ghr_next_ff_dbg          = bp_ghr_next_ff_internal;
+    assign bp_recovery_active_comb_dbg = bp_recovery_active_comb_internal;
+    assign bp_recover_pulse_comb_dbg   = bp_recover_pulse_comb_internal;
+    assign bp_train_valid_comb_dbg     = bp_train_valid_comb_internal;
+    assign bp_ghr_next_value_comb_dbg  = bp_ghr_next_value_comb_internal;
 
 endmodule  // cpu
