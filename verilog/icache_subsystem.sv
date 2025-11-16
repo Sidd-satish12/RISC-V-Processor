@@ -5,139 +5,111 @@ module icache_subsystem (
     input reset,
 
     // Fetch
-    input  ADDR       [1:0]   read_addr,                 // assume read_addr[0] is older instructions
-    output CACHE_DATA [1:0]   cache_out,
+    input  ADDR       [1:0]   read_addrs,                 // read_addr[0] is older instructions
+    output CACHE_DATA [1:0]   cache_outs,
 
-    // Memory
-    input  MEM_TAG            current_req_tag,           // Tag of current mem request (0 = rejected)
-    input  MEM_BLOCK          return_data,               // Mem requested data coming back
-    input  MEM_TAG            return_data_tag,           // Tag for returned data (0 = no data)
-    input  logic              mem_req_accepted,          // Mem reading request was successful
-    output ADDR_PACKET        mem_req
+    // Mem.sv IOs
+    input  MEM_TAG            current_req_tag,
+    input  MEM_BLOCK          mem_data,
+    input  MEM_TAG            mem_data_tag,
+
+    // Arbitor IOs
+    output ADDR_PACKET        mem_req_addr,
+    input  logic              mem_req_accepted
 );
 
-    logic icache_full;
-    ADDR_PACKET oldest_icache_miss;
+    // Internal wires
+    ADDR_PACKET prefetcher_snooping_addr, icache_write_addr, oldest_miss_addr;
+    logic       icache_full, snooping_found_icache, snooping_found_mshr;
+    MSHR_PACKET new_mshr_entry;
 
     icache icache_inst (
-        .clock                    (clock),
-        .reset                    (reset),
-
-        // Fetch Stage IOs
-        .read_addr                (read_addr),
-        .cache_out                (cache_out),
-    
-        // Prefetcher IOs
-        .searching_addr           (prefetcher_mem_req.addr),
-        .found_addr               (found_in_icache),
-        .full                     (icache_full),
-
-        // Write to icache
-        .write_addr               (),
-        .write_in                 ()
-    );
-
-    MSHR_PACKET new_mshr_entry;
-    assign new_mshr_entry.valid = 
-
-    i_mshr i_mshr_inst (
-        .clock           (clock),
-        .reset           (reset),
-
+        .clock             (clock),
+        .reset             (reset),
+        // Fetch Stage read
+        .read_addrs        (read_addrs),
+        .cache_outs        (cache_outs),
         // Prefetch snooping
-        .searching_addr  (prefetcher_mem_req.addr),
-        .found_addr      (found_in_mshr),
-        
-        // New accepted mem request
-        .new_entry       (new_mshr_entry),
-
-        // Mem IOs
-        .data_back_tag   (),
-        .data_back_addr  ()
+        .snooping_addr     (prefetcher_snooping_addr),
+        .addr_found        (snooping_found_icache),
+        .full              (icache_full),
+        // Icache write mem_data, when mem_data_tag matches head of MSHR
+        .write_addr        (icache_write_addr),
+        .mem_data          (mem_data)
     );
-
-    assign oldest_icache_miss.valid = cache_out[0].valid | cache_out[1].valid;
-    assign oldest_icache_miss.addr = ~cache_out[0].valid ? cache_out[0].addr : cache_out[1].addr;
-
-    ADDR_PACKET prefetcher_mem_req;
-    logic found_in_icache, found_in_mshr;
 
     prefetcher prefetcher_inst (
-        .clock                (clock),
-        .reset                (reset),
-
-        .icache_miss          (oldest_icache_miss),
-        .icache_full          (icache_full),
-
-        .mem_req_accepted     (mem_req_accepted),
-        .mem_req              (prefetcher_mem_req)
+        .clock                    (clock),
+        .reset                    (reset),
+        .icache_miss              (oldest_miss_addr),
+        .icache_full              (icache_full),
+        .mem_req_accepted         (mem_req_accepted),
+        .prefetcher_snooping_addr (prefetcher_snooping_addr)
     );
 
-    assign mem_req = (~found_in_icache && ~found_in_mshr) ? prefetcher_mem_req : '0;
+    i_mshr i_mshr_inst (
+        .clock            (clock),
+        .reset            (reset),
+        // Prefetch snooping
+        .snooping_addr    (prefetcher_snooping_addr),
+        .addr_found       (snooping_found_mshr),
+        // When mem_req_accepted
+        .new_entry        (new_mshr_entry),
+        // Mem data back
+        .mem_data_tag     (mem_data_tag),
+        .mem_data_i_addr  (icache_write_addr)
+    );
+
+    // Oldest miss address logic
+    always_comb begin
+        oldest_miss_addr.valid = '0;
+        if (read_addrs[0].valid & ~cache_outs[0].valid) begin
+            oldest_miss_addr.valid = '1;
+            oldest_miss_addr.addr = read_addrs[0].addr;
+        end else if (read_addrs[1].valid & ~cache_outs[1].valid) begin
+            oldest_miss_addr.valid = '1;
+            oldest_miss_addr.addr = read_addrs[1].addr;
+        end
+    end
+
+    // Mem request address logic
+    always_comb begin
+        mem_req_addr.valid = '0;
+        if (~snooping_found_icache & ~snooping_found_mshr) begin
+            mem_req_addr = prefetcher_snooping_addr;
+        end
+    end
+
+    // New MSHR entry logic
+    always_comb begin
+        new_mshr_entry.valid = '0;
+        if (mem_req_accepted) begin
+            new_mshr_entry.valid = '1;
+            new_mshr_entry.mem_tag = current_req_tag;
+            new_mshr_entry.i_addr = mem_req_addr.addr;
+        end
+    end
 
 endmodule
 
-// Instruction Miss Status History Table
+
 module i_mshr #(
     parameter MSHR_WIDTH = `NUM_MEM_TAGS
 ) (
-    input             clock,
-    input             reset,
+    input                 clock,
+    input                 reset,
 
     // Prefetch snooping
-    input  I_ADDR     searching_addr,
-    output logic      found_addr,
+    input  I_ADDR         snooping_addr,   // to decide whether to send mem request
+    output logic          addr_found,
 
-    // New accepted mem request
-    input MSHR_PACKET new_entry,
+    // When mem_req_accepted
+    input  MSHR_PACKET    new_entry,
 
-    // Mem request came back from memory
-    input MEM_TAG      data_back_tag,
-    output ADDR_PACKET data_back_addr,
+    // Mem data back
+    input  MEM_TAG        mem_data_tag,
+    output ADDR_PACKET    mem_data_i_addr  // to write to icache
 );
-    localparam I_INDEX_BITS = $clog2(`NUM_MEM_TAGS);
-
-    MSHR_PACKET [`NUM_MEM_TAGS-1:0] mshr_entries;
-    logic       [I_INDEX_BITS-1:0]  head_pointer, next_head_pointer;
-    logic       [I_INDEX_BITS-1:0]  tail_pointer, next_tail_pointer;
-
-    // Pre-fetch snoop logic
-    logic [`NUM_MEM_TAGS-1:0] addr_search_one_hot;
-    for (genvar i = 0; i < `NUM_MEM_TAGS; i++) begin
-        assign addr_search_one_hot[i] = searching_addr.tag == mshr_entries[i].addr.tag;
-    end
-    assign found_addr = |addr_search_one_hot;
-
-    always_comb begin
-        next_head_pointer = head_pointer;
-        next_tail_pointer = tail_pointer;
-        data_back_addr = '0;
-
-        // Pop FIFO
-        if (data_back_tag == mshr_entries[head_pointer].mem_tag &&
-            mshr_entries[head_pointer].valid) begin
-            next_head_pointer = (head_pointer + '1) % `NUM_MEM_TAGS;
-            mshr_entries[head_pointer].valid = '0;
-            data_back_addr.vaid = '1;
-            data_back_addr.addr = mshr_entries[head_pointer].addr;
-        end
-
-        // Push FIFO
-        if (new_entry.valid) begin
-            mshr_entries[tail_pointer] = new_entry;
-            next_tail_pointer = (tail_pointer + '1) % `NUM_MEM_TAGS;
-        end
-    end
-
-    always_ff @(posedge clock) begin
-        if (reset) begin
-            head_pointer <= '0;
-            tail_pointer <= '0;
-        end else begin
-            head_pointer <= next_head_pointer;
-            tail_pointer <= next_tail_pointer;
-        end
-    end
 
 endmodule
 
@@ -145,187 +117,37 @@ module prefetcher (
     input clock,
     input reset,
 
-    input ADDR_PACKET   icache_miss,
-    input logic         icache_full,
+    input ADDR_PACKET     icache_miss_addr,
+    input logic           icache_full,
 
-    input logic         mem_req_accepted,
-    output ADDR_PACKET  mem_req
+    input logic           mem_req_accepted,
+    output ADDR_PACKET    mem_req
 );
 
-    ADDR_PACKET last_requested_icache_miss, next_last_requested_icache_miss;
-    ADDR addr_incrementor, next_addr_incrementor;
 
-    always_comb begin
-        addr_incrementor_next = addr_incrementor;
-        mem_req.valid = '0;
-
-        if (icache_miss.valid && 
-           (icache_miss.addr != last_requested_icache_miss.addr || ~last_requested_icache_miss.valid)) begin
-            mem_req.valid = '1;
-            mem_req.addr = icache_miss.addr;
-            if (mem_req_accepted) begin
-                next_last_requested_icache_miss.valid = '1;
-                next_last_requested_icache_miss.addr = icache_miss.addr;
-                addr_incrementor_next = icache_miss.addr;
-            end
-        end else if (~icache_full) begin
-            mem_req.valid = '1;
-            mem_req.addr = addr_incrementor + 'h4;
-            if (mem_req_accepted) begin
-                next_addr_incrementor = addr_incrementor + 'h4;
-            end
-        end
-    end
-
-    always_ff @(posedge clock) begin
-        if (reset) begin
-            last_requested_icache_miss.valid <= '0;
-            last_requested_icache_miss.addr <= '0;
-            addr_incrementor <= '0;
-        end else begin
-            last_requested_icache_miss <= next_last_requested_icache_miss;
-            addr_incrementor <= next_addr_incrementor;
-        end
-    end
 endmodule
 
 module icache (
     input clock,
     input reset,
 
-    // Fetch read
-    input  I_ADDR       [1:0] read_addr,
-    output CACHE_DATA   [1:0] cache_out,
+    // Fetch Stage read
+    input  I_ADDR       [1:0] read_addrs,
+    output CACHE_DATA   [1:0] cache_outs,
 
-    // Prefetcher read
-    input  I_ADDR             searching_addr,
-    output logic              found_addr,
+    // Prefetch snooping
+    input  I_ADDR             snooping_addr,   // to decide whether to send mem request
+    output logic              addr_found,
+    output logic              full,
 
-    // Write to icache
+    // Icache write mem_data, when mem_data_tag matches head of MSHR
     input  I_ADDR             write_addr,
-    input  CACHE_DATA         write_in,
-
-    output logic              full
+    input  MEM_BLOCK          write_data    
 );
-    localparam MEM_WIDTH = `ICACHE_LINES + `PREFETCH_SIZE;
-    localparam I_INDEX_BITS = $clog2(MEM_WIDTH);
 
-    logic [MEM_WIDTH-1:0]                 valids, valids_next;
-    logic [MEM_WIDTH-1:0][`ITAG_BITS-1:0] tags, tags_next;
-    MEM_BLOCK [MEM_WIDTH-1:0]             cache_lines;
-
-    memDP #(
-        .WIDTH        ($BITS(MEM_BLOCK)),
-        .DEPTH        (1'b1),
-        .READ_PORTS   (1),
-        .BYPASS_EN    (0)
-    ) cache_bank [MEM_WIDTH-1:0] (
-        .clock        (clock),
-        .reset        (reset),
-        .re           (1'b1),
-        .raddr        (1'b0),
-        .rdata        (cache_lines),
-        .we           (cache_write_enable_mask),
-        .waddr        (1'b0),
-        .wdata        (write_in.cache_line)
-    );
-
-    logic [1:0][MEM_WIDTH-1:0]            read_addr_one_hot;
-    logic [1:0][$clog2(MEM_WIDTH)-1:0]    read_addr_index;
-
-    one_hot_to_index #(
-        .OUTPUT_WIDTH   (MEM_WIDTH)
-    ) one_hot_to_index_inst[1:0] (
-        .one_hot        (read_addr_one_hot),
-        .index          (read_addr_index)
-    );
-
-    wor MEM_BLOCK [1:0]                    cache_lines_out;
-
-    // Pre-fetch snoop logic
-    logic [MEM_WIDTH-1:0] addr_search_one_hot;
-    for (genvar i = 0; i < MEM_WIDTH; i++) begin
-        assign addr_search_one_hot[i] = searching_addr.tag == tags[i];
-    end
-    assign found_addr = |addr_search_one_hot;
-
-    // Fetch Read logic
-    for (genvar i = 0; i < MEM_WIDTH; i++) begin : read_cache // Anding and Or-reducing
-        assign read_addr_one_hot[0][i] = read_addr[0].tag == tags[i] && valids[i];  // Find read index by matching tag for cache read port 0
-        assign read_addr_one_hot[1][i] = read_addr[1].tag == tags[i] && valids[i];
-
-        assign cache_lines_out[0] = cache_lines[i] & {$bits(MEM_BLOCK){read_addr_one_hot[0][i]}};
-        assign cache_lines_out[1] = cache_lines[i] & {$bits(MEM_BLOCK){read_addr_one_hot[1][i]}};
-    end
-
-    assign cache_out[0].cache_line = write_in.valid && write_addr.tag == read_addr[0].tag ? // forwarding
-                        write_in.cache_line : cache_lines_out[0];
-    assign cache_out[1].cache_line = write_in.valid && write_addr.tag == read_addr[1].tag ? // forwarding
-                        write_in.cache_line : cache_lines_out[1];
-
-    assign cache_out[0].valid = (valids[read_addr_index[0]] & |read_addr_one_hot[0]) ||
-                                (write_in.valid && write_addr.tag == read_addr[0].tag);     // forwarding
-    assign cache_out[1].valid = (valids[read_addr_index[1]] & |read_addr_one_hot[1]) ||
-                                (write_in.valid && write_addr.tag == read_addr[1].tag);     // forwarding
-
-    logic [MEM_WIDTH-1:0]  cache_write_one_hot;
-
-    // Write logic
-    psel_gen #(
-        .WIDTH (MEM_WIDTH),
-        .REQS  (1)
-    ) psel_bank (
-        .req   (~valids),
-        .gn    (cache_write_one_hot)
-    );
-
-    logic [I_INDEX_BITS-1:0] evict_index;
-    logic [MEM_WIDTH-1:0] cache_write_enable_mask;
-
-    LFSR #(
-        .NUM_BITS        (I_INDEX_BITS)
-    ) LFSR0 (
-        .clock           (clock),
-        .reset           (reset),
-        .seed_data       (`LFSR_SEED),
-        .data_out        (evict_index)
-    );
-
-    logic [MEM_WIDTH-1:0] evict_index_one_hot;
-
-    index_to_onehot #(
-        .OUTPUT_WIDTH    (MEM_WIDTH)
-    ) evict_index_to_onehot_inst (
-        .idx             (evict_index),
-        .one_hot         (evict_index_one_hot)
-    );
-
-    assign cache_write_enable_mask = write_in.valid ? 
-        ((|cache_write_one_hot) ? cache_write_one_hot : evict_index_one_hot) : 
-        '0;
-
-    assign full = &valids;
-    // Valid and tags logic
-    always_comb begin
-        valids_next = valids;
-        tags_next = tags;
-        for (int i = 0; i < MEM_WIDTH; i++) begin
-            if (cache_write_enable_mask[i] && write_in.valid) begin
-                valids_next[i] = 1'b1;
-                tags_next[i] = write_addr.tag;
-            end
-        end
-    end
-
-    always_ff @(posedge clock) begin
-        if (reset) begin
-            valids <= '0;
-            tags <= '0;
-        end else begin
-            valids <= valids_next;
-            tags <= tags_next;
-        end
-    end
+    I_TAG [1:0] read_tags;
+    assign read_tags[0] = read_addr[0].tag;
+    assign read_tags[1] = read_addr[1].tag;
 
 endmodule
 
