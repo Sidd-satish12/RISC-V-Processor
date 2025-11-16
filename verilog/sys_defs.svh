@@ -148,13 +148,6 @@ typedef logic [3:0] MEM_TAG;
 `define DBLOCK_OFFSET_BITS $clog2(`DCACHE_LINE_BYTES)           // indexing into bytes in a cache line/block
 `define DTAG_BITS 16 - `DSET_INDEX_BITS - `DBLOCK_OFFSET_BITS
 
-// A memory or cache block
-typedef struct packed {
-    logic        valid;
-    ADDR         addr;
-    MEM_COMMAND  command;
-} MEM_REQUEST_PACKET;
-
 typedef union packed {
     logic [7:0][7:0]  byte_level;
     logic [3:0][15:0] half_level;
@@ -703,17 +696,10 @@ typedef struct packed {
     logic   valid;
 } COMMIT_PACKET;
 
-// Icache miss packet (from fetch stage)
 typedef struct packed {
-    logic [1:0] valid;  // Valid bits for cache misses
-    ADDR  [1:0] addr;  // Addresses that missed in cache
-} ICACHE_MISS_PACKET;
-
-// Icache miss packet (from fetch stage)
-typedef struct packed {
-    logic [1:0] valid;  // Valid bits for cache misses
-    ADDR  [1:0] addr;  // Addresses that missed in cache
-} PREFETCH_MEM_PACKET;
+    logic [1:0] valid;
+    ADDR  [1:0] addr;
+} ADDR_PACKET;
 
 typedef struct packed {
     logic   valid;
