@@ -507,6 +507,7 @@ typedef struct packed {
     DATA           src2_immediate;  // Source 2 value if immediate
     PHYS_TAG       dest_tag;        // Physical destination tag
     ROB_IDX        rob_idx;         // Associated ROB index (for flush and potential age selection)
+    STOREQ_IDX     store_queue_idx  // associated store queue index (if instruction is a store)
     ADDR           PC;              // PC for branch/debug (MIGHT merge with SRC but only if we can resolve mispredicts othersive)
     // Added for branches (prediction info from fetch via dispatch)
     logic          pred_taken;
@@ -641,7 +642,7 @@ typedef struct packed {
 typedef struct packed {
     ADDR                   address;   // Store address
     DATA                   data;      // Store data
-    STOREQ_IDX             idx;       // Position in store queue
+    ROB_IDX                rob_idx;   // associated rob idx (may not be needed but kept for squashing)
     logic                  valid;     // Entry occupancy bit
 } STOREQ_ENTRY;
 

@@ -36,6 +36,8 @@ module stage_dispatch (
     // To ROB: allocation entries
     output ROB_ENTRY [`N-1:0] rob_entry_packet,
 
+    // From Store Queue: alloc idxs
+    input STOREQ_IDX [`N-1:0] store_queue_alloc_idxs,
     // To Store Queue: allocation entries
     output STOREQ_ENTRY [`N-1:0] store_queue_entry_packet,
 
@@ -83,20 +85,21 @@ module stage_dispatch (
 
     // Create RS entry from instruction and map table data
     function RS_ENTRY create_rs_entry(int idx);
-        create_rs_entry.valid          = 1'b1;
-        create_rs_entry.opa_select     = decode_opa_select[idx];
-        create_rs_entry.opb_select     = decode_opb_select[idx];
-        create_rs_entry.op_type        = decode_op_type[idx];
-        create_rs_entry.src1_tag       = local_reg1_tag[idx];
-        create_rs_entry.src1_ready     = local_reg1_ready[idx];
-        create_rs_entry.src2_tag       = local_reg2_tag[idx];
-        create_rs_entry.src2_ready     = local_reg2_ready[idx];
-        create_rs_entry.src2_immediate = decode_immediate[idx];
-        create_rs_entry.dest_tag       = allocated_phys[idx];
-        create_rs_entry.rob_idx        = rob_alloc_idxs[idx];
-        create_rs_entry.PC             = ff_pc + 32'(4 * idx);
-        create_rs_entry.pred_taken     = 1'b0;  // No branch prediction
-        create_rs_entry.pred_target    = '0;    // No prediction target
+        create_rs_entry.valid           = 1'b1;
+        create_rs_entry.opa_select      = decode_opa_select[idx];
+        create_rs_entry.opb_select      = decode_opb_select[idx];
+        create_rs_entry.op_type         = decode_op_type[idx];
+        create_rs_entry.src1_tag        = local_reg1_tag[idx];
+        create_rs_entry.src1_ready      = local_reg1_ready[idx];
+        create_rs_entry.src2_tag        = local_reg2_tag[idx];
+        create_rs_entry.src2_ready      = local_reg2_ready[idx];
+        create_rs_entry.src2_immediate  = decode_immediate[idx];
+        create_rs_entry.dest_tag        = allocated_phys[idx];
+        create_rs_entry.rob_idx         = rob_alloc_idxs[idx];
+        create_rs_entry.store_queue_idx = '0;
+        create_rs_entry.PC              = ff_pc + 32'(4 * idx);
+        create_rs_entry.pred_taken      = 1'b0;  // No branch prediction
+        create_rs_entry.pred_target     = '0;    // No prediction target
     endfunction
 
     always_comb begin
@@ -122,6 +125,7 @@ module stage_dispatch (
         mem_used = 0;
 
         storeq_used = 0;
+
 
         for (int i = 0; i < `N; i++) begin
             if (i >= num_valid_from_fetch) break;  // No more valid instructions
@@ -173,6 +177,7 @@ module stage_dispatch (
         free_alloc_valid = '0;
         rob_entry_packet = '0;
         store_queue_entry_packet = '0;
+        storeq_used = 0;
 
         // Read register mappings from map table
         for (int i = 0; i < `N; i++) begin
@@ -254,6 +259,8 @@ module stage_dispatch (
             end
         end
 
+
+
         // Build ROB and RS entries for dispatched instructions
         alu_count = 0;
         mult_count = 0;
@@ -279,6 +286,20 @@ module stage_dispatch (
                     default: '0
                 };
 
+                // store queue entry
+                if (fetch_packet.op_type[i].category == CAT_MEM && !fetch_packet.uses_rd[i]) begin
+
+                    // create store queue entry
+                    store_queue_entry_packet[storeq_used] = '{
+                        valid: 1'b1,
+                        rob_idx: rob_alloc_idxs[i],
+                        addr: '0,
+                        data: '0,
+                        default: '0
+                    };
+                    storeq_used++; // move to next free store queue idx
+                end
+
                 // Route to appropriate RS bank
                 case (decode_op_type[i].category)
                     CAT_ALU: begin
@@ -299,6 +320,9 @@ module stage_dispatch (
                     CAT_MEM: begin
                         rs_alloc.mem.valid[mem_count]   = 1'b1;
                         rs_alloc.mem.entries[mem_count] = create_rs_entry(i);
+                        // assigns the store queue idx to the rs TODO ammend for load instructions
+                        // storeq_used - 1 gives us the correct store queue idx 
+                        rs_alloc.mem.entries[mem_count].store_queue_idx = store_queue_alloc_idxs[storeq_used - 1];
                         mem_count++;
                     end
                 endcase
