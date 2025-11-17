@@ -286,19 +286,6 @@ module stage_dispatch (
                     default: '0
                 };
 
-                // store queue entry
-                if (fetch_packet.op_type[i].category == CAT_MEM && !fetch_packet.uses_rd[i]) begin
-
-                    // create store queue entry
-                    store_queue_entry_packet[storeq_used] = '{
-                        valid: 1'b1,
-                        rob_idx: rob_alloc_idxs[i],
-                        addr: '0,
-                        data: '0,
-                        default: '0
-                    };
-                    storeq_used++; // move to next free store queue idx
-                end
 
                 // Route to appropriate RS bank
                 case (decode_op_type[i].category)
@@ -320,9 +307,24 @@ module stage_dispatch (
                     CAT_MEM: begin
                         rs_alloc.mem.valid[mem_count]   = 1'b1;
                         rs_alloc.mem.entries[mem_count] = create_rs_entry(i);
-                        // assigns the store queue idx to the rs TODO ammend for load instructions
-                        // storeq_used - 1 gives us the correct store queue idx 
-                        rs_alloc.mem.entries[mem_count].store_queue_idx = store_queue_alloc_idxs[storeq_used - 1];
+
+                        // store instructions
+                        if (!fetch_packet.uses_rd[i]) begin
+
+                            // create store queue entry
+                            store_queue_entry_packet[storeq_used] = '{
+                                valid: 1'b1,
+                                rob_idx: rob_alloc_idxs[i],
+                                address: '0,
+                                data: '0,
+                                default: '0
+                            };
+                            rs_alloc.mem.entries[mem_count].store_queue_idx = store_queue_alloc_idxs[storeq_used];
+                            storeq_used++; // move to next free store queue idx
+                        end
+                        else begin // load instructions
+                            rs_alloc.mem.entries[mem_count].store_queue_idx = store_queue_alloc_idxs[storeq_used];
+                        end
                         mem_count++;
                     end
                 endcase
