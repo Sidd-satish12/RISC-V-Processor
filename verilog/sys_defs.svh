@@ -158,7 +158,13 @@ typedef union packed {
 
 typedef struct packed {
     logic valid;
-    MEM_BLOCK cache_line;   // Cached data block
+    I_TAG tag;
+    MEM_BLOCK data;
+} I_CACHE_LINE;
+
+typedef struct packed {
+    logic valid;
+    MEM_BLOCK data;   // Cached data block
 } CACHE_DATA;
 
 typedef struct packed {
