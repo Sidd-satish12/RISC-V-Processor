@@ -99,6 +99,9 @@ typedef logic [`ROB_IDX_BITS-1:0] ROB_IDX;
 // RS index
 typedef logic [`RS_IDX_BITS-1:0] RS_IDX;
 
+// Store Queue index
+typedef logic [`STOREQ_IDX_BITS-1:0] STOREQ_IDX;
+
 // the zero register
 // In RISC-V, any read of this register returns zero and any writes are thrown away
 `define ZERO_REG 5'd0
@@ -507,7 +510,7 @@ typedef struct packed {
     DATA           src2_immediate;  // Source 2 value if immediate
     PHYS_TAG       dest_tag;        // Physical destination tag
     ROB_IDX        rob_idx;         // Associated ROB index (for flush and potential age selection)
-    STOREQ_IDX     store_queue_idx  // associated store queue index (if instruction is a store)
+    STOREQ_IDX     store_queue_idx; // associated store queue index (if instruction is a store)
     ADDR           PC;              // PC for branch/debug (MIGHT merge with SRC but only if we can resolve mispredicts othersive)
     // Added for branches (prediction info from fetch via dispatch)
     logic          pred_taken;

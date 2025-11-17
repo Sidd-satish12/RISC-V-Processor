@@ -190,7 +190,7 @@ GREP = grep -E --color=auto
 # ---- Modules to Test ---- #
 
 # TODO: add more modules here
-MODULES = cpu mult rob rs regfile map_table stage_issue stage_dispatch stage_execute stage_complete stage_retire cdb
+MODULES = cpu mult rob rs regfile map_table stage_issue stage_dispatch stage_execute stage_complete stage_retire cdb store_queue
 
 # TODO: update this if you add more header files
 ALL_HEADERS = $(CPU_HEADERS)
