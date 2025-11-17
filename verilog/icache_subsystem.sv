@@ -112,9 +112,9 @@ module i_mshr #(
 );
 
     // MSHR Internal logic
-    localparam I_INDEX_BITS = $clog2(`NUM_MEM_TAGS);
+    localparam I_CACHE_INDEX_BITS = $clog2(`NUM_MEM_TAGS);
     MSHR_PACKET [`NUM_MEM_TAGS-1:0] mshr_entries, next_mshr_entries;
-    logic [I_INDEX_BITS-1:0] head, next_head, tail, next_tail;
+    logic [I_CACHE_INDEX_BITS-1:0] head, next_head, tail, next_tail;
 
     // Snooping logic
     logic [`NUM_MEM_TAGS-1:0] snooping_one_hot;
@@ -128,6 +128,7 @@ module i_mshr #(
         next_head = head;
         next_tail = tail;
         mem_data_i_addr = '0;
+        next_mshr_entries = mshr_entries;
 
         // Data returned from Memory, Pop MSHR Entry
         if (mem_data_tag != '0 & mshr_entries[head].valid & mem_data_tag == mshr_entries[head].mem_tag) begin
@@ -226,26 +227,23 @@ module icache (
 );
 
     localparam MEM_DEPTH = `ICACHE_LINES + `PREFETCH_STREAM_BUFFER_SIZE;
-    localparam I_INDEX_BITS = $clog2(MEM_DEPTH);
+    localparam I_CACHE_INDEX_BITS = $clog2(MEM_DEPTH);
+    localparam MEM_WIDTH = 1 + `ITAG_BITS + `MEM_BLOCK_BITS;
 
-    // Internal logics
-    logic [MEM_DEPTH-1:0]                 valids, valids_next;
-    logic [MEM_DEPTH-1:0][`ITAG_BITS-1:0] tags, tags_next;
-
-    MEM_BLOCK [MEM_DEPTH-1:0]             cache_lines;
+    I_CACHE_LINE [MEM_DEPTH-1:0]          cache_lines;
+    I_CACHE_LINE                          cache_line_write;
     logic [MEM_DEPTH-1:0]                 cache_write_enable_mask;
     logic [MEM_DEPTH-1:0]                 cache_write_no_evict_one_hot;
-    logic [I_INDEX_BITS-1:0]              cache_write_evict_write_index;
+    logic [I_CACHE_INDEX_BITS-1:0]        cache_write_evict_index;
     logic [MEM_DEPTH-1:0]                 cache_write_evict_one_hot;
 
     logic [1:0][MEM_DEPTH-1:0]            cache_reads_one_hot;
-    logic [1:0][I_INDEX_BITS-1:0]         cache_reads_index;
+    logic [1:0][I_CACHE_INDEX_BITS-1:0]   cache_reads_index;
 
     logic [MEM_DEPTH-1:0]                 snooping_one_hot;
 
-
     memDP #(
-        .WIDTH(`MEM_BLOCK_BITS),
+        .WIDTH(MEM_WIDTH),
         .DEPTH(1'b1),
         .READ_PORTS(1'b1),
         .BYPASS_EN(1'b1)
@@ -257,112 +255,50 @@ module icache (
         .rdata(cache_lines),
         .we(cache_write_enable_mask),
         .waddr(1'b0),
-        .wdata(write_data)
+        .wdata(cache_line_write)
     );
 
+    // Write selection no eviction
     psel_gen #(
         .WIDTH(MEM_DEPTH),
         .REQS(1'b1)
     ) psel_gen_inst (
-        .req(~valids),
+        .req(cache_lines.valid),
         .gn(cache_write_no_evict_one_hot)
     );
 
+    // Write selection random eviction
     LFSR #(
-        .NUM_BITS (I_INDEX_BITS)
+        .NUM_BITS (I_CACHE_INDEX_BITS)
     ) LFSR_inst (
         .clock(clock),
         .reset(reset),
         .seed_data(`LFSR_SEED),
-        .data_out(cache_write_evict_write_index)
+        .data_out(cache_write_evict_index)
     );
 
-    index_to_onehot #(
-        .OUTPUT_WIDTH    (MEM_DEPTH)
-    ) evict_index_to_onehot_inst (
-        .idx             (cache_write_evict_write_index),
-        .one_hot         (cache_write_evict_one_hot)
-    );
+    // Cache write logic
+    assign cache_write_evict_one_hot[cache_write_evict_index] = 1'b1;
+    assign cache_write_enable_mask = |cache_write_no_evict_one_hot ? cache_write_no_evict_one_hot : cache_write_evict_one_hot;
+    assign cache_line_write = {write_addr.valid, write_addr.addr.tag, write_data}
 
-    one_hot_to_index #(
-        .INPUT_WIDTH   (MEM_DEPTH)
-    ) one_hot_to_index_inst[1:0] (
-        .one_hot        (cache_reads_one_hot),
-        .index          (cache_reads_index)
-    );
-
-    // prefetch snooping logic
+    // Prefetch snooping logic
     for (genvar i = 0; i < MEM_DEPTH; i++) begin
-        assign snooping_one_hot[i] = snooping_addr.addr.tag == tags[i] & snooping_addr.valid & valids[i];
+        assign snooping_one_hot[i] = (snooping_addr.addr.tag == cache_lines[i].tag) & 
+                                      snooping_addr.valid & 
+                                      cache_lines[i].valid;
     end
     assign addr_found = |snooping_one_hot;
 
-    // cache read logic
+    // Cache read logic
     for (genvar j = 0; j <= 1; j++) begin
-        for (genvar i = 0; i < MEM_DEPTH; i++) begin
-            assign cache_reads_one_hot[j][i] = read_addrs[j].addr.tag == tags[i] & read_addrs[j].valid & valids[i];
-            assign cache_outs[j].cache_line = cache_lines[i] & {(`MEM_BLOCK_BITS){cache_reads_one_hot[j][i]}};
+        for (genvar i = 0; i <=1; i ++) begin
+            assign cache_reads_one_hot[j][i] = (read_addrs[j].addr.tag == cache_lines[i].tag) &
+                                                read_addrs[j].valid &
+                                                cache_lines[i].valid;
+
+            assign cache_outs[j].data = cache_lines[i].data & cache_reads_one_hot[j][i];
         end
-        assign cache_outs[j].valid = valids_next[cache_reads_index[j]];
-    end
-
-    // cache write logic
-    assign cache_write_enable_mask = |cache_write_no_evict_one_hot ? cache_write_no_evict_one_hot : cache_write_evict_one_hot;
-
-    // valids and tags update when write to icache
-    always_comb begin
-        valids_next = valids;
-        tags_next = tags;
-        for (int i = 0; i < MEM_DEPTH; i++) begin
-            if (cache_write_enable_mask[i] & write_addr.valid) begin
-                valids_next[i] = 1'b1;
-                tags_next[i] = write_addr.addr.tag;
-            end
-        end
-    end
-
-    always_ff @(posedge clock) begin
-        if (reset) begin
-            valids <= '0;
-            tags <= '0;
-        end else begin
-            valids <= valids_next;
-            tags <= tags_next;
-        end
-    end
-
-endmodule
-
-module index_to_onehot #(
-    parameter OUTPUT_WIDTH = 1
-) (
-    input  logic [$clog2(OUTPUT_WIDTH)-1:0] idx,
-    output logic [OUTPUT_WIDTH-1:0] one_hot
-);
-
-    integer i;
-    always_comb begin
-        one_hot = '0;
-        for (i = 0; i < OUTPUT_WIDTH; i = i + 1) begin
-            if (idx == i[$clog2(OUTPUT_WIDTH)-1:0])
-                one_hot[i] = 1'b1;
-        end
-    end
-
-endmodule
-
-module one_hot_to_index #(
-    parameter int INPUT_WIDTH = 1
-) (
-    input logic [INPUT_WIDTH-1:0] one_hot,
-    output wor [((INPUT_WIDTH <= 1) ? 1 : $clog2(INPUT_WIDTH))-1:0] index
-);
-
-    localparam INDEX_WIDTH = (INPUT_WIDTH <= 1) ? 1 : $clog2(INPUT_WIDTH);
-
-    assign index = '0;
-    for (genvar i = 0; i < INPUT_WIDTH; i++) begin : gen_index_terms
-        assign index = {INDEX_WIDTH{one_hot[i]}} & i;
     end
 
 endmodule
