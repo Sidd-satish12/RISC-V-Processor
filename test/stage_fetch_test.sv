@@ -29,7 +29,7 @@ module stage_if_test;
   logic      fetch_enable_i;
   logic      fetch_stall_o;
 
-  logic      pc_debug;
+  ADDR      pc_debug_o;
 
   // ------------- DUT INSTANCE -------------
 
@@ -60,7 +60,7 @@ module stage_if_test;
     .fetch_stall_o            (fetch_stall_o),
 
     // debug
-    .pc_debug                 (pc_debug)
+    .pc_dbg_o                 (pc_debug_o)
   );
 
   // ------------- Clock -------------

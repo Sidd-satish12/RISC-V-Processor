@@ -28,7 +28,7 @@ module stage_fetch #(
     output logic                fetch_stall_o,
 
     // debug
-    output logic                pc_debug
+    output ADDR                 pc_dbg_o
 );
 
     ADDR pc_reg, pc_next;
@@ -148,6 +148,6 @@ module stage_fetch #(
         end
     end
 
-    assign pc_debug = pc_reg;
+    assign pc_dbg_o = pc_reg;
 
 endmodule
