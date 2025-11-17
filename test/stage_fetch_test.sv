@@ -11,21 +11,17 @@ module stage_if_test;
   // ------------- DUT I/O -------------
 
   // iCache side
-  ADDR       icache_read_addr_o   [N-1:0];
-  CACHE_DATA icache_cache_out_i   [N-1:0];
+  ADDR       [N-1:0] icache_read_addr_o;
+  CACHE_DATA [N-1:0] icache_cache_out_i;
 
   // Instruction buffer side
   logic        ib_stall_i;
   logic        ib_bundle_valid_o;
-  FETCH_ENTRY  ib_fetch_o         [N-1:0];
+  FETCH_ENTRY [N-1:0] ib_fetch_o;
 
   // Branch predictor side
-  logic      bp_predict_req_valid_o;
-  ADDR       bp_predict_req_pc_o;
-  logic      bp_predict_req_used_o;
-  logic      bp_predict_taken_i;
-  ADDR       bp_predict_target_i;
-  logic [7:0] bp_predict_ghr_snapshot_i;  // assuming GHR_BITS = 8
+  BP_PREDICT_REQUEST bp_predict_req_o;
+  BP_PREDICT_RESPONSE bp_predict_resp_i;
 
   // Redirect / control
   logic      ex_redirect_valid_i;
@@ -33,43 +29,38 @@ module stage_if_test;
   logic      fetch_enable_i;
   logic      fetch_stall_o;
 
+  logic      pc_debug;
+
   // ------------- DUT INSTANCE -------------
 
   // NOTE: We connect array ports via concatenation of elements so
   // synthesis doesn't see a "memory" as the port expression.
   // This assumes N == 3; if N changes, update the concatenations.
-  stage_if dut (
+  stage_fetch dut (
     .clock                    (clock),
     .reset                    (reset),
 
     // iCache
-    .icache_read_addr_o       ({icache_read_addr_o[2],
-                                 icache_read_addr_o[1],
-                                 icache_read_addr_o[0]}),
-    .icache_cache_out_i       ({icache_cache_out_i[2],
-                                 icache_cache_out_i[1],
-                                 icache_cache_out_i[0]}),
+    .icache_read_addr_o       (icache_read_addr_o),
+    .icache_cache_out_i       (icache_cache_out_i),
 
     // Instruction buffer
     .ib_stall_i               (ib_stall_i),
     .ib_bundle_valid_o        (ib_bundle_valid_o),
-    .ib_fetch_o               ({ib_fetch_o[2],
-                                 ib_fetch_o[1],
-                                 ib_fetch_o[0]}),
+    .ib_fetch_o               (ib_fetch_o),
 
     // Branch predictor
-    .bp_predict_req_valid_o   (bp_predict_req_valid_o),
-    .bp_predict_req_pc_o      (bp_predict_req_pc_o),
-    .bp_predict_req_used_o    (bp_predict_req_used_o),
-    .bp_predict_taken_i       (bp_predict_taken_i),
-    .bp_predict_target_i      (bp_predict_target_i),
-    .bp_predict_ghr_snapshot_i(bp_predict_ghr_snapshot_i),
+    .bp_predict_req_o   (bp_predict_req_o),
+    .bp_predict_resp_i  (bp_predict_resp_i),
 
     // Redirect / control
     .ex_redirect_valid_i      (ex_redirect_valid_i),
     .ex_redirect_pc_i         (ex_redirect_pc_i),
     .fetch_enable_i           (fetch_enable_i),
-    .fetch_stall_o            (fetch_stall_o)
+    .fetch_stall_o            (fetch_stall_o),
+
+    // debug
+    .pc_debug                 (pc_debug)
   );
 
   // ------------- Clock -------------
@@ -101,9 +92,9 @@ module stage_if_test;
 
     ib_stall_i               = 1'b0;
 
-    bp_predict_taken_i        = 1'b0;
-    bp_predict_target_i       = '0;
-    bp_predict_ghr_snapshot_i = 8'hA5;  // arbitrary snapshot
+    bp_predict_resp_i.taken        = 1'b0;
+    bp_predict_resp_i.target       = '0;
+    bp_predict_resp_i.ghr_snapshot = 8'hA5;  // arbitrary snapshot
 
     ex_redirect_valid_i      = 1'b0;
     ex_redirect_pc_i         = '0;
@@ -134,15 +125,15 @@ module stage_if_test;
       icache_cache_out_i[i].cache_line = '0;
       icache_cache_out_i[i].cache_line[31:0] = INSTR_ADDI;
     end
-    bp_predict_taken_i = 1'b0;
+    bp_predict_resp_i.taken = 1'b0;
 
     step();
 
     assert(fetch_stall_o == 1'b0)
       else $fatal("T1: fetch_stall_o should be 0 when all lanes are valid and IB not stalled");
 
-    assert(bp_predict_req_valid_o == 1'b0)
-      else $fatal("T1: bp_predict_req_valid_o should be 0 when bundle has no branches");
+    assert(bp_predict_req_o.valid == 1'b0)
+      else $fatal("T1: bp_predict_req_o.valid should be 0 when bundle has no branches");
 
     assert(ib_bundle_valid_o == 1'b1)
       else $fatal("T1: ib_bundle_valid_o should be 1 when IF produces a straight-line bundle");
@@ -161,17 +152,17 @@ module stage_if_test;
       icache_cache_out_i[i].cache_line[31:0] =
         (i == 0) ? INSTR_BEQ : INSTR_ADDI;
     end
-    bp_predict_taken_i = 1'b0;
+    bp_predict_resp_i.taken = 1'b0;
 
     step();
 
-    assert(bp_predict_req_valid_o == 1'b1)
-      else $fatal("T2: bp_predict_req_valid_o should be 1 when lane 0 is a branch");
+    assert(bp_predict_req_o.valid == 1'b1)
+      else $fatal("T2: bp_predict_req_o.valid should be 1 when lane 0 is a branch");
 
     // BP should be predicting the PC of lane 0 this cycle
-    assert(bp_predict_req_pc_o == icache_read_addr_o[0])
+    assert(bp_predict_req_o.pc == icache_read_addr_o[0])
       else $fatal("T2: BP PC should equal lane0 PC (%h), got %h",
-                  icache_read_addr_o[0], bp_predict_req_pc_o);
+                  icache_read_addr_o[0], bp_predict_req_o.pc);
 
     // ---- T3: Branch in lane 1 ----
     $display("\n---- T3: Branch in lane 1 ----");
@@ -181,17 +172,17 @@ module stage_if_test;
       icache_cache_out_i[i].cache_line[31:0] =
         (i == 1) ? INSTR_BEQ : INSTR_ADDI;
     end
-    bp_predict_taken_i = 1'b0;
+    bp_predict_resp_i.taken = 1'b0;
 
     step();
 
-    assert(bp_predict_req_valid_o == 1'b1)
-      else $fatal("T3: bp_predict_req_valid_o should be 1 when lane 1 is the first branch");
+    assert(bp_predict_req_o.valid == 1'b1)
+      else $fatal("T3: bp_predict_req_o.valid should be 1 when lane 1 is the first branch");
 
     // BP should be predicting the PC of lane 1 this cycle
-    assert(bp_predict_req_pc_o == icache_read_addr_o[1])
+    assert(bp_predict_req_o.pc == icache_read_addr_o[1])
       else $fatal("T3: BP PC should equal lane1 PC (%h), got %h",
-                  icache_read_addr_o[1], bp_predict_req_pc_o);
+                  icache_read_addr_o[1], bp_predict_req_o.pc);
 
     // ---- T4: Redirect overrides and cancels use ----
     $display("\n---- T4: Redirect overrides and cancels use ----");
@@ -202,24 +193,27 @@ module stage_if_test;
         (i == 0) ? INSTR_BEQ : INSTR_ADDI;
     end
 
-    bp_predict_taken_i   = 1'b1;
-    bp_predict_target_i  = 32'h0000_8000;
+    // Don't care about branch target here; we just want to see redirect win.
+    // (This avoids 0x8000 vs 0x1234 fights.)
+    bp_predict_resp_i.taken   = 1'b1;
+    bp_predict_resp_i.target  = 32'h0000_8000;
 
     ex_redirect_valid_i  = 1'b1;
     ex_redirect_pc_i     = 32'h0000_1234;
 
+    step();  // cycle where redirect should be applied to pc_reg
     step();
 
-    // PC should jump to redirect PC
+    // Check PC register directly
     assert(icache_read_addr_o[0] == ex_redirect_pc_i)
       else $fatal("T4: PC should follow redirect PC %h, got %h",
                   ex_redirect_pc_i, icache_read_addr_o[0]);
 
-    // Prediction must not be considered "used" on a redirect cycle
-    assert(bp_predict_req_used_o == 1'b0)
+    // Prediction must not be considered "used" on the redirect cycle
+    assert(bp_predict_req_o.used == 1'b0)
       else $fatal("T4: bp_predict_req_used_o should be 0 when ex_redirect_valid_i=1");
 
-    $display("\nAll simple stage_if tests completed.\n");
+    $display("\nAll simple stage_fetch tests completed.\n");
     $finish;
   end
 

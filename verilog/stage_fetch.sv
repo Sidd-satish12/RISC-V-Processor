@@ -1,25 +1,34 @@
 `include "sys_defs.svh"
 
 module stage_fetch #(
-    parameter int unsigned GH = GHR_BITS
+    parameter int unsigned GH = `BP_PHT_BITS
 ) (
     input  logic                clock,
     input  logic                reset,
-    output ADDR                 icache_read_addr_o       [`N-1:0],
-    input  CACHE_DATA           icache_cache_out_i       [`N-1:0],
+
+    // #1: input and output from icache
+    output ADDR          [`N-1:0]     icache_read_addr_o,
+    input  CACHE_DATA    [`N-1:0]     icache_cache_out_i,
+
+    // #2: Instruction Buffer Suite
     input  logic                ib_stall_i,
     output logic                ib_bundle_valid_o,
-    output FETCH_ENTRY          ib_fetch_o               [`N-1:0],
-    output logic                bp_predict_req_valid_o,
-    output ADDR                 bp_predict_req_pc_o,
-    output logic                bp_predict_req_used_o,
-    input  logic                bp_predict_taken_i,
-    input  ADDR                 bp_predict_target_i,
-    input  logic       [GH-1:0] bp_predict_ghr_snapshot_i,
+    output FETCH_ENTRY    [`N-1:0]      ib_fetch_o               ,
+
+    // #3: Branch Predictor
+    output  BP_PREDICT_REQUEST   bp_predict_req_o,
+    input   BP_PREDICT_RESPONSE  bp_predict_resp_i,
+
+    // Redirect from EX/ROB
     input  logic                ex_redirect_valid_i,
     input  ADDR                 ex_redirect_pc_i,
+
+    // fetch enable or stall
     input  logic                fetch_enable_i,
-    output logic                fetch_stall_o
+    output logic                fetch_stall_o,
+
+    // debug
+    output logic                pc_debug
 );
 
     ADDR pc_reg, pc_next;
@@ -34,24 +43,29 @@ module stage_fetch #(
     logic        ibuf_stall_if;
     logic        fetch_blocked_if;
 
+
+    // detect predictable branch
     function automatic logic is_predictable_branch(input logic [31:0] instr);
         logic [6:0] opcode;
         opcode = instr[6:0];
         return (opcode == 7'b1100011);
     endfunction
 
+    // compute PC, PC + 4*i
     always_comb begin
         for (int i = 0; i < `N; i++) begin
             bundle_pc[i] = pc_reg + (ADDR'(i) << 2);  // pc + 4*i
         end
     end
 
+    // to icache, read address
     always_comb begin
         for (int i = 0; i < `N; i++) begin
             icache_read_addr_o[i] = bundle_pc[i];
         end
     end
 
+    // from icache, data coming in
     always_comb begin
         for (int i = 0; i < `N; i++) begin
             lane_valid[i] = icache_cache_out_i[i].valid;
@@ -88,9 +102,9 @@ module stage_fetch #(
     end
 
     always_comb begin
-        bp_predict_req_valid_o = fetch_enable_i && found_branch;
-        bp_predict_req_pc_o    = found_branch ? bundle_pc[first_branch_idx] : '0;
-        bp_predict_req_used_o  = fetch_enable_i && ~fetch_blocked_if && ~ex_redirect_valid_i && found_branch;
+        bp_predict_req_o.valid = fetch_enable_i && found_branch;
+        bp_predict_req_o.pc    = found_branch ? bundle_pc[first_branch_idx] : '0;
+        bp_predict_req_o.used  = fetch_enable_i && ~fetch_blocked_if && ~ex_redirect_valid_i && found_branch;
     end
 
     always_comb begin
@@ -106,9 +120,9 @@ module stage_fetch #(
         end
         if (ib_bundle_valid_o && found_branch) begin
             ib_fetch_o[first_branch_idx].is_branch       = 1'b1;
-            ib_fetch_o[first_branch_idx].bp_pred_taken   = bp_predict_taken_i;
-            ib_fetch_o[first_branch_idx].bp_pred_target  = bp_predict_target_i;
-            ib_fetch_o[first_branch_idx].bp_ghr_snapshot = bp_predict_ghr_snapshot_i;
+            ib_fetch_o[first_branch_idx].bp_pred_taken   = bp_predict_resp_i.taken;
+            ib_fetch_o[first_branch_idx].bp_pred_target  = bp_predict_resp_i.target;
+            ib_fetch_o[first_branch_idx].bp_ghr_snapshot = bp_predict_resp_i.ghr_snapshot;
         end
     end
 
@@ -118,8 +132,8 @@ module stage_fetch #(
         if (fetch_enable_i) begin
             if (ex_redirect_valid_i) begin
                 pc_next = ex_redirect_pc_i;
-            end else if (~fetch_blocked_if && found_branch && bp_predict_taken_i) begin
-                pc_next = bp_predict_target_i;
+            end else if (~fetch_blocked_if && found_branch && bp_predict_resp_i.taken) begin
+                pc_next = bp_predict_resp_i.target;
             end else if (~fetch_blocked_if) begin
                 pc_next = pc_reg + (ADDR'(`N) << 2);
             end
@@ -133,5 +147,7 @@ module stage_fetch #(
             pc_reg <= pc_next;
         end
     end
+
+    assign pc_debug = pc_reg;
 
 endmodule
