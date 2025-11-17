@@ -35,39 +35,47 @@ module store_queue (
     logic [$clog2(`LSQ_SZ+1)-1:0] free_slots_reg, free_slots_reg_next;
     logic [$clog2(`LSQ_SZ)-1:0] head_idx, head_idx_next;
     logic [$clog2(`LSQ_SZ)-1:0] tail_idx, tail_idx_next;
+    logic [$clog2(`N+1)-1:0] num_dispatched;
     
-    // ============================================================
-    // Combinational Logic
-    // ============================================================
     always_comb begin
-        sq_entries_next = sq_entries;
-        free_slots_reg_next = free_slots_reg;
+        sq_entries_next      = sq_entries;
+        free_slots_reg_next  = free_slots_reg;
+        head_idx_next        = head_idx;
+        tail_idx_next        = tail_idx;
 
-        for (int i = 0; i < `N; i++) begin
-
-            // ====================================================
-            // Dispatch (enqueue) — contiguous valid bits required
-            // ====================================================
-            if (sq_dispatch_packet[i].valid) begin
-                sq_entries_next[(tail_idx+i)%`LSQ_SZ] = sq_dispatch_packet[i];
-            end
-
-            dispatch_valid_bits[i] = sq_dispatch_packet[i].valid;
-
+        // ============================
+        // 1. Retire logic
+        // ============================
+        // Clear up to free_count entries starting at head
+        for (int i = 0; i < free_count; i++) begin
+            sq_entries_next[(head_idx + i) % `LSQ_SZ].valid = 1'b0;
         end
 
+        // Advance head pointer
+        head_idx_next = (head_idx + free_count) % `LSQ_SZ;
 
-        // ========================================================
-        // Update free count
-        // ========================================================
-        free_slots_reg_next = free_slots_reg + num_retired - num_dispatched;
+        // ============================
+        // 2. Dispatch logic (enqueue)
+        // ============================
+        num_dispatched = 0;
 
-        // ========================================================
-        // Update head/tail
-        // ========================================================
-        head_idx_next   = (head_idx + retire_count) % `LSQ_SZ;
-        tail_idx_next   = (tail_idx + num_dispatched) % `LSQ_SZ;
+        for (int i = 0; i < `N; i++) begin
+            if (sq_dispatch_packet[i].valid) begin
+                sq_entries_next[(tail_idx + num_dispatched) % `LSQ_SZ] 
+                    = sq_dispatch_packet[i];
+                num_dispatched++;
+            end
+        end
+
+        // Advance tail pointer by number of enqueues
+        tail_idx_next = (tail_idx + num_dispatched) % `LSQ_SZ;
+
+        // ============================
+        // 3. Update free slot counter
+        // ============================
+        free_slots_reg_next = free_slots_reg + free_count - num_dispatched;
     end
+
 
     // ============================================================
     // Allocation indices (dispatch)
@@ -78,7 +86,7 @@ module store_queue (
         end
     end
 
-    assign free_slots = free_slots_reg;
+    assign free_slots = free_slots_reg_next;
 
     // ============================================================
     // Sequential
@@ -88,7 +96,7 @@ module store_queue (
             sq_entries <= '0;
             head_idx   <= '0;
             tail_idx   <= '0;
-            free_count <= `LSQ_SZ;
+            free_slots_reg <= `LSQ_SZ;
         end else begin
             sq_entries <= sq_entries_next;
             head_idx   <= head_idx_next;
