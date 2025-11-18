@@ -156,7 +156,7 @@ typedef union packed {
     logic [63:0]      dbbl_level;
 } MEM_BLOCK;
 
-typedef logic [`ITAG_BITS-1:0]      I_TAG;  
+typedef logic [`ITAG_BITS-1:0]      I_TAG;
 
 typedef struct packed {
     logic valid;
@@ -635,6 +635,70 @@ typedef struct packed {
     logic          halt;           // Is this a halt?
     logic          illegal;        // Is this illegal?
 } ROB_ENTRY;
+
+// Branch predictor counter states (2-bit saturating counter)
+typedef enum logic [1:0] {
+    STRONGLY_NOT_TAKEN = 2'b00,
+    WEAKLY_NOT_TAKEN   = 2'b01,
+    WEAKLY_TAKEN       = 2'b10,
+    STRONGLY_TAKEN     = 2'b11
+} BP_COUNTER_STATE;
+
+// Branch predictor typedefs
+typedef BP_COUNTER_STATE saturating_counter2_t;
+
+// Branch predictor I/O structures
+typedef struct packed {
+    logic valid;  // Valid prediction request
+    ADDR  pc;     // PC to predict
+    logic used;   // Whether to shift GHR (from fetch)
+} BP_PREDICT_REQUEST;
+
+typedef struct packed {
+    logic              valid;          // Valid training update
+    ADDR               pc;             // PC of branch that was executed
+    logic              actual_taken;   // Actual outcome
+    ADDR               actual_target;  // Actual target (if taken)
+    logic [`BP_GH-1:0] ghr_snapshot;   // GHR snapshot from prediction
+} BP_TRAIN_REQUEST;
+
+typedef struct packed {
+    logic              pulse;         // Mispredict recovery pulse
+    logic [`BP_GH-1:0] ghr_snapshot;  // GHR snapshot to restore
+} BP_RECOVER_REQUEST;
+
+typedef struct packed {
+    logic              taken;         // Prediction result
+    ADDR               target;        // Predicted target (if taken)
+    logic [`BP_GH-1:0] ghr_snapshot;  // GHR snapshot used for prediction
+} BP_PREDICT_RESPONSE;
+
+// BTB entry structure
+typedef struct packed {
+    logic                        valid;
+    logic [`BP_BTB_TAG_BITS-1:0] tag;
+    logic [31:0]                 target;
+} BP_BTB_ENTRY;
+
+// Branch predictor index structure
+typedef struct packed {
+    logic [`BP_PHT_BITS-1:0]     pht_idx;
+    logic [`BP_BTB_BITS-1:0]     btb_idx;
+    logic [`BP_BTB_TAG_BITS-1:0] btb_tag;
+} BP_INDICES;
+
+
+typedef struct packed {
+    ADDR         pc;    // PC of this instruction
+    logic [31:0] inst;  // raw 32-bit instruction
+
+    // Branch prediction metadata (for branch instructions)
+    logic              is_branch;        // 1 if this inst is a branch
+    logic              bp_pred_taken;    // predictor's taken/not-taken decision
+    ADDR               bp_pred_target;   // predicted target (if taken)
+    logic [`BP_GH-1:0] bp_ghr_snapshot;  // GHR snapshot used for this prediction
+} FETCH_PACKET;
+
 
 // Individual entry for FU metadata (AoS - Array of Structs for internal use)
 typedef struct packed {

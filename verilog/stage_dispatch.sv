@@ -29,7 +29,7 @@ module stage_dispatch (
     input logic   [      $clog2(`RS_MEM_SZ+1)-1:0] rs_mem_free_slots,
 
 
-    // To fetch: dispatch count (0 = stall)
+    // To Instruction Buffer: dispatch count (0 = stall)
     output logic [$clog2(`N)-1:0] dispatch_count,
 
     // To ROB: allocation entries
