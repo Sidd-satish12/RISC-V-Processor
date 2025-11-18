@@ -123,8 +123,35 @@ module cpu (
     //////////////////////////////////////////////////
     // NOTE: organize this section by the module that outputs referenced wires
 
+    // I-cache <-> fetch
+    ADDR       read_addrs   [1:0];
+    CACHE_DATA cache_data   [1:0];
 
-    // Note: No packet structure needed - decoder outputs go directly to dispatch
+    // Fetch <-> Instruction Buffer
+    logic                  stall_fetch;
+    logic                  stall_instruction_buffer;
+    FETCH_ENTRY            fetch_stage_packet          [1:0];
+
+    // Fetch control / debug
+    logic                  fetch_stall;
+    ADDR                   pc_fetch_dbg;
+    // Stage IF (fetch) -> I-Buffer
+    logic        if_bundle_valid;
+    FETCH_ENTRY  if_bundle        [`N-1:0];
+
+    // I-Buffer -> decode/dispatch
+    logic        ib_full;
+    logic        ib_empty;
+    FETCH_ENTRY  ib_bundle        [`N-1:0];
+
+    // Control between IF and IB
+    logic        ib_push;
+    logic        ib_pop;
+
+    // Outputs from ID stage (decode)
+    FETCH_DISP_PACKET                                                                fetch_disp_packet;
+    // Outputs from ID stage (decode)
+    FETCH_DISP_PACKET                                                                fetch_disp_packet;
 
     // From arch map table
     MAP_ENTRY [`ARCH_REG_SZ-1:0]                                                     arch_table_snapshot;
