@@ -77,6 +77,7 @@ module cpu (
     output logic train_triggered_retire_dbg,
     output logic retire_valid_retire_dbg,
 
+    // test
     // Additional RS debug outputs
     output RS_ENTRY [  `RS_MULT_SZ-1:0] rs_mult_entries_dbg,
     output RS_ENTRY [`RS_BRANCH_SZ-1:0] rs_branch_entries_dbg,
