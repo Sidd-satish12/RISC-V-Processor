@@ -406,7 +406,7 @@ module stage_execute (
         end
     end
 
-    mem mem_inst[`NUM_FU_MEM-1:0] (
+    mem_fu mem_inst[`NUM_FU_MEM-1:0] (
         .rs1(mem_rs1),
         .rs2(mem_rs2),
         .imm(mem_src2_imm),

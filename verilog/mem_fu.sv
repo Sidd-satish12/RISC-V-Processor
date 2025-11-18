@@ -3,7 +3,7 @@
 // Memory module: compute store addresses and data for store instructions
 // TODO currently only works for stores add load instruction functionality
 // Purely combinational
-module mem (
+module mem_fu (
     input  DATA rs1,         // Base register for address
     input  DATA rs2,         // Data to store
     input  DATA imm,         // Immediate offset from instruction
