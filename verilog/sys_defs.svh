@@ -649,6 +649,14 @@ typedef struct packed {
     logic                  valid;     // Entry occupancy bit
 } STOREQ_ENTRY;
 
+typedef struct packed {
+    logic [`NUM_FU_MEM-1:0] valid;
+    ADDR  [`NUM_FU_MEM-1:0] addr;
+    DATA  [`NUM_FU_MEM-1:0] data;
+    STOREQ_IDX [`NUM_FU_MEM-1:0] store_queue_idx;
+} EXECUTE_STOREQ_PACKET;
+
+
 // Individual entry for FU metadata (AoS - Array of Structs for internal use)
 typedef struct packed {
     ROB_IDX  rob_idx;        // ROB index

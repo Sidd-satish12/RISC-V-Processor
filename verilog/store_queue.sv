@@ -21,6 +21,12 @@ module store_queue (
     output STOREQ_IDX   [               `N-1:0] sq_alloc_idxs,       // allocation indices
 
     // ============================================================
+    // Execute I/O
+    // ============================================================
+    // from execute (updates store instructions data and address fields in store queue)
+    input EXECUTE_STOREQ_PACKET execute_storeq_packet,
+
+    // ============================================================
     // Retire I/O
     // ============================================================
     input logic                     mispredict,
@@ -67,11 +73,21 @@ module store_queue (
             end
         end
 
+        // ============================
+        // 3. Update entries with executed store address/data
+        // ============================
+        for (int i = 0; i < `NUM_FU_MEM; i++) begin
+            if (execute_storeq_packet.valid[i]) begin
+                sq_entries_next[execute_storeq_packet.store_queue_idx[i]].address = execute_storeq_packet.addr[i];
+                sq_entries_next[execute_storeq_packet.store_queue_idx[i]].data = execute_storeq_packet.data[i];
+            end
+        end
+
         // Advance tail pointer by number of enqueues
         tail_idx_next = (tail_idx + num_dispatched) % `LSQ_SZ;
 
         // ============================
-        // 3. Update free slot counter
+        // 4. Update free slot counter
         // ============================
         free_slots_reg_next = free_slots_reg + free_count - num_dispatched;
     end

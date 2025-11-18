@@ -35,6 +35,9 @@ module stage_execute (
     output logic [`N-1:0] ex_valid,
     output EX_COMPLETE_PACKET ex_comp,
 
+    // to store queue
+    output EXECUTE_STOREQ_PACKET execute_storeq_packet,
+
     // From CDB for grant selection
     input logic [`N-1:0][`NUM_FU_TOTAL-1:0] gnt_bus,
 
@@ -89,7 +92,11 @@ module stage_execute (
     ADDR [`NUM_FU_BRANCH-1:0] branch_target;
 
     // MEM signals (placeholder for future implementation)
-    // DATA [`NUM_FU_MEM-1:0] mem_addr, mem_data;
+    DATA [`NUM_FU_MEM-1:0] mem_rs1, mem_rs2, mem_src2_imm;
+    MEM_FUNC [`NUM_FU_MEM-1:0] mem_funcs;
+    DATA [`NUM_FU_MEM-1:0] mem_data;
+    ADDR [`NUM_FU_MEM-1:0] mem_addr;
+
 
     // Operand resolution: choose between PRF data, CDB forwarding, or RS stored value
     PRF_READ_DATA resolved_src1, resolved_src2;
@@ -388,8 +395,41 @@ module stage_execute (
     // =========================================================================
     // MEM Functional Units (Placeholder)
     // =========================================================================
+    // TODO stores implemented, load instructions need to be implemented (WIP)
 
-    // TODO: Implement memory functional units when mem.sv is completed
+    always_comb begin
+        for (int i = 0; i < `NUM_FU_MEM; i++) begin
+            mem_rs1[i] = resolved_src1.mem[i];
+            mem_rs2[i] = resolved_src2.mem[i];
+            mem_src2_imm[i] = issue_entries.mem[i].src2_immediate;
+            mem_funcs[i] = issue_entries.mem[i].op_type.func;
+        end
+    end
+
+    mem mem_inst[`NUM_FU_MEM-1:0] (
+        .rs1(mem_rs1),
+        .rs2(mem_rs2),
+        .imm(mem_src2_imm),
+        .addr(mem_addr),
+        .data(mem_data)
+    );
+
+    // send store instruction address and data to store queue
+    always_comb begin
+        execute_storeq_packet = '0;
+        for (int i = 0; i < `NUM_FU_MEM; i++) begin
+            if (issue_entries.mem[i].valid && (issue_entries.mem[i].op_type.func == STORE_BYTE 
+            || issue_entries.mem[i].op_type.func == STORE_HALF || issue_entries.mem[i].op_type.func == STORE_WORD
+            || issue_entries.mem[i].op_type.func == STORE_DOUBLE)) begin
+    
+                execute_storeq_packet.valid[i]        = 1'b1;
+                execute_storeq_packet.addr[i]         = mem_addr[i];
+                execute_storeq_packet.data[i]         = mem_data[i];
+                execute_storeq_packet.store_queue_idx = issue_entries.mem[i].store_queue_idx;
+            end
+        end
+    end
+
     always_comb begin
         for (int i = 0; i < `NUM_FU_MEM; i++) begin
             fu_results.mem[i] = '0;  // Initialize MEM results to 0
