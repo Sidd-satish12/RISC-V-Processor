@@ -245,7 +245,7 @@ build/stage_retire.simv: $(STAGE_RETIRE_FILES)
 build/stage_retire.cov:  $(STAGE_RETIRE_FILES)
 synth/stage_retire.vg:   $(STAGE_RETIRE_FILES)
 # TODO: add any files required for stage_execute here (besides test/stage_execute_test.sv and verilog/stage_execute.sv)
-STAGE_EXECUTE_FILES = verilog/sys_defs.svh verilog/alu.sv verilog/mult.sv verilog/branch.sv
+STAGE_EXECUTE_FILES = verilog/sys_defs.svh verilog/alu.sv verilog/mult.sv verilog/branch.sv verilog/mem.sv
 build/stage_execute.simv: $(STAGE_EXECUTE_FILES)
 build/stage_execute.cov: $(STAGE_EXECUTE_FILES)
 synth/stage_execute.vg: $(STAGE_EXECUTE_FILES)
