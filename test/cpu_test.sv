@@ -165,6 +165,10 @@ module testbench;
     I_ADDR_PACKET        mem_write_addr;
     MEM_BLOCK            mem_data_from_mem;
     MEM_TAG              mem_data_tag_from_mem;
+    I_ADDR_PACKET        icache_write_addr;
+    MEM_BLOCK            icache_write_data;
+    I_CACHE_LINE         icache_line_write;
+    logic [(`ICACHE_LINES + `PREFETCH_STREAM_BUFFER_SIZE)-1:0] icache_write_enable_mask;
 
     // Fetch stage debug signals
     FETCH_PACKET [3:0]   fetch_packet_out;
@@ -291,6 +295,10 @@ module testbench;
         .mem_write_addr_dbg(mem_write_addr),
         .mem_data_dbg(mem_data_from_mem),
         .mem_data_tag_dbg(mem_data_tag_from_mem),
+        .icache_write_addr_dbg(icache_write_addr),
+        .icache_write_data_dbg(icache_write_data),
+        .icache_line_write_dbg(icache_line_write),
+        .icache_write_enable_mask_dbg(icache_write_enable_mask),
 
         // Fetch stage debug outputs
         .fetch_packet_dbg(fetch_packet_out),
@@ -671,33 +679,43 @@ module testbench;
                      (mem_data_from_mem.word_level[1] == 32'h10500073));
         end
         
-        $display("  Write to ICache: %b", mem_write_icache);
-        $display("  Write Addr Valid: %b", mem_write_addr.valid);
-        if (mem_write_addr.valid) begin
-            $display("  Write Full PC: 0x%04h",
-                     {mem_write_addr.addr.zeros, mem_write_addr.addr.tag, mem_write_addr.addr.block_offset});
-            $display("  Write Addr breakdown - zeros: 0x%04h, tag: 0x%02h, block_offset: 0x%01h",
-                     mem_write_addr.addr.zeros, 
-                     mem_write_addr.addr.tag, 
-                     mem_write_addr.addr.block_offset);
+        $display("\nICache Write Operations:");
+        $display("  ICache Write Addr Valid: %b", icache_write_addr.valid);
+        if (icache_write_addr.valid) begin
+            $display("  ICache Write PC: 0x%04h (tag=0x%02h)",
+                     {icache_write_addr.addr.zeros, icache_write_addr.addr.tag, icache_write_addr.addr.block_offset},
+                     icache_write_addr.addr.tag);
+            $display("  ICache Write Data:");
+            $display("    Word[0]: 0x%08h | Word[1]: 0x%08h", 
+                     icache_write_data.word_level[0], icache_write_data.word_level[1]);
+            $display("    WFI check - Word[0]: %b | Word[1]: %b",
+                     (icache_write_data.word_level[0] == 32'h10500073),
+                     (icache_write_data.word_level[1] == 32'h10500073));
+            $display("  Cache Line Being Written:");
+            $display("    Valid: %b | Tag: 0x%02h", 
+                     icache_line_write.valid, icache_line_write.tag);
+            $display("    Data Word[0]: 0x%08h | Word[1]: 0x%08h",
+                     icache_line_write.data.word_level[0], icache_line_write.data.word_level[1]);
+            $display("  Write Enable Mask: 0x%09h (which cache line index)", icache_write_enable_mask);
+            $display("  Write Index: %0d", $clog2(icache_write_enable_mask));
         end
 
-        $display("\nFetch Packet Output (4-wide bundle):");
-        $display("  IB Bundle Valid: %b", ib_bundle_valid);
-        for (integer fp_idx = 0; fp_idx < 4; fp_idx++) begin
-            $display("  Packet[%0d]:", fp_idx);
-            $display("    Valid:          %b", fetch_packet_out[fp_idx].valid);
-            if (fetch_packet_out[fp_idx].valid) begin
-                $display("    PC:             0x%08h", fetch_packet_out[fp_idx].pc);
-                $display("    Instruction:    0x%08h", fetch_packet_out[fp_idx].inst);
-                $display("    Is Branch:      %b", fetch_packet_out[fp_idx].is_branch);
-                if (fetch_packet_out[fp_idx].is_branch) begin
-                    $display("    BP Pred Taken:  %b", fetch_packet_out[fp_idx].bp_pred_taken);
-                    $display("    BP Pred Target: 0x%08h", fetch_packet_out[fp_idx].bp_pred_target);
-                    $display("    BP GHR Snapshot: 0b%07b", fetch_packet_out[fp_idx].bp_ghr_snapshot);
-                end
-            end
-        end
+        // $display("\nFetch Packet Output (4-wide bundle):");
+        // $display("  IB Bundle Valid: %b", ib_bundle_valid);
+        // for (integer fp_idx = 0; fp_idx < 4; fp_idx++) begin
+        //     $display("  Packet[%0d]:", fp_idx);
+        //     $display("    Valid:          %b", fetch_packet_out[fp_idx].valid);
+        //     if (fetch_packet_out[fp_idx].valid) begin
+        //         $display("    PC:             0x%08h", fetch_packet_out[fp_idx].pc);
+        //         $display("    Instruction:    0x%08h", fetch_packet_out[fp_idx].inst);
+        //         $display("    Is Branch:      %b", fetch_packet_out[fp_idx].is_branch);
+        //         if (fetch_packet_out[fp_idx].is_branch) begin
+        //             $display("    BP Pred Taken:  %b", fetch_packet_out[fp_idx].bp_pred_taken);
+        //             $display("    BP Pred Target: 0x%08h", fetch_packet_out[fp_idx].bp_pred_target);
+        //             $display("    BP GHR Snapshot: 0b%07b", fetch_packet_out[fp_idx].bp_ghr_snapshot);
+        //         end
+        //     end
+        // end
 
         // // FETCH/DISPATCH STAGE
         // $display("\n--- FETCH/DISPATCH STAGE ---");
