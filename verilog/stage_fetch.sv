@@ -142,7 +142,7 @@ module stage_fetch (
         for (int i = 0; i < 4; i++) begin
             fetch_packet[i].pc              = PC + (ADDR'(i) << 2);
             fetch_packet[i].inst            = inst[i];
-
+            fetch_packet[i].valid           = 1'b1;
             fetch_packet[i].is_branch       = 1'b0;
             fetch_packet[i].bp_pred_taken   = 1'b0;
             fetch_packet[i].bp_pred_target  = '0;
