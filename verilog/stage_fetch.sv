@@ -26,8 +26,23 @@ module stage_fetch (
 
     // Retire on branch mispredict
     input  logic                     mispredict,     // current read requests invalid
-    input  ADDR                      pc_override     // overrides PC on mispredict
+    input  ADDR                      pc_override,     // overrides PC on mispredict
+
+    output ADDR        [3:0]      dbg_fetch_pc           ,
+    output logic [3:0][31:0]      dbg_fetch_inst         ,
+    output logic    [3:0]         dbg_fetch_valid        ,
+    output logic      [3:0]       dbg_fetch_is_branch    ,
+    output logic      [3:0]       dbg_fetch_bp_pred_taken,
+    output ADDR       [3:0]       dbg_fetch_bp_pred_target,
+    output logic [3:0][`BP_GH-1:0]dbg_fetch_bp_ghr_snapshot
+
 );
+
+    // -----
+    // DEBUG SIGNALS
+    // -----
+
+
 
     // -----------------------------
     // Internal state
