@@ -36,7 +36,7 @@ import "DPI-C" function string decode_inst(int inst);
 // import "DPI-C" function void close_pipeline_output_file();
 
 
-`define TB_MAX_CYCLES 3000
+`define TB_MAX_CYCLES 20
 
 
 module testbench;
@@ -256,7 +256,8 @@ module testbench;
         .alu_func_dbg(alu_func),
         .mult_executing_dbg(mult_executing),
         .branch_executing_dbg(branch_executing),
-        .mem_executing_dbg(mem_executing),
+        .mem_executing_dbg(mem_executing)
+    );
 
         // ---- Fake-Fetch interface ----
 // `ifdef SYNTH
@@ -269,7 +270,6 @@ module testbench;
 //         .ff_consumed    (fake_consumed),
 //         .branch_taken_out (ff_branch_taken),
 //         .branch_target_out(ff_branch_target)
-//     );
 
 
     // Instruction Memory (for fake-fetch only - data operations disconnected)
@@ -410,8 +410,8 @@ module testbench;
             if ((clock_count % 10000) == 0) $display("  %16t : %0d cycles", $realtime, clock_count);
 
             // Optional: peek at fake-fetch behavior
-            $display("%0t [FF] pc=%h consumed=%0d br=%0d tgt=%h", $time, fake_pc, fake_consumed, ff_branch_taken,
-                     ff_branch_target);
+            // $display("%0t [FF] pc=%h consumed=%0d br=%0d tgt=%h", $time, fake_pc, fake_consumed, ff_branch_taken,
+            //          ff_branch_target);
 
             // Pipeline printing disabled for OOO processor
             // print_cycles(clock_count - 1);
@@ -559,7 +559,7 @@ module testbench;
         // FETCH/DISPATCH STAGE
         $display("\n--- FETCH/DISPATCH STAGE ---");
         $display("Dispatch count: %0d", dispatch_count);
-        $display("Fake PC: 0x%08h | Consumed: %0d", fake_pc, fake_consumed);
+        // $display("Fake PC: 0x%08h | Consumed: %0d", fake_pc, fake_consumed);
 
         for (integer i = 0; i < `N; i++) begin
             // if (i < dispatch_count) begin

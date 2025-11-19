@@ -38,7 +38,7 @@ module icache_subsystem (
         .write_data   (mem_data)
     );
 
-    prefetcher prefetcher_inst (
+    i_prefetcher i_prefetcher_inst (
         .clock                   (clock),
         .reset                   (reset),
         .icache_miss_addr        (oldest_miss_addr),
@@ -160,7 +160,7 @@ module i_mshr #(
     end
 endmodule
 
-module prefetcher (
+module i_prefetcher (
     input clock,
     input reset,
 
