@@ -156,7 +156,7 @@ module icache_subsystem (
 
 endmodule
 
-
+// this should never be full, so no logic for handling full FIFO head tail edge case
 module i_mshr #(
     parameter MSHR_WIDTH = `NUM_MEM_TAGS + `N
 ) (
