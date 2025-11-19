@@ -31,7 +31,7 @@ module stage_retire #(
     output COMMIT_PACKET [N-1:0] retire_commits_dbg,
 
     // to Fake fetch for branching
-    output logic branch_taken_out, // delete
+ //   output logic branch_taken_out, // delete
     output ADDR branch_target_out,
     output BP_TRAIN_REQUEST train_req_o,
     output BP_RECOVER_REQUEST recover_req_o,
@@ -78,7 +78,7 @@ module stage_retire #(
         retire_valid_dbg = 1'b0;
 
         // branch info for fake fetch
-        branch_taken_out = 1'b0;
+      //  branch_taken_out = 1'b0;
         branch_target_out = '0;
 
         // Walk oldest -> youngest and commit until first incomplete
@@ -123,7 +123,7 @@ module stage_retire #(
 
                 // to fake fetch (No EBR)
                 if (entry.branch_taken) begin
-                    branch_taken_out  = 1'b1;
+                 //   branch_taken_out  = 1'b1;
                     branch_target_out = entry.branch_target;
                 end
 
