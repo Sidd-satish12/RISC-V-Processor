@@ -24,7 +24,7 @@ module dcache_subsystem (
 
 endmodule
 
-module Dcache (
+module dcache (
     input clock,
     input reset,
 
@@ -33,7 +33,7 @@ module Dcache (
 
     output CACHE_DATA [`N-1:0]   cache_out,
 
-    // Dcache write mem_data, when mem_data_tag matches head of MSHR
+    // dcache write mem_data, when mem_data_tag matches head of MSHR
     input D_ADDR_PACKET [`N-1:0] write_addr,
     input MEM_BLOCK [`N-1:0]    write_data
 );
@@ -54,20 +54,20 @@ module Dcache (
 
 
     memDP #(
-            .WIDTH(MEM_WIDTH),
-            .DEPTH(1),
-            .READ_PORTS(1),
-            .BYPASS_EN(0)
-        ) cache_line[MEM_DEPTH-1:0] (
-            .clock(clock),
-            .reset(reset),
-            .re(1'b1),
-            .raddr(1'b0),
-            .rdata(cache_lines),
-            .we(cache_write_enable_mask),
-            .waddr(1'b0),
-            .wdata(cache_line_write)
-        );
+        .WIDTH(MEM_WIDTH),
+        .DEPTH(1),
+        .READ_PORTS(1),
+        .BYPASS_EN(0)
+    ) cache_line[MEM_DEPTH-1:0] (
+        .clock(clock),
+        .reset(reset),
+        .re(1'b1),
+        .raddr(1'b0),
+        .rdata(cache_lines),
+        .we(cache_write_enable_mask),
+        .waddr(1'b0),
+        .wdata(cache_line_write)
+    );
 
     // Write selection no eviction
     psel_gen #(
