@@ -32,13 +32,21 @@ module icache_subsystem (
     output logic                mem_write_icache_dbg,
     output I_ADDR_PACKET        mem_write_addr_dbg,
     output MEM_BLOCK            mem_data_dbg,
-    output MEM_TAG              mem_data_tag_dbg
+    output MEM_TAG              mem_data_tag_dbg,
+    output I_ADDR_PACKET        icache_write_addr_dbg,
+    output MEM_BLOCK            icache_write_data_dbg,
+    output I_CACHE_LINE         icache_line_write_dbg,
+    output logic [(`ICACHE_LINES + `PREFETCH_STREAM_BUFFER_SIZE)-1:0] icache_write_enable_mask_dbg
 );
 
     // Internal wires
     I_ADDR_PACKET prefetcher_snooping_addr, icache_write_addr, oldest_miss_addr;
     logic icache_full, snooping_found_icache, snooping_found_mshr;
     MSHR_PACKET new_mshr_entry;
+    
+    // ICache debug wires
+    I_CACHE_LINE icache_line_write;
+    logic [(`ICACHE_LINES + `PREFETCH_STREAM_BUFFER_SIZE)-1:0] icache_write_enable_mask;
 
     icache icache_inst (
         .clock        (clock),
@@ -55,7 +63,11 @@ module icache_subsystem (
         .write_data   (mem_data),
         // Debug outputs
         .hits_dbg     (icache_hits_dbg),
-        .misses_dbg   (icache_misses_dbg)
+        .misses_dbg   (icache_misses_dbg),
+        .write_addr_dbg(icache_write_addr_dbg),
+        .write_data_dbg(icache_write_data_dbg),
+        .cache_line_write_dbg(icache_line_write),
+        .cache_write_enable_mask_dbg(icache_write_enable_mask)
     );
 
     i_prefetcher i_prefetcher_inst (
@@ -125,6 +137,8 @@ module icache_subsystem (
     assign mem_write_addr_dbg = icache_write_addr;
     assign mem_data_dbg = mem_data;
     assign mem_data_tag_dbg = mem_data_tag;
+    assign icache_line_write_dbg = icache_line_write;
+    assign icache_write_enable_mask_dbg = icache_write_enable_mask;
 
 endmodule
 
@@ -276,7 +290,11 @@ module icache (
 
     // Debug outputs
     output logic [1:0]   hits_dbg,
-    output logic [1:0]   misses_dbg
+    output logic [1:0]   misses_dbg,
+    output I_ADDR_PACKET write_addr_dbg,
+    output MEM_BLOCK     write_data_dbg,
+    output I_CACHE_LINE  cache_line_write_dbg,
+    output logic [(`ICACHE_LINES + `PREFETCH_STREAM_BUFFER_SIZE)-1:0] cache_write_enable_mask_dbg
 );
 
     localparam MEM_DEPTH = `ICACHE_LINES + `PREFETCH_STREAM_BUFFER_SIZE;
@@ -318,7 +336,7 @@ module icache (
         .WIDTH(MEM_DEPTH),
         .REQS(1'b1)
     ) psel_gen_inst (
-        .req(valid_bits),
+        .req(~valid_bits),
         .gnt(cache_write_no_evict_one_hot)
     );
 
@@ -337,8 +355,10 @@ module icache (
         assign cache_write_evict_one_hot[k] = (cache_write_evict_index == k);
     end
     
-    assign cache_write_enable_mask = |cache_write_no_evict_one_hot ? cache_write_no_evict_one_hot : cache_write_evict_one_hot;
-    
+    assign cache_write_enable_mask = write_addr.valid ? 
+                                    (|cache_write_no_evict_one_hot ? cache_write_no_evict_one_hot : cache_write_evict_one_hot) : 
+                                    '0;
+
     assign cache_line_write = '{valid: write_addr.valid,
                                 tag: write_addr.addr.tag,
                                 data: write_data};
@@ -375,5 +395,9 @@ module icache (
     assign hits_dbg[1] = read_addrs[1].valid & (|cache_reads_one_hot[1]);
     assign misses_dbg[0] = read_addrs[0].valid & ~(|cache_reads_one_hot[0]);
     assign misses_dbg[1] = read_addrs[1].valid & ~(|cache_reads_one_hot[1]);
+    assign write_addr_dbg = write_addr;
+    assign write_data_dbg = write_data;
+    assign cache_line_write_dbg = cache_line_write;
+    assign cache_write_enable_mask_dbg = cache_write_enable_mask;
 
 endmodule

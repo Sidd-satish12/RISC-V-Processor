@@ -123,6 +123,10 @@ module cpu (
     output I_ADDR_PACKET        mem_write_addr_dbg,
     output MEM_BLOCK            mem_data_dbg,
     output MEM_TAG              mem_data_tag_dbg,
+    output I_ADDR_PACKET        icache_write_addr_dbg,
+    output MEM_BLOCK            icache_write_data_dbg,
+    output I_CACHE_LINE         icache_line_write_dbg,
+    output logic [(`ICACHE_LINES + `PREFETCH_STREAM_BUFFER_SIZE)-1:0] icache_write_enable_mask_dbg,
 
     // Fetch stage debug outputs
     output FETCH_PACKET [3:0]   fetch_packet_dbg,
@@ -274,7 +278,11 @@ module cpu (
         .mem_write_icache_dbg (mem_write_icache_dbg),
         .mem_write_addr_dbg   (mem_write_addr_dbg),
         .mem_data_dbg         (mem_data_dbg),
-        .mem_data_tag_dbg     (mem_data_tag_dbg)
+        .mem_data_tag_dbg     (mem_data_tag_dbg),
+        .icache_write_addr_dbg(icache_write_addr_dbg),
+        .icache_write_data_dbg(icache_write_data_dbg),
+        .icache_line_write_dbg(icache_line_write_dbg),
+        .icache_write_enable_mask_dbg(icache_write_enable_mask_dbg)
     );
 
     // icache access memory only
@@ -305,6 +313,14 @@ module cpu (
     FETCH_PACKET    [3:0]     fetch_packet;
     ADDR  pc_override;
 
+    ADDR         [3:0]     dbg_fetch_pc           ;
+    logic [3:0][31:0]      dbg_fetch_inst         ;
+    logic     [3:0]        dbg_fetch_valid        ;
+    logic        [3:0]     dbg_fetch_is_branch    ;
+    logic     [3:0]        dbg_fetch_bp_pred_taken;
+    ADDR     [3:0]         dbg_fetch_bp_pred_target;
+    logic [3:0][`BP_GH-1:0]dbg_fetch_bp_ghr_snapshot;
+
     stage_fetch stage_fetch_0 (
         .clock        (clock),
         .reset        (reset),
@@ -320,7 +336,15 @@ module cpu (
         .bp_response  (bp_predict_response),
 
         .mispredict   (mispredict),
-        .pc_override  (pc_override)
+        .pc_override  (pc_override),
+
+        .dbg_fetch_pc (dbg_fetch_pc),
+        .dbg_fetch_inst(dbg_fetch_inst),
+        .dbg_fetch_valid(dbg_fetch_valid),
+        .dbg_fetch_is_branch(dbg_fetch_is_branch),
+        .dbg_fetch_bp_pred_taken(dbg_fetch_bp_pred_taken),
+        .dbg_fetch_bp_pred_target(dbg_fetch_bp_pred_target),
+        .dbg_fetch_bp_ghr_snapshot(dbg_fetch_bp_ghr_snapshot)
     );
 
     // Branch Predictor singals
