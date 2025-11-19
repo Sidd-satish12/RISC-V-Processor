@@ -235,7 +235,7 @@ module cpu (
         // Arbitor IOs
         .mem_req_addr     (mem_req_addr),
         .mem_req_accepted (1'b1)
-    )
+    );
 
     // icache access memory only
     // needs to be decided by arbitrator later when dcache is done
@@ -279,7 +279,7 @@ module cpu (
 
         .mispredict   (mispredict),
         .pc_override  (pc_override)
-    )
+    );
 
     // Branch Predictor singals
    // BP_TRAIN_REQUEST train_req;
@@ -980,7 +980,7 @@ module cpu (
 
 
     // Fake-fetch outputs
-    assign ff_consumed            = dispatch_count;  // Number of instructions consumed by dispatch
+  //  assign ff_consumed            = dispatch_count;  // Number of instructions consumed by dispatch
 
 
     // Additional debug outputs

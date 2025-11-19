@@ -117,9 +117,9 @@ module stage_retire #(
             if (entry.branch) begin
 
                 // Debug for branches
-                branch_retired_dbg = entry.branch;
-                branch_taken_dbg = entry.branch_taken;
-                is_branch_target_unknown_dbg = $isunknown(entry.branch_target);
+                // branch_retired_dbg = entry.branch;
+                // branch_taken_dbg = entry.branch_taken;
+                // is_branch_target_unknown_dbg = $isunknown(entry.branch_target);
 
                 // to fake fetch (No EBR)
                 if (entry.branch_taken) begin
