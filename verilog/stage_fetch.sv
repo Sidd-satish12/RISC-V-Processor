@@ -1,4 +1,5 @@
 `include "sys_defs.svh"
+`include "ISA.svh"
 // Fetch stage fetches a bundle of instructions (4 instructions) from iCache.
 // Stall If any of cache_data is invalid | IB is full | mispredict
 //    when done stalling, Check if there is a branch in any of the 4
