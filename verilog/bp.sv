@@ -113,13 +113,11 @@ module bp (
 
         // Update global history register (don't update speculatively during recovery)
         if (recover_req_i.pulse) begin
-            // Recovery takes priority - don't update speculatively
-            global_history_next = global_history_reg;  // Will be overwritten by recovery in sequential block
-        end else begin
+            global_history_next = global_history_reg;
+        end else if (predict_req_i.valid) begin
             global_history_next = {global_history_reg[`BP_GH-2:0], predict_resp_o.taken};
-            if (!(predict_req_i.valid && predict_req_i.used)) begin
-                global_history_next = global_history_reg;
-            end
+        end else begin
+            global_history_next = global_history_reg;
         end
     end
 
@@ -163,10 +161,13 @@ module bp (
     // Sequential logic: register updates and training
     always_ff @(posedge clock) begin
         if (reset) begin
-            // Initialize all structures on reset
-            global_history_reg <= '0;
-            pattern_history_table <= '{default: WEAKLY_NOT_TAKEN};  // Initialize to weakly not-taken
-            btb_array <= '{default: '{default: '0}};     // Initialize all BTB entries to invalid
+            if (reset) begin
+                // Initialize all structures on reset
+                global_history_reg      <= '0;
+                pattern_history_table   <= '{default: WEAKLY_NOT_TAKEN};  // Initialize to weakly not-taken
+                btb_array               <= '{default: '0};                // Every BTB entry all zeros
+            end
+
         end else begin
             // Handle mispredict recovery or normal GHR update
             // Use pre-computed ghr_next_value (handles recovery priority)

@@ -3,7 +3,7 @@
 // Dispatch Stage: Register renaming and resource allocation
 module stage_dispatch (
     input logic clock,
-    reset,
+    input logic reset,
 
     // From decode: individual signals
     input REG_IDX [`N-1:0]        decode_rs1_idx,
@@ -243,9 +243,9 @@ module stage_dispatch (
                     complete: 1'b0,
                     exception: NO_ERROR,
                     branch: (decode_op_type[i].category == CAT_BRANCH),
-                    pred_target: '0,  // No prediction target
-                    pred_taken: 1'b0,  // No branch prediction
-                    ghr_snapshot: dispatch_window[i].ghr_snapshot,
+                    pred_target: dispatch_window[i].bp_pred_target,  // No prediction target
+                    pred_taken: dispatch_window[i].bp_pred_taken,  // No branch prediction
+                    ghr_snapshot: dispatch_window[i].bp_ghr_snapshot,
                     halt: decode_halt[i],
                     default: '0
                 };

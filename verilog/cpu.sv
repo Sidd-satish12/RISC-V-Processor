@@ -217,9 +217,9 @@ module cpu (
 
 
     // I-cache <-> fetch
-    I_ADDR_PACKET           i_cache_read_addrs [1:0];
+    I_ADDR_PACKET          [1:0] i_cache_read_addrs ;
     I_ADDR_PACKET           mem_req_addr;
-    CACHE_DATA              icache_data [1:0];
+    CACHE_DATA             [1:0] icache_data ;
 
     icache_subsystem icache_subsystem_inst (
         .clock            (clock),
@@ -282,8 +282,8 @@ module cpu (
     );
 
     // Branch Predictor singals
-   // BP_TRAIN_REQUEST train_req;
-   // BP_RECOVER_REQUEST recover_req;
+   BP_TRAIN_REQUEST train_req;
+   BP_RECOVER_REQUEST recover_req;
 
     // BP Debug signals
     logic [`BP_GH-1:0]        ghr_dbg;
@@ -311,10 +311,10 @@ module cpu (
         .reset(reset),
 
         // predict request IF -> BP
-        .predict_req_i(predict_req),
+        .predict_req_i(bp_predict_request),
 
         // predict response BP -> IF
-        .predict_resp_o(bp_predict_resp),
+        .predict_resp_o(bp_predict_response),
 
         // training request (from ROB retire stage)
         .train_req_i(train_req),
@@ -361,8 +361,8 @@ module cpu (
         .flush(mispredict),  // Flush on branch mispredict
 
         // Fetch interface (temporary fake fetch)
-        .new_ib_entry(fake_fetch_packets),
-        .num_pushes(ib_bundle_valid ? '0 : 'h4),
+        .new_ib_entry(fetch_packet),
+        .num_pushes(ib_bundle_valid ? 3'b100 : 3'b0),
         .full(ib_full),
         .available_slots(),  // Not used in this simple setup
 
@@ -937,7 +937,7 @@ module cpu (
         .head_idxs   (rob_head_idxs),
 
         // To ROB: flush younger if head is a mispredicted branch
-        .rob_mispredict (mispredict),
+        .mispredict (mispredict),
         .rob_mispred_idx(rob_mispred_idx),
 
         // To freelist: bitmap of PRs to free (all committed lanes' Told this cycle)
@@ -952,7 +952,7 @@ module cpu (
 
 
         // To fetch
-        .branch_taken_out(mispredict),
+    //    .branch_taken_out(mispredict),
         .branch_target_out(pc_override),
         .train_req_o            (train_req),
         .recover_req_o          (recover_req),
