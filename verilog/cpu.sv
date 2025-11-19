@@ -182,7 +182,6 @@ module cpu (
     ROB_ENTRY [`N-1:0] rob_head_entries;
     logic     [`N-1:0] rob_head_valids;
     ROB_IDX   [`N-1:0] rob_head_idxs;
-    logic              rob_mispredict;
     ROB_IDX            rob_mispred_idx;
     logic              bp_recover_en;
     logic     [`N-1:0] arch_write_enables;
@@ -194,7 +193,6 @@ module cpu (
 
     // Global mispredict signal
     logic              mispredict;
-    assign mispredict = rob_mispredict;
 
     // CDB requests: single-cycle FUs request during issue, multi-cycle during execute
     assign cdb_requests.alu    = issue_cdb_requests.alu;  // From issue stage
@@ -262,7 +260,6 @@ module cpu (
     logic ib_full;
     logic                     ib_bundle_valid;
     FETCH_PACKET    [3:0]     fetch_packet;
-    logic mispredict;
     ADDR  pc_override;
 
     stage_fetch stage_fetch_0 (
@@ -484,7 +481,7 @@ module cpu (
 
     rob rob_0 (
         .clock(clock),
-        .reset(reset | rob_mispredict), // Reset on mispredict
+        .reset(reset | mispredict), // Reset on mispredict
 
         // Dispatch
         .rob_entry_packet(rob_entry_packet),
@@ -863,7 +860,7 @@ module cpu (
 
     cdb cdb_0 (
         .clock(clock),
-        .reset(reset || rob_mispredict),
+        .reset(reset || mispredict),
 
         // Arbiter inputs (structured)
         .requests(cdb_requests),
@@ -924,6 +921,7 @@ module cpu (
     stage_retire stage_retire_0 (
         .clock(clock),
         .reset(reset),
+        .bp_enabled(1'b1),
 
         // From ROB: head window (N-1 = oldest, 0 = youngest)
         .head_entries(rob_head_entries),
@@ -934,7 +932,7 @@ module cpu (
         .arch_table_snapshot(arch_table_snapshot),
 
         // To ROB: flush younger if head is a mispredicted branch
-        .rob_mispredict (rob_mispredict),
+        .rob_mispredict (mispredict),
         .rob_mispred_idx(rob_mispred_idx),
 
         // Global recovery pulse (tables react internally)
@@ -953,7 +951,7 @@ module cpu (
         .retire_commits_dbg(retire_commits_dbg),
 
         // To fetch
-        .branch_taken_out(branch_taken_out), // TODO: Change to real fetch
+        .branch_taken_out(branch_taken_out),
         .branch_target_out(pc_override),
 
         // From PRF for committed data
