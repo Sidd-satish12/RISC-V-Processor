@@ -36,7 +36,7 @@ import "DPI-C" function string decode_inst(int inst);
 // import "DPI-C" function void close_pipeline_output_file();
 
 
-`define TB_MAX_CYCLES 20
+`define TB_MAX_CYCLES 200
 
 
 module testbench;
@@ -96,17 +96,6 @@ module testbench;
     // Complete stage debug signals
     ROB_UPDATE_PACKET rob_update_packet;
 
-    // ----------------------------------------------------------------
-    // Fake-Fetch wires (testbench <-> cpu)
-    // ----------------------------------------------------------------
-    // ADDR fake_pc;
-    // DATA fake_instr[`N-1:0];
-    // logic [$clog2(`N+1)-1:0] fake_nvalid;
-    // logic [$clog2(`N+1)-1:0] fake_consumed;
-
-    // logic ff_branch_taken;
-    // ADDR ff_branch_target;
-
     // Debug Output PRF
     DATA [`PHYS_REG_SZ_R10K-1:0] regfile_entries;
 
@@ -160,24 +149,31 @@ module testbench;
     logic [`NUM_FU_BRANCH-1:0] branch_executing;
     logic [`NUM_FU_MEM-1:0] mem_executing;
 
+    MEM_TAG   mem2proc_transaction_tag;  // Memory tag for current transaction
+    MEM_BLOCK mem2proc_data;             // Data coming back from memory
+    MEM_TAG   mem2proc_data_tag;      
+
+    MEM_COMMAND proc2mem_command;  // Command sent to memory
+    ADDR        proc2mem_addr;     // Address sent to memory
+    MEM_BLOCK   proc2mem_data;     // Data sent to memory
+    MEM_SIZE    proc2mem_size;     // Data size sent to memory
 
     // Instantiate the Pipeline
     cpu verisimpleV (
         // Inputs
         .clock(clock),
         .reset(reset),
-        // Disconnected: mem2proc portions (fake-fetch)
-        // .mem2proc_transaction_tag(mem2proc_transaction_tag),
-        // .mem2proc_data           (mem2proc_data),
-        // .mem2proc_data_tag       (mem2proc_data_tag),
 
-        // Disconnected: proc2mem portions (fake-fetch)
-        // .proc2mem_command(proc2mem_command),
-        // .proc2mem_addr   (proc2mem_addr),
-        // .proc2mem_data   (proc2mem_data),
-        // `ifndef CACHE_MODE
-        // .proc2mem_size   (proc2mem_size),
-        // `endif
+        .mem2proc_transaction_tag(mem2proc_transaction_tag),
+        .mem2proc_data           (mem2proc_data),
+        .mem2proc_data_tag       (mem2proc_data_tag),
+
+        .proc2mem_command(proc2mem_command),
+        .proc2mem_addr   (proc2mem_addr),
+        .proc2mem_data   (proc2mem_data),
+        `ifndef CACHE_MODE
+        .proc2mem_size   (proc2mem_size),
+        `endif
 
         .committed_insts(committed_insts),
 
@@ -277,17 +273,16 @@ module testbench;
         // Only connect clock for initialization
         .clock           (clock),
         // Data operations disconnected
-        .proc2mem_command(MEM_NONE),
-        .proc2mem_addr   ('0),
-        .proc2mem_data   ('0),
+        .proc2mem_command(proc2mem_command),
+        .proc2mem_addr   (proc2mem_addr),
+        .proc2mem_data   (proc2mem_data),
 `ifndef CACHE_MODE
-        .proc2mem_size   (DOUBLE),
+        .proc2mem_size   (proc2mem_size),
 `endif
 
-        // Outputs not used for fake-fetch
-        .mem2proc_transaction_tag(),
-        .mem2proc_data           (),
-        .mem2proc_data_tag       ()
+        .mem2proc_transaction_tag(mem2proc_transaction_tag),
+        .mem2proc_data           (mem2proc_data),
+        .mem2proc_data_tag       (mem2proc_data_tag)
     );
 
 
