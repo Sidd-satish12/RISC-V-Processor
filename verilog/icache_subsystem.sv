@@ -15,7 +15,21 @@ module icache_subsystem (
 
     // Arbitor IOs
     output I_ADDR_PACKET        mem_req_addr,
-    input  logic                mem_req_accepted
+    input  logic                mem_req_accepted,
+
+    // Debug outputs
+    output I_ADDR_PACKET [1:0]  read_addrs_dbg,
+    output logic [1:0]          icache_hits_dbg,
+    output logic [1:0]          icache_misses_dbg,
+    output logic                icache_full_dbg,
+    output I_ADDR_PACKET        prefetch_addr_dbg,
+    output I_ADDR_PACKET        oldest_miss_addr_dbg,
+    output logic                mshr_addr_found_dbg,
+    output logic [$clog2(`NUM_MEM_TAGS)-1:0] mshr_head_dbg,
+    output logic [$clog2(`NUM_MEM_TAGS)-1:0] mshr_tail_dbg,
+    output MSHR_PACKET [`NUM_MEM_TAGS-1:0]   mshr_entries_dbg,
+    output logic                mem_write_icache_dbg,
+    output I_ADDR_PACKET        mem_write_addr_dbg
 );
 
     // Internal wires
@@ -35,7 +49,10 @@ module icache_subsystem (
         .full         (icache_full),
         // Icache write mem_data, when mem_data_tag matches head of MSHR
         .write_addr   (icache_write_addr),
-        .write_data   (mem_data)
+        .write_data   (mem_data),
+        // Debug outputs
+        .hits_dbg     (icache_hits_dbg),
+        .misses_dbg   (icache_misses_dbg)
     );
 
     i_prefetcher i_prefetcher_inst (
@@ -57,17 +74,21 @@ module icache_subsystem (
         .new_entry      (new_mshr_entry),
         // Mem data back
         .mem_data_tag   (mem_data_tag),
-        .mem_data_i_addr(icache_write_addr)
+        .mem_data_i_addr(icache_write_addr),
+        // Debug outputs
+        .head_dbg       (mshr_head_dbg),
+        .tail_dbg       (mshr_tail_dbg),
+        .entries_dbg    (mshr_entries_dbg)
     );
 
     // Oldest miss address logic
     always_comb begin
         oldest_miss_addr = '0;
-        if (read_addrs[0].valid & ~cache_outs[0].valid) begin
-            oldest_miss_addr.valid = '1;
+        if (read_addrs[0].valid && (cache_outs[0].valid == 1'b0)) begin
+            oldest_miss_addr.valid = 1'b1;
             oldest_miss_addr.addr  = read_addrs[0].addr;
-        end else if (read_addrs[1].valid & ~cache_outs[1].valid) begin
-            oldest_miss_addr.valid = '1;
+        end else if (read_addrs[1].valid && (cache_outs[1].valid == 1'b0)) begin
+            oldest_miss_addr.valid = 1'b1;
             oldest_miss_addr.addr  = read_addrs[1].addr;
         end
     end
@@ -90,6 +111,15 @@ module icache_subsystem (
         end
     end
 
+    // Debug signal assignments
+    assign read_addrs_dbg = read_addrs;
+    assign icache_full_dbg = icache_full;
+    assign prefetch_addr_dbg = prefetcher_snooping_addr;
+    assign oldest_miss_addr_dbg = oldest_miss_addr;
+    assign mshr_addr_found_dbg = snooping_found_mshr;
+    assign mem_write_icache_dbg = icache_write_addr.valid;
+    assign mem_write_addr_dbg = icache_write_addr;
+
 endmodule
 
 
@@ -108,7 +138,12 @@ module i_mshr #(
 
     // Mem data back
     input  MEM_TAG       mem_data_tag,
-    output I_ADDR_PACKET mem_data_i_addr  // to write to icache
+    output I_ADDR_PACKET mem_data_i_addr,  // to write to icache
+
+    // Debug outputs
+    output logic [$clog2(`NUM_MEM_TAGS)-1:0] head_dbg,
+    output logic [$clog2(`NUM_MEM_TAGS)-1:0] tail_dbg,
+    output MSHR_PACKET [`NUM_MEM_TAGS-1:0]   entries_dbg
 );
 
     // MSHR Internal logic
@@ -158,6 +193,12 @@ module i_mshr #(
             mshr_entries <= next_mshr_entries;
         end
     end
+
+    // Debug signal assignments
+    assign head_dbg = head;
+    assign tail_dbg = tail;
+    assign entries_dbg = mshr_entries;
+
 endmodule
 
 module i_prefetcher (
@@ -225,7 +266,11 @@ module icache (
 
     // Icache write mem_data, when mem_data_tag matches head of MSHR
     input I_ADDR_PACKET write_addr,
-    input MEM_BLOCK     write_data
+    input MEM_BLOCK     write_data,
+
+    // Debug outputs
+    output logic [1:0]   hits_dbg,
+    output logic [1:0]   misses_dbg
 );
 
     localparam MEM_DEPTH = `ICACHE_LINES + `PREFETCH_STREAM_BUFFER_SIZE;
@@ -314,7 +359,15 @@ module icache (
 
             assign cache_outs_temp[j].data = cache_lines[i].data & {`MEM_BLOCK_BITS{cache_reads_one_hot[j][i]}};
         end
+        // Assign valid bit based on whether any cache line matched (hit)
+        assign cache_outs_temp[j].valid = |cache_reads_one_hot[j];
     end
     assign cache_outs = cache_outs_temp;
+
+    // Debug signal assignments
+    assign hits_dbg[0] = read_addrs[0].valid & (|cache_reads_one_hot[0]);
+    assign hits_dbg[1] = read_addrs[1].valid & (|cache_reads_one_hot[1]);
+    assign misses_dbg[0] = read_addrs[0].valid & ~(|cache_reads_one_hot[0]);
+    assign misses_dbg[1] = read_addrs[1].valid & ~(|cache_reads_one_hot[1]);
 
 endmodule
