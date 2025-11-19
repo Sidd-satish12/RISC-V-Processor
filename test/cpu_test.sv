@@ -36,7 +36,7 @@ import "DPI-C" function string decode_inst(int inst);
 // import "DPI-C" function void close_pipeline_output_file();
 
 
-`define TB_MAX_CYCLES 200
+`define TB_MAX_CYCLES 30
 
 
 module testbench;
@@ -149,6 +149,20 @@ module testbench;
     logic [`NUM_FU_BRANCH-1:0] branch_executing;
     logic [`NUM_FU_MEM-1:0] mem_executing;
 
+    // ICache debug signals
+    I_ADDR_PACKET [1:0]  icache_read_addrs;
+    logic [1:0]          icache_hits;
+    logic [1:0]          icache_misses;
+    logic                icache_full;
+    I_ADDR_PACKET        prefetch_addr;
+    I_ADDR_PACKET        oldest_miss_addr;
+    logic                mshr_addr_found;
+    logic [$clog2(`NUM_MEM_TAGS)-1:0] mshr_head;
+    logic [$clog2(`NUM_MEM_TAGS)-1:0] mshr_tail;
+    MSHR_PACKET [`NUM_MEM_TAGS-1:0]   mshr_entries;
+    logic                mem_write_icache;
+    I_ADDR_PACKET        mem_write_addr;
+
     MEM_TAG   mem2proc_transaction_tag;  // Memory tag for current transaction
     MEM_BLOCK mem2proc_data;             // Data coming back from memory
     MEM_TAG   mem2proc_data_tag;      
@@ -252,7 +266,21 @@ module testbench;
         .alu_func_dbg(alu_func),
         .mult_executing_dbg(mult_executing),
         .branch_executing_dbg(branch_executing),
-        .mem_executing_dbg(mem_executing)
+        .mem_executing_dbg(mem_executing),
+
+        // ICache debug outputs
+        .read_addrs_dbg(icache_read_addrs),
+        .icache_hits_dbg(icache_hits),
+        .icache_misses_dbg(icache_misses),
+        .icache_full_dbg(icache_full),
+        .prefetch_addr_dbg(prefetch_addr),
+        .oldest_miss_addr_dbg(oldest_miss_addr),
+        .mshr_addr_found_dbg(mshr_addr_found),
+        .mshr_head_dbg(mshr_head),
+        .mshr_tail_dbg(mshr_tail),
+        .mshr_entries_dbg(mshr_entries),
+        .mem_write_icache_dbg(mem_write_icache),
+        .mem_write_addr_dbg(mem_write_addr)
     );
 
         // ---- Fake-Fetch interface ----
@@ -886,6 +914,71 @@ module testbench;
             end
         end
         if (prf_count == 0) $display("  (All registers are zero)");
+
+        // ICACHE SUBSYSTEM DEBUG
+        $display("\n--- ICACHE SUBSYSTEM ---");
+        
+        $display("\nRead Addresses from Fetch:");
+        for (integer k = 0; k < 2; k++) begin
+            $display("  Port[%0d]: Valid=%b", k, icache_read_addrs[k].valid);
+            if (icache_read_addrs[k].valid) begin
+                $display("    Full PC: 0x%04h", 
+                         {icache_read_addrs[k].addr.zeros, icache_read_addrs[k].addr.tag, icache_read_addrs[k].addr.block_offset});
+                $display("    Addr breakdown - zeros: 0x%04h, tag: 0x%02h, block_offset: 0x%01h",
+                         icache_read_addrs[k].addr.zeros, 
+                         icache_read_addrs[k].addr.tag, 
+                         icache_read_addrs[k].addr.block_offset);
+            end
+        end
+
+        $display("\nICache Status:");
+        $display("  Port[0]: %s | Port[1]: %s | Full: %b", 
+                 icache_hits[0] ? "HIT " : (icache_misses[0] ? "MISS" : "IDLE"),
+                 icache_hits[1] ? "HIT " : (icache_misses[1] ? "MISS" : "IDLE"),
+                 icache_full);
+        
+        $display("\nOldest Miss Address:");
+        $display("  Valid: %b", oldest_miss_addr.valid);
+        if (oldest_miss_addr.valid) begin
+            $display("  Full PC: 0x%04h", 
+                     {oldest_miss_addr.addr.zeros, oldest_miss_addr.addr.tag, oldest_miss_addr.addr.block_offset});
+            $display("  Addr breakdown - zeros: 0x%04h, tag: 0x%02h, block_offset: 0x%01h",
+                     oldest_miss_addr.addr.zeros, 
+                     oldest_miss_addr.addr.tag, 
+                     oldest_miss_addr.addr.block_offset);
+        end
+
+        $display("\nPrefetcher:");
+        $display("  Valid: %b", prefetch_addr.valid);
+        if (prefetch_addr.valid) begin
+            $display("  Full PC: 0x%04h", 
+                     {prefetch_addr.addr.zeros, prefetch_addr.addr.tag, prefetch_addr.addr.block_offset});
+            $display("  Addr breakdown - zeros: 0x%04h, tag: 0x%02h, block_offset: 0x%01h",
+                     prefetch_addr.addr.zeros, 
+                     prefetch_addr.addr.tag, 
+                     prefetch_addr.addr.block_offset);
+        end
+
+        $display("\nMSHR (Miss Status Holding Register):");
+        $display("  Head: %0d | Tail: %0d | Addr Found in MSHR: %b", mshr_head, mshr_tail, mshr_addr_found);
+        for (integer j = 0; j < `NUM_MEM_TAGS; j++) begin
+            if (mshr_entries[j].valid) begin
+                $display("  MSHR[%0d]: valid=1 | mem_tag=%0d | i_tag=0x%02h", 
+                         j, mshr_entries[j].mem_tag, mshr_entries[j].i_tag);
+            end
+        end
+
+        $display("\nMemory Interface:");
+        $display("  Write to ICache: %b", mem_write_icache);
+        $display("  Write Addr Valid: %b", mem_write_addr.valid);
+        if (mem_write_addr.valid) begin
+            $display("  Write Full PC: 0x%04h",
+                     {mem_write_addr.addr.zeros, mem_write_addr.addr.tag, mem_write_addr.addr.block_offset});
+            $display("  Write Addr breakdown - zeros: 0x%04h, tag: 0x%02h, block_offset: 0x%01h",
+                     mem_write_addr.addr.zeros, 
+                     mem_write_addr.addr.tag, 
+                     mem_write_addr.addr.block_offset);
+        end
 
         $display("=================================================================================\n");
     endtask

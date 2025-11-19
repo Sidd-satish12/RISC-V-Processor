@@ -23,7 +23,9 @@ module cpu (
     output MEM_COMMAND proc2mem_command,  // Command sent to memory
     output ADDR        proc2mem_addr,     // Address sent to memory
     output MEM_BLOCK   proc2mem_data,     // Data sent to memory
+`ifndef CACHE_MODE
     output MEM_SIZE    proc2mem_size,     // Data size sent to memory
+`endif
 
     // Retire interface
     output COMMIT_PACKET [`N-1:0] committed_insts,
@@ -103,7 +105,21 @@ module cpu (
     output ALU_FUNC [`NUM_FU_ALU-1:0] alu_func_dbg,
     output logic [`NUM_FU_MULT-1:0] mult_executing_dbg,
     output logic [`NUM_FU_BRANCH-1:0] branch_executing_dbg,
-    output logic [`NUM_FU_MEM-1:0] mem_executing_dbg
+    output logic [`NUM_FU_MEM-1:0] mem_executing_dbg,
+
+    // ICache debug outputs
+    output I_ADDR_PACKET [1:0]  read_addrs_dbg,
+    output logic [1:0]          icache_hits_dbg,
+    output logic [1:0]          icache_misses_dbg,
+    output logic                icache_full_dbg,
+    output I_ADDR_PACKET        prefetch_addr_dbg,
+    output I_ADDR_PACKET        oldest_miss_addr_dbg,
+    output logic                mshr_addr_found_dbg,
+    output logic [$clog2(`NUM_MEM_TAGS)-1:0] mshr_head_dbg,
+    output logic [$clog2(`NUM_MEM_TAGS)-1:0] mshr_tail_dbg,
+    output MSHR_PACKET [`NUM_MEM_TAGS-1:0]   mshr_entries_dbg,
+    output logic                mem_write_icache_dbg,
+    output I_ADDR_PACKET        mem_write_addr_dbg
 
 );
 
@@ -234,7 +250,21 @@ module cpu (
 
         // Arbitor IOs
         .mem_req_addr     (mem_req_addr),
-        .mem_req_accepted (1'b1)
+        .mem_req_accepted (1'b1),
+
+        // Debug outputs
+        .read_addrs_dbg       (read_addrs_dbg),
+        .icache_hits_dbg      (icache_hits_dbg),
+        .icache_misses_dbg    (icache_misses_dbg),
+        .icache_full_dbg      (icache_full_dbg),
+        .prefetch_addr_dbg    (prefetch_addr_dbg),
+        .oldest_miss_addr_dbg (oldest_miss_addr_dbg),
+        .mshr_addr_found_dbg  (mshr_addr_found_dbg),
+        .mshr_head_dbg        (mshr_head_dbg),
+        .mshr_tail_dbg        (mshr_tail_dbg),
+        .mshr_entries_dbg     (mshr_entries_dbg),
+        .mem_write_icache_dbg (mem_write_icache_dbg),
+        .mem_write_addr_dbg   (mem_write_addr_dbg)
     );
 
     // icache access memory only
@@ -243,7 +273,9 @@ module cpu (
         // Using fake fetch - only handle data memory operations
         proc2mem_command = MEM_LOAD; //
         proc2mem_addr    = mem_req_addr;
+`ifndef CACHE_MODE
         proc2mem_size    = '0; // data size sent to memory
+`endif
         proc2mem_data    = '0; // data sent to memory, no memory write for instruciotn
     end
 
