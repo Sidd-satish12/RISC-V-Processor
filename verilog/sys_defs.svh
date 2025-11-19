@@ -49,7 +49,7 @@
 `define NUM_FU_ALU 3      // Enough for superscalar width
 `define NUM_FU_MULT 1     // Single pipelined multiplier
 `define NUM_FU_BRANCH 1   // Single branch resolver
-`define NUM_FU_MEM 1     // Single address calculator for mem ops
+`define NUM_FU_MEM 3     // Single address calculator for mem ops
 `define NUM_FU_TOTAL (`NUM_FU_ALU + `NUM_FU_MULT + `NUM_FU_BRANCH + `NUM_FU_MEM)
 
 // reservation station sizes per FU type
@@ -200,6 +200,12 @@ typedef struct packed {
     logic [`DTAG_BITS-1:0]          tag;
     logic [`DBLOCK_OFFSET_BITS-1:0] block_offset;
 } D_ADDR; // DCache Breakdown of D-cache address
+
+typedef struct packed {
+    logic valid;
+    D_ADDR  addr;
+    MEM_COMMAND command;
+} MEM_REQUEST_PACKET;
 
 typedef struct packed {
     logic valid;

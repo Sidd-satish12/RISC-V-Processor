@@ -5,11 +5,11 @@ module Dcache_subsystem (
     input reset,
     
     // one read and write for now
-    input D_ADDR_PACKET    read_addr,
-    input D_ADDR_PACKET    write_addr,
+    input D_ADDR_PACKET [`N-1:0]   read_addr, // max 3, when 3 loads in ex
+    input D_ADDR_PACKET [`N-1:0]   write_addr, // max 3, when 3 stores retire
 
     // for reads (Load instructions)
-    output CACHE_DATA      cache_out,
+    output CACHE_DATA [`N-1:0]     cache_out,
 
     // Mem.sv IOs
     input MEM_TAG          current_req_tag,
@@ -17,7 +17,8 @@ module Dcache_subsystem (
     input MEM_TAG          mem_data_tag,
 
     // Arbitor IOs
-    output I_ADDR_PACKET   mem_req_addr,
+    output MEM_REQUEST_PACKET   mem_req,
+    
     input  logic           mem_req_accepted
 );
 
@@ -27,19 +28,18 @@ module Dcache (
     input clock,
     input reset,
 
-    input D_ADDR_PACKET    read_addr,
-    input D_ADDR_PACKET    write_addr,
+    input D_ADDR_PACKET [`N-1:0] read_addr,
+    input D_ADDR_PACKET [`N-1:0] write_addr,
 
-    output CACHE_DATA      cache_out,
+    output CACHE_DATA [`N-1:0]   cache_out,
 
     // Dcache write mem_data, when mem_data_tag matches head of MSHR
-    // 
-    input I_ADDR_PACKET write_addr,
-    input MEM_BLOCK     write_data
+    input D_ADDR_PACKET [`N-1:0] write_addr,
+    input MEM_BLOCK [`N-1:0]    write_data
 );
 
     localparam MEM_WIDTH = 1 + `DTAG_BITS + `MEM_BLOCK_BITS;
-    // todo check size to see if it meets specs
+
     memDP #(
             .WIDTH(MEM_WIDTH),
             .DEPTH(1),
@@ -57,5 +57,9 @@ module Dcache (
         );
 
 
-
 endmodule
+
+// module d_mshr (
+
+
+// );
