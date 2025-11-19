@@ -19,6 +19,7 @@ module icache_subsystem (
 
     // Debug outputs
     output I_ADDR_PACKET [1:0]  read_addrs_dbg,
+    output CACHE_DATA [1:0]     cache_outs_dbg,
     output logic [1:0]          icache_hits_dbg,
     output logic [1:0]          icache_misses_dbg,
     output logic                icache_full_dbg,
@@ -29,7 +30,9 @@ module icache_subsystem (
     output logic [$clog2(`NUM_MEM_TAGS)-1:0] mshr_tail_dbg,
     output MSHR_PACKET [`NUM_MEM_TAGS-1:0]   mshr_entries_dbg,
     output logic                mem_write_icache_dbg,
-    output I_ADDR_PACKET        mem_write_addr_dbg
+    output I_ADDR_PACKET        mem_write_addr_dbg,
+    output MEM_BLOCK            mem_data_dbg,
+    output MEM_TAG              mem_data_tag_dbg
 );
 
     // Internal wires
@@ -113,12 +116,15 @@ module icache_subsystem (
 
     // Debug signal assignments
     assign read_addrs_dbg = read_addrs;
+    assign cache_outs_dbg = cache_outs;
     assign icache_full_dbg = icache_full;
     assign prefetch_addr_dbg = prefetcher_snooping_addr;
     assign oldest_miss_addr_dbg = oldest_miss_addr;
     assign mshr_addr_found_dbg = snooping_found_mshr;
     assign mem_write_icache_dbg = icache_write_addr.valid;
     assign mem_write_addr_dbg = icache_write_addr;
+    assign mem_data_dbg = mem_data;
+    assign mem_data_tag_dbg = mem_data_tag;
 
 endmodule
 

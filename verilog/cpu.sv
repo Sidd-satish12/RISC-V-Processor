@@ -109,6 +109,7 @@ module cpu (
 
     // ICache debug outputs
     output I_ADDR_PACKET [1:0]  read_addrs_dbg,
+    output CACHE_DATA [1:0]     cache_outs_dbg,
     output logic [1:0]          icache_hits_dbg,
     output logic [1:0]          icache_misses_dbg,
     output logic                icache_full_dbg,
@@ -119,7 +120,13 @@ module cpu (
     output logic [$clog2(`NUM_MEM_TAGS)-1:0] mshr_tail_dbg,
     output MSHR_PACKET [`NUM_MEM_TAGS-1:0]   mshr_entries_dbg,
     output logic                mem_write_icache_dbg,
-    output I_ADDR_PACKET        mem_write_addr_dbg
+    output I_ADDR_PACKET        mem_write_addr_dbg,
+    output MEM_BLOCK            mem_data_dbg,
+    output MEM_TAG              mem_data_tag_dbg,
+
+    // Fetch stage debug outputs
+    output FETCH_PACKET [3:0]   fetch_packet_dbg,
+    output logic                ib_bundle_valid_dbg
 
 );
 
@@ -254,6 +261,7 @@ module cpu (
 
         // Debug outputs
         .read_addrs_dbg       (read_addrs_dbg),
+        .cache_outs_dbg       (cache_outs_dbg),
         .icache_hits_dbg      (icache_hits_dbg),
         .icache_misses_dbg    (icache_misses_dbg),
         .icache_full_dbg      (icache_full_dbg),
@@ -264,7 +272,9 @@ module cpu (
         .mshr_tail_dbg        (mshr_tail_dbg),
         .mshr_entries_dbg     (mshr_entries_dbg),
         .mem_write_icache_dbg (mem_write_icache_dbg),
-        .mem_write_addr_dbg   (mem_write_addr_dbg)
+        .mem_write_addr_dbg   (mem_write_addr_dbg),
+        .mem_data_dbg         (mem_data_dbg),
+        .mem_data_tag_dbg     (mem_data_tag_dbg)
     );
 
     // icache access memory only
@@ -1047,5 +1057,9 @@ module cpu (
 
     // Issue clear signals debug output
     assign rs_clear_signals_dbg   = rs_clear_signals;
+
+    // Fetch stage debug outputs
+    assign fetch_packet_dbg      = fetch_packet;
+    assign ib_bundle_valid_dbg   = ib_bundle_valid;
 
 endmodule  // cpu
