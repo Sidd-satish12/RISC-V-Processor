@@ -8,7 +8,7 @@ module stage_retire #(
 ) (
     input logic clock,
     input logic reset,
-    input logic bp_enabled = 1'b1,
+    input logic bp_enabled,
 
     // From ROB: head window (0 = oldest, N-1 = youngest)
     input ROB_ENTRY [N-1:0] head_entries,
@@ -31,7 +31,7 @@ module stage_retire #(
     output COMMIT_PACKET [N-1:0] retire_commits_dbg,
 
     // to Fake fetch for branching
-    output logic branch_taken_out,
+    output logic branch_taken_out, // delete
     output ADDR branch_target_out,
     output BP_TRAIN_REQUEST train_req_o,
     output BP_RECOVER_REQUEST recover_req_o,
