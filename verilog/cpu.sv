@@ -218,6 +218,7 @@ module cpu (
 
     // I-cache <-> fetch
     I_ADDR_PACKET           i_cache_read_addrs [1:0];
+    I_ADDR_PACKET           mem_req_addr;
     CACHE_DATA              icache_data [1:0];
 
     icache_subsystem icache_subsystem_inst (
@@ -281,8 +282,8 @@ module cpu (
     )
 
     // Branch Predictor singals
-    BP_TRAIN_REQUEST train_req;
-    BP_RECOVER_REQUEST recover_req;
+   // BP_TRAIN_REQUEST train_req;
+   // BP_RECOVER_REQUEST recover_req;
 
     // BP Debug signals
     logic [`BP_GH-1:0]        ghr_dbg;
@@ -352,7 +353,6 @@ module cpu (
     // Instruction Buffer signals
     FETCH_PACKET [2:0] ib_dispatch_window;  // Window of instructions for decode/dispatch
     logic [1:0]        ib_window_valid_count; // Number of valid instructions in window
-    logic              ib_full;
     logic              ib_empty;
 
     instr_buffer instr_buffer_0 (
