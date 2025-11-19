@@ -1,6 +1,6 @@
 `include "verilog/sys_defs.svh"
 
-module Dcache_subsystem (
+module dcache_subsystem (
     input clock,
     input reset,
     
