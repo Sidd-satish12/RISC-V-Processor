@@ -161,6 +161,7 @@ typedef union packed {
 } MEM_BLOCK;
 
 typedef logic [`ITAG_BITS-1:0]      I_TAG;  
+typedef logic [`DTAG_BITS-1:0]      D_TAG;
 
 typedef struct packed {
     logic valid;
@@ -200,6 +201,13 @@ typedef struct packed {
     logic [`DTAG_BITS-1:0]          tag;
     logic [`DBLOCK_OFFSET_BITS-1:0] block_offset;
 } D_ADDR; // DCache Breakdown of D-cache address
+
+typedef struct packed {
+    logic valid;
+    logic dirty;
+    D_TAG tag;
+    MEM_BLOCK data;
+} D_CACHE_LINE;
 
 typedef struct packed {
     logic valid;
