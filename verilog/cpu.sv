@@ -228,7 +228,6 @@ module cpu (
     logic     [`N-1:0] rob_head_valids;
     ROB_IDX   [`N-1:0] rob_head_idxs;
     ROB_IDX            rob_mispred_idx;
-    logic              bp_recover_en;
     logic     [`N-1:0] arch_write_enables;
     REG_IDX   [`N-1:0] arch_write_addrs;
     PHYS_TAG  [`N-1:0] arch_write_phys_regs;
@@ -887,7 +886,7 @@ module cpu (
         // Mispredict recovery
         .table_snapshot(),
         .table_restore(arch_table_snapshot_dbg),
-        .table_restore_en(bp_recover_en)
+        .table_restore_en(mispredict)
     );
 
     //////////////////////////////////////////////////
