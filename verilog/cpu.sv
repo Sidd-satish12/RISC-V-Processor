@@ -137,7 +137,18 @@ module cpu (
 
     // Fetch stage debug outputs
     output FETCH_PACKET [3:0]   fetch_packet_dbg,
-    output logic                ib_bundle_valid_dbg
+    output logic                ib_bundle_valid_dbg,
+
+    // Instruction Buffer debug outputs
+    output logic [$clog2(32)-1:0]          ib_head_ptr_dbg,
+    output logic [$clog2(32)-1:0]          ib_tail_ptr_dbg,
+    output logic [$clog2(32+1)-1:0]        ib_count_dbg,
+    output logic [$clog2(4+1)-1:0]         ib_free_slots_dbg,
+    output logic [$clog2(4+1)-1:0]         ib_num_pushes_dbg,
+    output logic [$clog2(3+1)-1:0]         ib_num_pops_dbg,
+    output FETCH_PACKET [3:0]              ib_new_entries_dbg,
+    output FETCH_PACKET [2:0]              ib_popped_entries_dbg,
+    output FETCH_PACKET [31:0]             ib_buffer_entries_dbg
 
 );
 
@@ -268,7 +279,7 @@ module cpu (
 
         // Arbitor IOs
         .mem_req_addr     (mem_req_addr),
-        .mem_req_accepted (1'b1),
+        .mem_req_accepted (mem_req_accepted),
 
         // Debug outputs
         .read_addrs_dbg       (read_addrs_dbg),
@@ -303,13 +314,21 @@ module cpu (
     // needs to be decided by arbitrator later when dcache is done
     always_comb begin
         // Using fake fetch - only handle data memory operations
-        proc2mem_command = MEM_LOAD; //
-        proc2mem_addr    = mem_req_addr;
+        if (mem_req_addr.valid) begin
+            proc2mem_command = MEM_LOAD;
+            proc2mem_addr    = mem_req_addr.addr;
+        end else begin
+            proc2mem_command = MEM_NONE;
+            proc2mem_addr    = '0;
+        end
 `ifndef CACHE_MODE
         proc2mem_size    = '0; // data size sent to memory
 `endif
         proc2mem_data    = '0; // data sent to memory, no memory write for instruciotn
     end
+
+    // In this simplified model, memory always accepts valid requests
+    assign mem_req_accepted = (proc2mem_command == MEM_LOAD); // && (mem2proc_transaction_tag != 0)
 
     //////////////////////////////////////////////////
     //                                              //
@@ -451,7 +470,18 @@ module cpu (
         .dispatch_window(ib_dispatch_window),
         .window_valid_count(ib_window_valid_count),
 
-        .empty(ib_empty)
+        .empty(ib_empty),
+
+        // Debug outputs
+        .head_ptr_dbg(ib_head_ptr_dbg),
+        .tail_ptr_dbg(ib_tail_ptr_dbg),
+        .count_dbg(ib_count_dbg),
+        .free_slots_dbg(ib_free_slots_dbg),
+        .num_pushes_dbg(ib_num_pushes_dbg),
+        .num_pops_dbg(ib_num_pops_dbg),
+        .new_entries_dbg(ib_new_entries_dbg),
+        .popped_entries_dbg(ib_popped_entries_dbg),
+        .buffer_entries_dbg(ib_buffer_entries_dbg)
     );
 
     //////////////////////////////////////////////////

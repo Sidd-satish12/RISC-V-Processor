@@ -23,7 +23,18 @@ module instr_buffer #(
     // Dispatch inspection window - shows next POP_WIDTH instructions available for decode/dispatch
     input logic [$clog2(POP_WIDTH+1)-1:0]      num_pops,        // number of entries to pop
     output FETCH_PACKET [POP_WIDTH-1:0]        dispatch_window, // Window of next available instructions
-    output logic [$clog2(POP_WIDTH+1)-1:0]     window_valid_count // Number of valid instructions in window
+    output logic [$clog2(POP_WIDTH+1)-1:0]     window_valid_count, // Number of valid instructions in window
+
+    // Debug outputs
+    output logic [$clog2(DEPTH)-1:0]           head_ptr_dbg,
+    output logic [$clog2(DEPTH)-1:0]           tail_ptr_dbg,
+    output logic [$clog2(DEPTH+1)-1:0]         count_dbg,
+    output logic [$clog2(PUSH_WIDTH+1)-1:0]   free_slots_dbg,
+    output logic [$clog2(PUSH_WIDTH+1)-1:0]   num_pushes_dbg,
+    output logic [$clog2(POP_WIDTH+1)-1:0]    num_pops_dbg,
+    output FETCH_PACKET [PUSH_WIDTH-1:0]      new_entries_dbg,
+    output FETCH_PACKET [POP_WIDTH-1:0]       popped_entries_dbg,
+    output FETCH_PACKET [DEPTH-1:0]           buffer_entries_dbg
 );
 
     // Helper functions for cleaner code
@@ -120,4 +131,25 @@ module instr_buffer #(
             end
         end
     end
+
+    // Debug output assignments
+    assign head_ptr_dbg = head_ptr;
+    assign tail_ptr_dbg = tail_ptr;
+    assign count_dbg = count;
+    assign free_slots_dbg = free_slots;
+    assign num_pushes_dbg = num_pushes;
+    assign num_pops_dbg = num_pops;
+    assign new_entries_dbg = new_ib_entry;
+    assign buffer_entries_dbg = ib_entries;
+
+    // Debug output for popped entries (what's being removed this cycle)
+    always_comb begin
+        popped_entries_dbg = '{POP_WIDTH{'0}};  // Initialize all to invalid
+        for (int i = 0; i < POP_WIDTH; i++) begin
+            if (i < num_pops && count > i) begin
+                popped_entries_dbg[i] = ib_entries[wrap_ptr(head_ptr, i)];
+            end
+        end
+    end
+
 endmodule
