@@ -1021,10 +1021,6 @@ module cpu (
     //                                              //
     //////////////////////////////////////////////////
 
-    // TODO: Move the wires to the wire stage afterward
-
-    // wires for Retire Stage
-
     logic v;
 
     logic bp_enabled;
@@ -1038,7 +1034,6 @@ module cpu (
     stage_retire stage_retire_0 (
         .clock(clock),
         .reset(reset),
-        .bp_enabled(1'b1),
 
         // From ROB: head window (N-1 = oldest, 0 = youngest)
         .head_entries(rob_head_entries),
@@ -1061,7 +1056,7 @@ module cpu (
 
 
         // To fetch
-    //    .branch_taken_out(mispredict),
+        //    .branch_taken_out(mispredict),
         .branch_target_out(pc_override),
         .train_req_o            (train_req),
         .recover_req_o          (recover_req),
@@ -1069,12 +1064,11 @@ module cpu (
         // From PRF for committed data
         .regfile_entries(regfile_entries_dbg),
 
-        .bp_enabled_dbg                 (bp_enabled_dbg),
-        .branch_retired_dbg             (branch_retired_dbg),
-        .branch_taken_dbg               (branch_taken_dbg),
-        .is_branch_target_unknown_dbg   (is_branch_target_unknown_dbg),
-        .train_triggered_dbg            (train_triggered_dbg),
-        .retire_valid_dbg               (retire_valid_dbg)
+        // From arch map table for freelist restore on mispredict
+        .arch_table_snapshot(arch_table_snapshot),
+
+        // To freelist: restore mask on mispredict
+        .freelist_restore_mask(freelist_restore_mask)
     );
 
     //////////////////////////////////////////////////
