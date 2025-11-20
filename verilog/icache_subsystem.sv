@@ -55,6 +55,10 @@ module icache_subsystem (
     I_CACHE_LINE icache_line_write;
     logic [(`ICACHE_LINES + `PREFETCH_STREAM_BUFFER_SIZE)-1:0] icache_write_enable_mask;
 
+    // Minimal register to handle tag timing
+    logic pending_request;
+    logic [12:0] pending_i_tag;  // I_TAG is 13 bits
+
     icache icache_inst (
         .clock        (clock),
         .reset        (reset),
@@ -83,6 +87,7 @@ module icache_subsystem (
         .icache_miss_addr        (oldest_miss_addr),
         .icache_full             (icache_full),
         .mem_req_accepted        (mem_req_accepted),
+        .pending_request         (pending_request),
         .prefetcher_snooping_addr(prefetcher_snooping_addr)
     );
 
@@ -130,13 +135,24 @@ module icache_subsystem (
         end
     end
 
-    // New MSHR entry logic
+    // MSHR entry logic - use pending request with current tag, only if request was accepted
     always_comb begin
-        new_mshr_entry = '0;  // Default assignment to prevent latch
-        if (mem_req_accepted) begin
+        new_mshr_entry = '0;
+        if (pending_request && (current_req_tag != 0)) begin
             new_mshr_entry.valid   = '1;
             new_mshr_entry.mem_tag = current_req_tag;
-            new_mshr_entry.i_tag   = mem_req_addr.addr.tag;
+            new_mshr_entry.i_tag   = pending_i_tag;
+        end
+    end
+
+    always_ff @(posedge clock) begin
+        if (reset) begin
+            pending_request <= 0;
+        end else if (mem_req_accepted) begin
+            pending_request <= 1;
+            pending_i_tag <= mem_req_addr.addr.tag;
+        end else begin
+            pending_request <= 0;
         end
     end
 
@@ -195,7 +211,7 @@ module i_mshr #(
     // Snooping logic
     logic [MSHR_WIDTH-1:0] snooping_one_hot;
     for (genvar i = 0; i < MSHR_WIDTH; i++) begin
-        assign snooping_one_hot[i] = mshr_entries[i].i_tag == snooping_addr.tag;
+        assign snooping_one_hot[i] = mshr_entries[i].valid && (mshr_entries[i].i_tag == snooping_addr.tag);
     end
     assign addr_found = |snooping_one_hot;
 
@@ -266,6 +282,7 @@ module i_prefetcher (
     input logic         icache_full,
 
     input  logic         mem_req_accepted,
+    input  logic         pending_request,  // TODO Wait for any pending MSHR entry to be added
     output I_ADDR_PACKET prefetcher_snooping_addr
 );
     I_ADDR_PACKET last_icache_miss_mem_req, next_last_icache_miss_mem_req;
@@ -285,15 +302,18 @@ module i_prefetcher (
                 next_last_icache_miss_mem_req.valid = '1;
                 next_last_icache_miss_mem_req.addr = icache_miss_addr.addr;
                 next_addr_incrementor = icache_miss_addr.addr;
-            end
-        end else if (~icache_full & last_icache_miss_mem_req.valid) begin
-            // Send lookahead snooping request
-            prefetcher_snooping_addr.valid = '1;
-            prefetcher_snooping_addr.addr  = addr_incrementor + 'h4;
-            if (mem_req_accepted) begin
-                next_addr_incrementor = addr_incrementor + 'h4;
-            end
-        end
+            end 
+        end 
+        // TODO: WARNING PREFETCHER DISABLED BECAUSE ITS OVERRIDING THE OLDEST MISS 
+        // right now the prefetcher is the only thing sending out vaild memory requests
+        // else if (~icache_full & last_icache_miss_mem_req.valid) begin
+        //     // Send lookahead snooping request
+        //     prefetcher_snooping_addr.valid = '1;
+        //     prefetcher_snooping_addr.addr  = addr_incrementor + 'h4;
+        //     if (mem_req_accepted) begin
+        //         next_addr_incrementor = addr_incrementor + 'h4;
+        //     end
+        // end
     end
 
     always_ff @(posedge clock) begin
