@@ -150,45 +150,56 @@ module testbench;
     logic [`NUM_FU_MEM-1:0] mem_executing;
 
     // ICache debug signals
-    I_ADDR_PACKET [1:0]  icache_read_addrs;
-    CACHE_DATA [1:0]     icache_cache_outs;
-    logic [1:0]          icache_hits;
-    logic [1:0]          icache_misses;
-    logic                icache_full;
-    I_ADDR_PACKET        prefetch_addr;
-    I_ADDR_PACKET        oldest_miss_addr;
-    logic                mshr_addr_found;
+    I_ADDR_PACKET [1:0] icache_read_addrs;
+    CACHE_DATA [1:0] icache_cache_outs;
+    logic [1:0] icache_hits;
+    logic [1:0] icache_misses;
+    logic icache_full;
+    I_ADDR_PACKET prefetch_addr;
+    I_ADDR_PACKET oldest_miss_addr;
+    logic mshr_addr_found;
     logic [$clog2(`NUM_MEM_TAGS)-1:0] mshr_head;
     logic [$clog2(`NUM_MEM_TAGS)-1:0] mshr_tail;
-    MSHR_PACKET [`NUM_MEM_TAGS-1:0]   mshr_entries;
+    MSHR_PACKET [`NUM_MEM_TAGS-1:0] mshr_entries;
     logic [$clog2(`NUM_MEM_TAGS)-1:0] mshr_next_head;
     logic [$clog2(`NUM_MEM_TAGS)-1:0] mshr_next_tail;
-    logic                mshr_pop_condition;
-    logic                mshr_push_condition;
-    logic                mshr_pop_cond_has_data;
-    logic                mshr_pop_cond_head_valid;
-    logic                mshr_pop_cond_tag_match;
-    logic                mem_write_icache;
-    I_ADDR_PACKET        mem_write_addr;
-    MEM_BLOCK            mem_data_from_mem;
-    MEM_TAG              mem_data_tag_from_mem;
-    I_ADDR_PACKET        icache_write_addr;
-    MEM_BLOCK            icache_write_data;
-    I_CACHE_LINE         icache_line_write;
+    logic mshr_pop_condition;
+    logic mshr_push_condition;
+    logic mshr_pop_cond_has_data;
+    logic mshr_pop_cond_head_valid;
+    logic mshr_pop_cond_tag_match;
+    logic mem_write_icache;
+    I_ADDR_PACKET mem_write_addr;
+    MEM_BLOCK mem_data_from_mem;
+    MEM_TAG mem_data_tag_from_mem;
+    I_ADDR_PACKET icache_write_addr;
+    MEM_BLOCK icache_write_data;
+    I_CACHE_LINE icache_line_write;
     logic [(`ICACHE_LINES + `PREFETCH_STREAM_BUFFER_SIZE)-1:0] icache_write_enable_mask;
 
     // Fetch stage debug signals
-    FETCH_PACKET [3:0]   fetch_packet_out;
-    logic                ib_bundle_valid;
+    FETCH_PACKET [3:0] fetch_packet_out;
+    logic ib_bundle_valid;
 
-    MEM_TAG   mem2proc_transaction_tag;  // Memory tag for current transaction
-    MEM_BLOCK mem2proc_data;             // Data coming back from memory
-    MEM_TAG   mem2proc_data_tag;      
+    // Instruction Buffer debug signals
+    logic [$clog2(32)-1:0] ib_head_ptr;
+    logic [$clog2(32)-1:0] ib_tail_ptr;
+    logic [$clog2(32+1)-1:0] ib_count;
+    logic [$clog2(4+1)-1:0] ib_free_slots;
+    logic [$clog2(4+1)-1:0] ib_num_pushes;
+    logic [$clog2(3+1)-1:0] ib_num_pops;
+    FETCH_PACKET [3:0] ib_new_entries;
+    FETCH_PACKET [2:0] ib_popped_entries;
+    FETCH_PACKET [31:0] ib_buffer_entries;
+
+    MEM_TAG mem2proc_transaction_tag;  // Memory tag for current transaction
+    MEM_BLOCK mem2proc_data;  // Data coming back from memory
+    MEM_TAG mem2proc_data_tag;
 
     MEM_COMMAND proc2mem_command;  // Command sent to memory
-    ADDR        proc2mem_addr;     // Address sent to memory
-    MEM_BLOCK   proc2mem_data;     // Data sent to memory
-    MEM_SIZE    proc2mem_size;     // Data size sent to memory
+    ADDR proc2mem_addr;  // Address sent to memory
+    MEM_BLOCK proc2mem_data;  // Data sent to memory
+    MEM_SIZE proc2mem_size;  // Data size sent to memory
 
     // Instantiate the Pipeline
     cpu verisimpleV (
@@ -203,9 +214,9 @@ module testbench;
         .proc2mem_command(proc2mem_command),
         .proc2mem_addr   (proc2mem_addr),
         .proc2mem_data   (proc2mem_data),
-        `ifndef CACHE_MODE
+`ifndef CACHE_MODE
         .proc2mem_size   (proc2mem_size),
-        `endif
+`endif
 
         .committed_insts(committed_insts),
 
@@ -316,20 +327,31 @@ module testbench;
 
         // Fetch stage debug outputs
         .fetch_packet_dbg(fetch_packet_out),
-        .ib_bundle_valid_dbg(ib_bundle_valid)
+        .ib_bundle_valid_dbg(ib_bundle_valid),
+
+        // Instruction Buffer debug outputs
+        .ib_head_ptr_dbg(ib_head_ptr),
+        .ib_tail_ptr_dbg(ib_tail_ptr),
+        .ib_count_dbg(ib_count),
+        .ib_free_slots_dbg(ib_free_slots),
+        .ib_num_pushes_dbg(ib_num_pushes),
+        .ib_num_pops_dbg(ib_num_pops),
+        .ib_new_entries_dbg(ib_new_entries),
+        .ib_popped_entries_dbg(ib_popped_entries),
+        .ib_buffer_entries_dbg(ib_buffer_entries)
     );
 
-        // ---- Fake-Fetch interface ----
-// `ifdef SYNTH
-//         .ff_instr       ({fake_instr[2], fake_instr[1], fake_instr[0]}),
-// `else
-//         .ff_instr       (fake_instr),
-// `endif
-//         .ff_pc          (fake_pc),
-//         .ff_nvalid      (fake_nvalid),
-//         .ff_consumed    (fake_consumed),
-//         .branch_taken_out (ff_branch_taken),
-//         .branch_target_out(ff_branch_target)
+    // ---- Fake-Fetch interface ----
+    // `ifdef SYNTH
+    //         .ff_instr       ({fake_instr[2], fake_instr[1], fake_instr[0]}),
+    // `else
+    //         .ff_instr       (fake_instr),
+    // `endif
+    //         .ff_pc          (fake_pc),
+    //         .ff_nvalid      (fake_nvalid),
+    //         .ff_consumed    (fake_consumed),
+    //         .branch_taken_out (ff_branch_taken),
+    //         .branch_target_out(ff_branch_target)
 
 
     // Instruction Memory (for fake-fetch only - data operations disconnected)
@@ -617,33 +639,28 @@ module testbench;
 
         // ICACHE SUBSYSTEM DEBUG
         $display("\n--- ICACHE SUBSYSTEM ---");
-        
+
         $display("\nRead Addresses from Fetch:");
         for (integer k = 0; k < 2; k++) begin
             $display("  Port[%0d]: Valid=%b", k, icache_read_addrs[k].valid);
             if (icache_read_addrs[k].valid) begin
-                $display("    Full PC: 0x%04h", 
-                         {icache_read_addrs[k].addr.zeros, icache_read_addrs[k].addr.tag, icache_read_addrs[k].addr.block_offset});
+                $display("    Full PC: 0x%04h", {icache_read_addrs[k].addr.zeros, icache_read_addrs[k].addr.tag,
+                                                 icache_read_addrs[k].addr.block_offset});
                 $display("    Addr breakdown - zeros: 0x%04h, tag: 0x%02h, block_offset: 0x%01h",
-                         icache_read_addrs[k].addr.zeros, 
-                         icache_read_addrs[k].addr.tag, 
-                         icache_read_addrs[k].addr.block_offset);
+                         icache_read_addrs[k].addr.zeros, icache_read_addrs[k].addr.tag, icache_read_addrs[k].addr.block_offset);
             end
         end
 
         $display("\nICache Status:");
-        $display("  Port[0]: %s | Port[1]: %s | Full: %b", 
-                 icache_hits[0] ? "HIT " : (icache_misses[0] ? "MISS" : "IDLE"),
-                 icache_hits[1] ? "HIT " : (icache_misses[1] ? "MISS" : "IDLE"),
-                 icache_full);
+        $display("  Port[0]: %s | Port[1]: %s | Full: %b", icache_hits[0] ? "HIT " : (icache_misses[0] ? "MISS" : "IDLE"),
+                 icache_hits[1] ? "HIT " : (icache_misses[1] ? "MISS" : "IDLE"), icache_full);
 
         $display("\nCache Outputs to Fetch:");
         for (integer co_idx = 0; co_idx < 2; co_idx++) begin
             $display("  Port[%0d]: Valid=%b", co_idx, icache_cache_outs[co_idx].valid);
             if (icache_cache_outs[co_idx].valid) begin
                 $display("    Data (MEM_BLOCK):");
-                $display("      Word[0]: 0x%08h | Word[1]: 0x%08h", 
-                         icache_cache_outs[co_idx].data.word_level[0],
+                $display("      Word[0]: 0x%08h | Word[1]: 0x%08h", icache_cache_outs[co_idx].data.word_level[0],
                          icache_cache_outs[co_idx].data.word_level[1]);
                 $display("      Full 64-bit: 0x%016h", icache_cache_outs[co_idx].data.dbbl_level);
             end
@@ -652,23 +669,18 @@ module testbench;
         $display("\nOldest Miss Address:");
         $display("  Valid: %b", oldest_miss_addr.valid);
         if (oldest_miss_addr.valid) begin
-            $display("  Full PC: 0x%04h", 
-                     {oldest_miss_addr.addr.zeros, oldest_miss_addr.addr.tag, oldest_miss_addr.addr.block_offset});
-            $display("  Addr breakdown - zeros: 0x%04h, tag: 0x%02h, block_offset: 0x%01h",
-                     oldest_miss_addr.addr.zeros, 
-                     oldest_miss_addr.addr.tag, 
-                     oldest_miss_addr.addr.block_offset);
+            $display("  Full PC: 0x%04h", {oldest_miss_addr.addr.zeros, oldest_miss_addr.addr.tag,
+                                           oldest_miss_addr.addr.block_offset});
+            $display("  Addr breakdown - zeros: 0x%04h, tag: 0x%02h, block_offset: 0x%01h", oldest_miss_addr.addr.zeros,
+                     oldest_miss_addr.addr.tag, oldest_miss_addr.addr.block_offset);
         end
 
         $display("\nPrefetcher:");
         $display("  Valid: %b", prefetch_addr.valid);
         if (prefetch_addr.valid) begin
-            $display("  Full PC: 0x%04h", 
-                     {prefetch_addr.addr.zeros, prefetch_addr.addr.tag, prefetch_addr.addr.block_offset});
-            $display("  Addr breakdown - zeros: 0x%04h, tag: 0x%02h, block_offset: 0x%01h",
-                     prefetch_addr.addr.zeros, 
-                     prefetch_addr.addr.tag, 
-                     prefetch_addr.addr.block_offset);
+            $display("  Full PC: 0x%04h", {prefetch_addr.addr.zeros, prefetch_addr.addr.tag, prefetch_addr.addr.block_offset});
+            $display("  Addr breakdown - zeros: 0x%04h, tag: 0x%02h, block_offset: 0x%01h", prefetch_addr.addr.zeros,
+                     prefetch_addr.addr.tag, prefetch_addr.addr.block_offset);
         end
 
         $display("\nMSHR (Miss Status Holding Register):");
@@ -677,16 +689,15 @@ module testbench;
         $display("  Pop Condition: %b (BREAKDOWN BELOW)", mshr_pop_condition);
         $display("    [1] mem_data_tag != 0      : %b (mem_data_tag=%0d)", mshr_pop_cond_has_data, mem_data_tag_from_mem);
         $display("    [2] mshr[head].valid       : %b", mshr_pop_cond_head_valid);
-        $display("    [3] tag match              : %b (mem_tag=%0d vs mshr[%0d].mem_tag=%0d)", 
-                 mshr_pop_cond_tag_match, mem_data_tag_from_mem, mshr_head, mshr_entries[mshr_head].mem_tag);
-        $display("  MSHR[head=%0d]: valid=%b | mem_tag=%0d | i_tag=0x%02h", 
-                 mshr_head, mshr_entries[mshr_head].valid, mshr_entries[mshr_head].mem_tag, mshr_entries[mshr_head].i_tag);
-        
+        $display("    [3] tag match              : %b (mem_tag=%0d vs mshr[%0d].mem_tag=%0d)", mshr_pop_cond_tag_match,
+                 mem_data_tag_from_mem, mshr_head, mshr_entries[mshr_head].mem_tag);
+        $display("  MSHR[head=%0d]: valid=%b | mem_tag=%0d | i_tag=0x%02h", mshr_head, mshr_entries[mshr_head].valid,
+                 mshr_entries[mshr_head].mem_tag, mshr_entries[mshr_head].i_tag);
+
         $display("  All MSHR Entries:");
         for (integer j = 0; j < `NUM_MEM_TAGS; j++) begin
             if (mshr_entries[j].valid) begin
-                $display("  MSHR[%0d]: valid=1 | mem_tag=%0d | i_tag=0x%02h", 
-                         j, mshr_entries[j].mem_tag, mshr_entries[j].i_tag);
+                $display("  MSHR[%0d]: valid=1 | mem_tag=%0d | i_tag=0x%02h", j, mshr_entries[j].mem_tag, mshr_entries[j].i_tag);
             end
         end
 
@@ -694,15 +705,14 @@ module testbench;
         $display("  Memory Data Tag: %0d (0 = no data)", mem_data_tag_from_mem);
         if (mem_data_tag_from_mem != 0) begin
             $display("  Memory Data Returned:");
-            $display("    Word[0]: 0x%08h | Word[1]: 0x%08h", 
-                     mem_data_from_mem.word_level[0], mem_data_from_mem.word_level[1]);
+            $display("    Word[0]: 0x%08h | Word[1]: 0x%08h", mem_data_from_mem.word_level[0], mem_data_from_mem.word_level[1]);
             $display("    Full 64-bit: 0x%016h", mem_data_from_mem.dbbl_level);
             $display("    Instruction check - Word[0] is WFI? %b (WFI = 0x10500073)",
                      (mem_data_from_mem.word_level[0] == 32'h10500073));
             $display("    Instruction check - Word[1] is WFI? %b (WFI = 0x10500073)",
                      (mem_data_from_mem.word_level[1] == 32'h10500073));
         end
-        
+
         $display("\nICache Write Operations:");
         $display("  Write Addr Valid: %b | Tag: 0x%02h", icache_write_addr.valid, icache_write_addr.addr.tag);
 
@@ -723,6 +733,48 @@ module testbench;
             end
         end
 
+        // INSTRUCTION BUFFER DEBUG
+        $display("\n--- INSTRUCTION BUFFER ---");
+        $display("Buffer State:");
+        $display("  Head Pointer: %0d | Tail Pointer: %0d | Count: %0d | Free Slots: %0d", ib_head_ptr, ib_tail_ptr, ib_count,
+                 ib_free_slots);
+        $display("  Full: %b | Empty: %b", (ib_free_slots == 0), (ib_count == 0));
+
+        $display("\nPush Operations (this cycle):");
+        $display("  Num Pushes: %0d", ib_num_pushes);
+        for (integer push_idx = 0; push_idx < 4; push_idx++) begin
+            if (push_idx < ib_num_pushes && ib_new_entries[push_idx].valid) begin
+                $display("  Push[%0d]: PC=0x%08h | Inst=0x%08h | Branch=%b", push_idx, ib_new_entries[push_idx].pc,
+                         ib_new_entries[push_idx].inst, ib_new_entries[push_idx].is_branch);
+            end
+        end
+
+        $display("\nPop Operations (this cycle):");
+        $display("  Num Pops: %0d", ib_num_pops);
+        for (integer pop_idx = 0; pop_idx < 3; pop_idx++) begin
+            if (pop_idx < ib_num_pops && ib_popped_entries[pop_idx].valid) begin
+                $display("  Pop[%0d]: PC=0x%08h | Inst=0x%08h | Branch=%b", pop_idx, ib_popped_entries[pop_idx].pc,
+                         ib_popped_entries[pop_idx].inst, ib_popped_entries[pop_idx].is_branch);
+            end
+        end
+
+        $display("\nBuffer Contents (valid entries only):");
+        begin
+            integer valid_count = 0;
+            for (integer buf_idx = 0; buf_idx < 32 && valid_count < 8; buf_idx++) begin  // Limit output to first 8 entries
+                if (ib_buffer_entries[buf_idx].valid) begin
+                    $display("  Slot[%0d]: PC=0x%08h | Inst=0x%08h | Branch=%b", buf_idx, ib_buffer_entries[buf_idx].pc,
+                             ib_buffer_entries[buf_idx].inst, ib_buffer_entries[buf_idx].is_branch);
+                    valid_count++;
+                end
+            end
+            if (valid_count == 0) begin
+                $display("  (Buffer is empty)");
+            end else if (valid_count >= 8) begin
+                $display("  ... (showing first 8 of %0d total entries)", ib_count);
+            end
+        end
+
         // FETCH/DISPATCH STAGE
         $display("\n--- FETCH/DISPATCH STAGE ---");
         $display("Dispatch count: %0d", dispatch_count);
@@ -730,8 +782,9 @@ module testbench;
 
         for (integer i = 0; i < `N; i++) begin
             // if (i < dispatch_count) begin
-                $display("DISP[%0d]: PC=0x%08h | Inst=0x%08h | Uses_RD=%b | RD=%0d", i, fetch_disp_packet.entries[i].PC,
-                         fetch_disp_packet.entries[i].inst, fetch_disp_packet.entries[i].uses_rd, fetch_disp_packet.entries[i].rd_idx);
+            $display("DISP[%0d]: PC=0x%08h | Inst=0x%08h | Uses_RD=%b | RD=%0d", i, fetch_disp_packet.entries[i].PC,
+                     fetch_disp_packet.entries[i].inst, fetch_disp_packet.entries[i].uses_rd,
+                     fetch_disp_packet.entries[i].rd_idx);
             // end
         end
 
@@ -971,20 +1024,18 @@ module testbench;
         $display("\n--- MAP TABLES ---");
         $display("Architected Map Table (speculative):");
         for (integer i = 0; i < `ARCH_REG_SZ; i += 4) begin
-            $display("  r%0d->P%0d  r%0d->P%0d  r%0d->P%0d  r%0d->P%0d",
-                     i, arch_table_snapshot[i].phys_reg,
-                     i+1, arch_table_snapshot[i+1].phys_reg,
-                     i+2, arch_table_snapshot[i+2].phys_reg,
-                     i+3, arch_table_snapshot[i+3].phys_reg);
+            $display("  r%0d->P%0d  r%0d->P%0d  r%0d->P%0d  r%0d->P%0d", i, arch_table_snapshot[i].phys_reg, i + 1,
+                     arch_table_snapshot[i+1].phys_reg, i + 2, arch_table_snapshot[i+2].phys_reg, i + 3,
+                     arch_table_snapshot[i+3].phys_reg);
         end
 
         $display("Working Map Table (speculative):");
         for (integer i = 0; i < `ARCH_REG_SZ; i += 4) begin
-            $display("  r%0d->P%0d%s  r%0d->P%0d%s  r%0d->P%0d%s  r%0d->P%0d%s",
-                     i, map_table_snapshot[i].phys_reg, map_table_snapshot[i].ready ? "+" : "",
-                     i+1, map_table_snapshot[i+1].phys_reg, map_table_snapshot[i+1].ready ? "+" : "",
-                     i+2, map_table_snapshot[i+2].phys_reg, map_table_snapshot[i+2].ready ? "+" : "",
-                     i+3, map_table_snapshot[i+3].phys_reg, map_table_snapshot[i+3].ready ? "+" : "");
+            $display("  r%0d->P%0d%s  r%0d->P%0d%s  r%0d->P%0d%s  r%0d->P%0d%s", i, map_table_snapshot[i].phys_reg,
+                     map_table_snapshot[i].ready ? "+" : "", i + 1, map_table_snapshot[i+1].phys_reg,
+                     map_table_snapshot[i+1].ready ? "+" : "", i + 2, map_table_snapshot[i+2].phys_reg,
+                     map_table_snapshot[i+2].ready ? "+" : "", i + 3, map_table_snapshot[i+3].phys_reg,
+                     map_table_snapshot[i+3].ready ? "+" : "");
         end
 
         // FREE LIST
