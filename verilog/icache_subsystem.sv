@@ -26,11 +26,11 @@ module icache_subsystem (
     output I_ADDR_PACKET        prefetch_addr_dbg,
     output I_ADDR_PACKET        oldest_miss_addr_dbg,
     output logic                mshr_addr_found_dbg,
-    output logic [$clog2(`NUM_MEM_TAGS)-1:0] mshr_head_dbg,
-    output logic [$clog2(`NUM_MEM_TAGS)-1:0] mshr_tail_dbg,
-    output MSHR_PACKET [`NUM_MEM_TAGS-1:0]   mshr_entries_dbg,
-    output logic [$clog2(`NUM_MEM_TAGS)-1:0] mshr_next_head_dbg,
-    output logic [$clog2(`NUM_MEM_TAGS)-1:0] mshr_next_tail_dbg,
+    output logic [$clog2(`NUM_MEM_TAGS + `N)-1:0] mshr_head_dbg,
+    output logic [$clog2(`NUM_MEM_TAGS + `N)-1:0] mshr_tail_dbg,
+    output MSHR_PACKET [`NUM_MEM_TAGS + `N-1:0]   mshr_entries_dbg,
+    output logic [$clog2(`NUM_MEM_TAGS + `N)-1:0] mshr_next_head_dbg,
+    output logic [$clog2(`NUM_MEM_TAGS + `N)-1:0] mshr_next_tail_dbg,
     output logic                             mshr_pop_condition_dbg,
     output logic                             mshr_push_condition_dbg,
     output logic                             mshr_pop_cond_has_data_dbg,
@@ -43,7 +43,16 @@ module icache_subsystem (
     output I_ADDR_PACKET        icache_write_addr_dbg,
     output MEM_BLOCK            icache_write_data_dbg,
     output I_CACHE_LINE         icache_line_write_dbg,
-    output logic [(`ICACHE_LINES + `PREFETCH_STREAM_BUFFER_SIZE)-1:0] icache_write_enable_mask_dbg
+    output logic [(`ICACHE_LINES + `PREFETCH_STREAM_BUFFER_SIZE)-1:0] icache_write_enable_mask_dbg,
+    // Prefetcher debug outputs
+    output I_ADDR_PACKET        prefetcher_last_icache_miss_mem_req_dbg,
+    output I_ADDR_PACKET        prefetcher_next_last_icache_miss_mem_req_dbg,
+    output I_ADDR               prefetcher_addr_incrementor_dbg,
+    output I_ADDR               prefetcher_next_addr_incrementor_dbg,
+    // Logic block debug outputs
+    output I_ADDR_PACKET        mem_req_addr_dbg,
+    output logic                snooping_found_icache_dbg,
+    output MSHR_PACKET          new_mshr_entry_dbg
 );
 
     // Internal wires
@@ -54,6 +63,12 @@ module icache_subsystem (
     // ICache debug wires
     I_CACHE_LINE icache_line_write;
     logic [(`ICACHE_LINES + `PREFETCH_STREAM_BUFFER_SIZE)-1:0] icache_write_enable_mask;
+
+    // Prefetcher debug wires
+    I_ADDR_PACKET prefetcher_last_icache_miss_mem_req;
+    I_ADDR_PACKET prefetcher_next_last_icache_miss_mem_req;
+    I_ADDR prefetcher_addr_incrementor;
+    I_ADDR prefetcher_next_addr_incrementor;
 
     icache icache_inst (
         .clock        (clock),
@@ -83,7 +98,12 @@ module icache_subsystem (
         .icache_miss_addr        (oldest_miss_addr),
         .icache_full             (icache_full),
         .mem_req_accepted        (mem_req_accepted),
-        .prefetcher_snooping_addr(prefetcher_snooping_addr)
+        .prefetcher_snooping_addr(prefetcher_snooping_addr),
+        // Debug outputs
+        .last_icache_miss_mem_req_dbg(prefetcher_last_icache_miss_mem_req),
+        .next_last_icache_miss_mem_req_dbg(prefetcher_next_last_icache_miss_mem_req),
+        .addr_incrementor_dbg(prefetcher_addr_incrementor),
+        .next_addr_incrementor_dbg(prefetcher_next_addr_incrementor)
     );
 
     i_mshr i_mshr_inst (
@@ -126,7 +146,7 @@ module icache_subsystem (
     always_comb begin
         mem_req_addr = '0;  // Default assignment to prevent latch
         if (~snooping_found_icache & ~snooping_found_mshr) begin
-            mem_req_addr = prefetcher_snooping_addr;
+            mem_req_addr = {prefetcher_snooping_addr[32:3], 3'b0};
         end
     end
 
@@ -153,6 +173,15 @@ module icache_subsystem (
     assign mem_data_tag_dbg = mem_data_tag;
     assign icache_line_write_dbg = icache_line_write;
     assign icache_write_enable_mask_dbg = icache_write_enable_mask;
+    // Prefetcher debug signal assignments
+    assign prefetcher_last_icache_miss_mem_req_dbg = prefetcher_last_icache_miss_mem_req;
+    assign prefetcher_next_last_icache_miss_mem_req_dbg = prefetcher_next_last_icache_miss_mem_req;
+    assign prefetcher_addr_incrementor_dbg = prefetcher_addr_incrementor;
+    assign prefetcher_next_addr_incrementor_dbg = prefetcher_next_addr_incrementor;
+    // Logic block debug signal assignments
+    assign mem_req_addr_dbg = mem_req_addr;
+    assign snooping_found_icache_dbg = snooping_found_icache;
+    assign new_mshr_entry_dbg = new_mshr_entry;
 
 endmodule
 
@@ -175,11 +204,11 @@ module i_mshr #(
     output I_ADDR_PACKET mem_data_i_addr,  // to write to icache
 
     // Debug outputs
-    output logic [$clog2(`NUM_MEM_TAGS)-1:0] head_dbg,
-    output logic [$clog2(`NUM_MEM_TAGS)-1:0] tail_dbg,
-    output MSHR_PACKET [`NUM_MEM_TAGS-1:0]   entries_dbg,
-    output logic [$clog2(`NUM_MEM_TAGS)-1:0] next_head_dbg,
-    output logic [$clog2(`NUM_MEM_TAGS)-1:0] next_tail_dbg,
+    output logic [$clog2(`NUM_MEM_TAGS + `N)-1:0] head_dbg,
+    output logic [$clog2(`NUM_MEM_TAGS + `N)-1:0] tail_dbg,
+    output MSHR_PACKET [`NUM_MEM_TAGS + `N-1:0]   entries_dbg,
+    output logic [$clog2(`NUM_MEM_TAGS + `N)-1:0] next_head_dbg,
+    output logic [$clog2(`NUM_MEM_TAGS + `N)-1:0] next_tail_dbg,
     output logic                             pop_condition_dbg,
     output logic                             push_condition_dbg,
     output logic                             pop_cond_has_data_dbg,
@@ -266,7 +295,13 @@ module i_prefetcher (
     input logic         icache_full,
 
     input  logic         mem_req_accepted,
-    output I_ADDR_PACKET prefetcher_snooping_addr
+    output I_ADDR_PACKET prefetcher_snooping_addr,
+
+    // Debug outputs
+    output I_ADDR_PACKET last_icache_miss_mem_req_dbg,
+    output I_ADDR_PACKET next_last_icache_miss_mem_req_dbg,
+    output I_ADDR       addr_incrementor_dbg,
+    output I_ADDR       next_addr_incrementor_dbg
 );
     I_ADDR_PACKET last_icache_miss_mem_req, next_last_icache_miss_mem_req;
     I_ADDR addr_incrementor, next_addr_incrementor;
@@ -305,6 +340,12 @@ module i_prefetcher (
             last_icache_miss_mem_req <= next_last_icache_miss_mem_req;
         end
     end
+
+    // Debug signal assignments
+    assign last_icache_miss_mem_req_dbg = last_icache_miss_mem_req;
+    assign next_last_icache_miss_mem_req_dbg = next_last_icache_miss_mem_req;
+    assign addr_incrementor_dbg = addr_incrementor;
+    assign next_addr_incrementor_dbg = next_addr_incrementor;
 
 endmodule
 
