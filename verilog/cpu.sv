@@ -116,11 +116,11 @@ module cpu (
     output I_ADDR_PACKET        prefetch_addr_dbg,
     output I_ADDR_PACKET        oldest_miss_addr_dbg,
     output logic                mshr_addr_found_dbg,
-    output logic [$clog2(`NUM_MEM_TAGS)-1:0] mshr_head_dbg,
-    output logic [$clog2(`NUM_MEM_TAGS)-1:0] mshr_tail_dbg,
-    output MSHR_PACKET [`NUM_MEM_TAGS-1:0]   mshr_entries_dbg,
-    output logic [$clog2(`NUM_MEM_TAGS)-1:0] mshr_next_head_dbg,
-    output logic [$clog2(`NUM_MEM_TAGS)-1:0] mshr_next_tail_dbg,
+    output logic [$clog2(`NUM_MEM_TAGS + `N)-1:0] mshr_head_dbg,
+    output logic [$clog2(`NUM_MEM_TAGS + `N)-1:0] mshr_tail_dbg,
+    output MSHR_PACKET [`NUM_MEM_TAGS + `N-1:0]   mshr_entries_dbg,
+    output logic [$clog2(`NUM_MEM_TAGS + `N)-1:0] mshr_next_head_dbg,
+    output logic [$clog2(`NUM_MEM_TAGS + `N)-1:0] mshr_next_tail_dbg,
     output logic                             mshr_pop_condition_dbg,
     output logic                             mshr_push_condition_dbg,
     output logic                             mshr_pop_cond_has_data_dbg,
@@ -134,6 +134,15 @@ module cpu (
     output MEM_BLOCK            icache_write_data_dbg,
     output I_CACHE_LINE         icache_line_write_dbg,
     output logic [(`ICACHE_LINES + `PREFETCH_STREAM_BUFFER_SIZE)-1:0] icache_write_enable_mask_dbg,
+    // Prefetcher debug outputs
+    output I_ADDR_PACKET        prefetcher_last_icache_miss_mem_req_dbg,
+    output I_ADDR_PACKET        prefetcher_next_last_icache_miss_mem_req_dbg,
+    output I_ADDR               prefetcher_addr_incrementor_dbg,
+    output I_ADDR               prefetcher_next_addr_incrementor_dbg,
+    // Logic block debug outputs
+    output I_ADDR_PACKET        mem_req_addr_dbg,
+    output logic                snooping_found_icache_dbg,
+    output MSHR_PACKET          new_mshr_entry_dbg,
 
     // Fetch stage debug outputs
     output FETCH_PACKET [3:0]   fetch_packet_dbg,
@@ -306,7 +315,16 @@ module cpu (
         .icache_write_addr_dbg(icache_write_addr_dbg),
         .icache_write_data_dbg(icache_write_data_dbg),
         .icache_line_write_dbg(icache_line_write_dbg),
-        .icache_write_enable_mask_dbg(icache_write_enable_mask_dbg)
+        .icache_write_enable_mask_dbg(icache_write_enable_mask_dbg),
+        // Prefetcher debug outputs
+        .prefetcher_last_icache_miss_mem_req_dbg(prefetcher_last_icache_miss_mem_req_dbg),
+        .prefetcher_next_last_icache_miss_mem_req_dbg(prefetcher_next_last_icache_miss_mem_req_dbg),
+        .prefetcher_addr_incrementor_dbg(prefetcher_addr_incrementor_dbg),
+        .prefetcher_next_addr_incrementor_dbg(prefetcher_next_addr_incrementor_dbg),
+        // Logic block debug outputs
+        .mem_req_addr_dbg(mem_req_addr_dbg),
+        .snooping_found_icache_dbg(snooping_found_icache_dbg),
+        .new_mshr_entry_dbg(new_mshr_entry_dbg)
     );
 
     // icache access memory only
