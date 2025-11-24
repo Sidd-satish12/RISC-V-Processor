@@ -76,7 +76,7 @@ module bp (
         ghr_next = ghr;
         if (train_req_i.valid && train_req_i.mispredict) begin // a retring branch instruction was mispredicted
             ghr_next = {train_req_i.ghr_snapshot[`BP_GHR_WIDTH-2:0], actual_taken};
-        end else if ()begin // from fetch
+        end else if (predict_req_i.valid) begin // from fetch
             ghr_next = {ghr[`BP_GHR_WIDTH-2:0], predict_taken};
         end 
     end 
