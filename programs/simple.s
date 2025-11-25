@@ -3,4 +3,6 @@
     sw   x2, 0(x1)    
     nop
     nop     
+    nop
+    nop
     wfi

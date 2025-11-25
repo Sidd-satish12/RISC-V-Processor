@@ -250,6 +250,15 @@ module cpu (
     MEM_SIZE                     Dmem_size = DOUBLE;
     ADDR                         Dmem_addr = '0;
     MEM_BLOCK                    Dmem_store_data = '0;
+    // Data memory request (from execute/store queue)
+    logic        dmem_req_valid;
+    MEM_COMMAND  dmem_req_command;
+    ADDR         dmem_req_addr;
+    MEM_BLOCK    dmem_req_data;
+`ifndef CACHE_MODE
+    MEM_SIZE     dmem_req_size;
+`endif
+
 
     // CDB requests: single-cycle FUs request during issue, multi-cycle during execute
     assign cdb_requests.alu    = issue_cdb_requests.alu;  // From issue stage
@@ -331,22 +340,60 @@ module cpu (
         .new_mshr_entry_dbg(new_mshr_entry_dbg)
     );
 
-    // icache access memory only
-    // needs to be decided by arbitrator later when dcache is done
+
+
+    // Build a data-memory request from execute_storeq_packet (stores)
     always_comb begin
-        // Using fake fetch - only handle data memory operations
-        if (mem_req_addr.valid) begin
+        dmem_req_valid   = 1'b0;
+        dmem_req_command = MEM_NONE;
+        dmem_req_addr    = '0;
+        dmem_req_data    = '0;
+    `ifndef CACHE_MODE
+        dmem_req_size    = WORD;  // sw = store word
+    `endif
+
+        // For now, if any MEM FU lane has a valid store, use that
+        for (int i = 0; i < `NUM_FU_MEM; i++) begin
+            if (execute_storeq_packet.valid[i]) begin
+                dmem_req_valid   = 1'b1;
+                dmem_req_command = MEM_STORE;
+                dmem_req_addr    = execute_storeq_packet.addr[i];
+                // MEM_BLOCK is 64 bits; store word goes in low bits
+                dmem_req_data[31:0] = execute_storeq_packet.data[i];
+            end
+        end
+    end
+
+        // Simple arbiter: data memory (stores) get priority over icache fetches
+    always_comb begin
+        // Default: no request
+        proc2mem_command = MEM_NONE;
+        proc2mem_addr    = '0;
+    `ifndef CACHE_MODE
+        proc2mem_size    = DOUBLE;  // doesn’t really matter when idle
+    `endif
+        proc2mem_data    = '0;
+
+        if (dmem_req_valid) begin
+            // Data-side store wins
+            proc2mem_command = dmem_req_command;  // MEM_STORE
+            proc2mem_addr    = dmem_req_addr;
+        `ifndef CACHE_MODE
+            proc2mem_size    = dmem_req_size;     // WORD for sw
+        `endif
+            proc2mem_data    = dmem_req_data;
+
+        end else if (mem_req_addr.valid) begin
+            // Otherwise, instruction fetch can use the bus
             proc2mem_command = MEM_LOAD;
             proc2mem_addr    = mem_req_addr.addr;
-        end else begin
-            proc2mem_command = MEM_NONE;
-            proc2mem_addr    = '0;
+        `ifndef CACHE_MODE
+            proc2mem_size    = DOUBLE;            // icache line fill
+        `endif
+            proc2mem_data    = '0;                // no write data for loads
         end
-`ifndef CACHE_MODE
-        proc2mem_size    = '0; // data size sent to memory
-`endif
-        proc2mem_data    = '0; // data sent to memory, no memory write for instruciotn
     end
+
 
     // In this simplified model, memory always accepts valid requests
     assign mem_req_accepted = (proc2mem_command == MEM_LOAD) && (mem2proc_transaction_tag != 0);
