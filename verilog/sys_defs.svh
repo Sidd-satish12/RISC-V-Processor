@@ -39,6 +39,7 @@
 `define PHYS_TAG_BITS $clog2(`PHYS_REG_SZ_R10K)  // 6 bits for phys tag
 `define ROB_IDX_BITS $clog2(`ROB_SZ)            // 5 bits for ROB index
 `define RS_IDX_BITS $clog2(`RS_SZ)              // 4 bits for RS index
+`define STOREQ_IDX_BITS $clog2(`LSQ_SZ)         // 3 bits for STOREQ index
 `define NUM_CATS 4                              // Number of OP_CATEGORY values (0-4)
 
 // Instruction buffer
@@ -107,6 +108,9 @@ typedef logic [`ROB_IDX_BITS-1:0] ROB_IDX;
 // RS index
 typedef logic [`RS_IDX_BITS-1:0] RS_IDX;
 
+// Store Queue index
+typedef logic [`STOREQ_IDX_BITS-1:0] STOREQ_IDX;
+
 // the zero register
 // In RISC-V, any read of this register returns zero and any writes are thrown away
 `define ZERO_REG 5'd0
@@ -153,7 +157,6 @@ typedef logic [3:0] MEM_TAG;
 `define DCACHE_LINES 32          // total number of lines in D-cache
 `define DCACHE_LINE_BYTES 8      // 8 bytes/line 8 * 32 (2 words; 256 bytes total)
 `define DCACHE_VICTIM_SZ 4       // Small victim cache
-
 `define DSET_INDEX_BITS $clog2(`DCACHE_LINES / `DCACHE_ASSOC)   // indexing into each cache line
 `define DBLOCK_OFFSET_BITS $clog2(`DCACHE_LINE_BYTES)           // indexing into bytes in a cache line/block
 `define DTAG_BITS 16 - `DSET_INDEX_BITS - `DBLOCK_OFFSET_BITS
@@ -517,6 +520,7 @@ typedef struct packed {
     ROB_IDX        rob_idx;         // Associated ROB index (for flush and potential age selection)
     ADDR           PC;              // PC for branch/debug (MIGHT merge with SRC but only if we can resolve mispredicts othersive)
     // Added for branches (prediction info from fetch via dispatch)
+    STOREQ_IDX     store_queue_idx; // associated store queue index (if instruction is a store)
     logic          pred_taken;
     ADDR           pred_target;
 } RS_ENTRY;
@@ -636,6 +640,7 @@ typedef struct packed {
     logic          complete;       // Instruction has completed
     EXCEPTION_CODE exception;      // Any exception code
     logic          branch;         // Is this a branch?
+    logic          store;           // Is this a store instruction?
     ADDR           branch_target;  // Resolved branch target
     logic          branch_taken;   // Resolved taken/not taken
     ADDR           pred_target;    // Predicted branch target
@@ -645,6 +650,21 @@ typedef struct packed {
     logic          halt;           // Is this a halt?
     logic          illegal;        // Is this illegal?
 } ROB_ENTRY;
+
+// Store Queue Entry structure
+typedef struct packed {
+    ADDR                   address;   // Store address
+    DATA                   data;      // Store data
+    ROB_IDX                rob_idx;   // associated rob idx (may not be needed but kept for squashing)
+    logic                  valid;     // Entry occupancy bit
+} STOREQ_ENTRY;
+
+typedef struct packed {
+    logic [`NUM_FU_MEM-1:0] valid;
+    ADDR  [`NUM_FU_MEM-1:0] addr;
+    DATA  [`NUM_FU_MEM-1:0] data;
+    STOREQ_IDX [`NUM_FU_MEM-1:0] store_queue_idx;
+} EXECUTE_STOREQ_PACKET;
 
 // Branch predictor counter states (2-bit saturating counter)
 typedef enum logic [1:0] {
