@@ -36,7 +36,7 @@ import "DPI-C" function string decode_inst(int inst);
 // import "DPI-C" function void close_pipeline_output_file();
 
 
-`define TB_MAX_CYCLES 1000
+`define TB_MAX_CYCLES 2000
 
 
 module testbench;
@@ -600,16 +600,16 @@ module testbench;
         // ICACHE SUBSYSTEM DEBUG
         $display("\n--- ICACHE SUBSYSTEM ---");
 
-        $display("\nRead Addresses from Fetch:");
-        for (integer k = 0; k < 2; k++) begin
-            $display("  Port[%0d]: Valid=%b", k, icache_read_addrs[k].valid);
-            if (icache_read_addrs[k].valid) begin
-                $display("    Full PC: 0x%04h", {icache_read_addrs[k].addr.zeros, icache_read_addrs[k].addr.tag,
-                                                 icache_read_addrs[k].addr.block_offset});
-                $display("    Addr breakdown - zeros: 0x%04h, tag: 0x%02h, block_offset: 0x%01h",
-                         icache_read_addrs[k].addr.zeros, icache_read_addrs[k].addr.tag, icache_read_addrs[k].addr.block_offset);
-            end
-        end
+        // $display("\nRead Addresses from Fetch:");
+        // for (integer k = 0; k < 2; k++) begin
+        //     $display("  Port[%0d]: Valid=%b", k, icache_read_addrs[k].valid);
+        //     if (icache_read_addrs[k].valid) begin
+        //         $display("    Full PC: 0x%04h", {icache_read_addrs[k].addr.zeros, icache_read_addrs[k].addr.tag,
+        //                                          icache_read_addrs[k].addr.block_offset});
+        //         $display("    Addr breakdown - zeros: 0x%04h, tag: 0x%02h, block_offset: 0x%01h",
+        //                  icache_read_addrs[k].addr.zeros, icache_read_addrs[k].addr.tag, icache_read_addrs[k].addr.block_offset);
+        //     end
+        // end
 
         $display("\nICache Status:");
         $display("  Port[0]: %s | Port[1]: %s | Full: %b", icache_hits[0] ? "HIT " : (icache_misses[0] ? "MISS" : "IDLE"),
@@ -772,7 +772,23 @@ module testbench;
         end
 
         $display("\nICache Write Operations:");
-        $display("  Write Addr Valid: %b | Tag: 0x%02h", icache_write_addr.valid, icache_write_addr.addr.tag);
+        $display("  Write Addr Valid: %b", icache_write_addr.valid);
+        if (icache_write_addr.valid) begin
+            $display("    Full PC: 0x%04h", {icache_write_addr.addr.zeros, icache_write_addr.addr.tag, icache_write_addr.addr.block_offset});
+            $display("    Addr breakdown - zeros: 0x%04h, tag: 0x%02h, block_offset: 0x%01h",
+                     icache_write_addr.addr.zeros, icache_write_addr.addr.tag, icache_write_addr.addr.block_offset);
+        end
+        $display("  Write Data (MEM_BLOCK):");
+        $display("    Word[0]: 0x%08h | Word[1]: 0x%08h", icache_write_data.word_level[0], icache_write_data.word_level[1]);
+        $display("    Full 64-bit: 0x%016h", icache_write_data.dbbl_level);
+        $display("  Cache Line Write (I_CACHE_LINE):");
+        $display("    Valid: %b | Tag: 0x%02h", icache_line_write.valid, icache_line_write.tag);
+        if (icache_line_write.valid) begin
+            $display("    Data Word[0]: 0x%08h | Word[1]: 0x%08h", icache_line_write.data.word_level[0], icache_line_write.data.word_level[1]);
+        end
+        $display("  Write Enable Mask: 0b%b (width=%0d)", icache_write_enable_mask, `ICACHE_LINES + `PREFETCH_STREAM_BUFFER_SIZE);
+        $display("  Hits: Port[0]=%b Port[1]=%b", icache_hits[0], icache_hits[1]);
+        $display("  Misses: Port[0]=%b Port[1]=%b", icache_misses[0], icache_misses[1]);
 
         // $display("\nFetch Packet Output (4-wide bundle):");
         // $display("  IB Bundle Valid: %b", ib_bundle_valid);
