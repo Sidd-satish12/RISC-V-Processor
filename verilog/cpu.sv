@@ -87,63 +87,6 @@ module cpu (
     // Issue clear signals debug output
     output RS_CLEAR_SIGNALS rs_clear_signals_dbg,
 
-    // Execute stage debug outputs
-    output FU_RESULTS fu_results_dbg,
-    output PRF_READ_EN prf_read_en_src1_dbg,
-    output PRF_READ_EN prf_read_en_src2_dbg,
-    output PRF_READ_TAGS prf_read_tag_src1_dbg,
-    output PRF_READ_TAGS prf_read_tag_src2_dbg,
-    output PRF_READ_DATA resolved_src1_dbg,
-    output PRF_READ_DATA resolved_src2_dbg,
-    output logic [`N-1:0][`NUM_FU_TOTAL-1:0] fu_gnt_bus_dbg,
-    output logic [`NUM_FU_MULT-1:0] mult_request_dbg,
-    output logic [`NUM_FU_MULT-1:0] mult_start_dbg,
-    output logic [`NUM_FU_MULT-1:0] mult_done_dbg,
-    output logic [`NUM_FU_BRANCH-1:0] branch_take_dbg,
-    output ADDR [`NUM_FU_BRANCH-1:0] branch_target_dbg,
-    output logic [`NUM_FU_ALU-1:0] alu_executing_dbg,
-    output ALU_FUNC [`NUM_FU_ALU-1:0] alu_func_dbg,
-    output logic [`NUM_FU_MULT-1:0] mult_executing_dbg,
-    output logic [`NUM_FU_BRANCH-1:0] branch_executing_dbg,
-    output logic [`NUM_FU_MEM-1:0] mem_executing_dbg,
-
-    // ICache debug outputs
-    output I_ADDR_PACKET [1:0]  read_addrs_dbg,
-    output CACHE_DATA [1:0]     cache_outs_dbg,
-    output logic [1:0]          icache_hits_dbg,
-    output logic [1:0]          icache_misses_dbg,
-    output logic                icache_full_dbg,
-    output I_ADDR_PACKET        prefetch_addr_dbg,
-    output I_ADDR_PACKET        oldest_miss_addr_dbg,
-    output logic                mshr_addr_found_dbg,
-    output logic [$clog2(`NUM_MEM_TAGS + `N)-1:0] mshr_head_dbg,
-    output logic [$clog2(`NUM_MEM_TAGS + `N)-1:0] mshr_tail_dbg,
-    output MSHR_PACKET [`NUM_MEM_TAGS + `N-1:0]   mshr_entries_dbg,
-    output logic [$clog2(`NUM_MEM_TAGS + `N)-1:0] mshr_next_head_dbg,
-    output logic [$clog2(`NUM_MEM_TAGS + `N)-1:0] mshr_next_tail_dbg,
-    output logic                             mshr_pop_condition_dbg,
-    output logic                             mshr_push_condition_dbg,
-    output logic                             mshr_pop_cond_has_data_dbg,
-    output logic                             mshr_pop_cond_head_valid_dbg,
-    output logic                             mshr_pop_cond_tag_match_dbg,
-    output logic                mem_write_icache_dbg,
-    output I_ADDR_PACKET        mem_write_addr_dbg,
-    output MEM_BLOCK            mem_data_dbg,
-    output MEM_TAG              mem_data_tag_dbg,
-    output I_ADDR_PACKET        icache_write_addr_dbg,
-    output MEM_BLOCK            icache_write_data_dbg,
-    output I_CACHE_LINE         icache_line_write_dbg,
-    output logic [(`ICACHE_LINES + `PREFETCH_STREAM_BUFFER_SIZE)-1:0] icache_write_enable_mask_dbg,
-    // Prefetcher debug outputs
-    output I_ADDR_PACKET        prefetcher_last_icache_miss_mem_req_dbg,
-    output I_ADDR_PACKET        prefetcher_next_last_icache_miss_mem_req_dbg,
-    output I_ADDR               prefetcher_addr_incrementor_dbg,
-    output I_ADDR               prefetcher_next_addr_incrementor_dbg,
-    // Logic block debug outputs
-    output I_ADDR_PACKET        mem_req_addr_dbg,
-    output logic                snooping_found_icache_dbg,
-    output MSHR_PACKET          new_mshr_entry_dbg,
-
     // Fetch stage debug outputs
     output FETCH_PACKET [3:0]   fetch_packet_dbg
 );
@@ -228,9 +171,6 @@ module cpu (
     REG_IDX   [`N-1:0] arch_write_addrs;
     PHYS_TAG  [`N-1:0] arch_write_phys_regs;
 
-    // DEBUG signal for committed instructions:
-    COMMIT_PACKET [`N-1:0] retire_commits_dbg;
-
     // Global mispredict signal
     logic              mispredict;
 
@@ -274,44 +214,7 @@ module cpu (
 
         // Arbitor IOs
         .mem_req_addr     (mem_req_addr),
-        .mem_req_accepted (mem_req_accepted),
-
-        // Debug outputs
-        .read_addrs_dbg       (read_addrs_dbg),
-        .cache_outs_dbg       (cache_outs_dbg),
-        .icache_hits_dbg      (icache_hits_dbg),
-        .icache_misses_dbg    (icache_misses_dbg),
-        .icache_full_dbg      (icache_full_dbg),
-        .prefetch_addr_dbg    (prefetch_addr_dbg),
-        .oldest_miss_addr_dbg (oldest_miss_addr_dbg),
-        .mshr_addr_found_dbg  (mshr_addr_found_dbg),
-        .mshr_head_dbg        (mshr_head_dbg),
-        .mshr_tail_dbg        (mshr_tail_dbg),
-        .mshr_entries_dbg     (mshr_entries_dbg),
-        .mshr_next_head_dbg   (mshr_next_head_dbg),
-        .mshr_next_tail_dbg   (mshr_next_tail_dbg),
-        .mshr_pop_condition_dbg(mshr_pop_condition_dbg),
-        .mshr_push_condition_dbg(mshr_push_condition_dbg),
-        .mshr_pop_cond_has_data_dbg(mshr_pop_cond_has_data_dbg),
-        .mshr_pop_cond_head_valid_dbg(mshr_pop_cond_head_valid_dbg),
-        .mshr_pop_cond_tag_match_dbg(mshr_pop_cond_tag_match_dbg),
-        .mem_write_icache_dbg (mem_write_icache_dbg),
-        .mem_write_addr_dbg   (mem_write_addr_dbg),
-        .mem_data_dbg         (mem_data_dbg),
-        .mem_data_tag_dbg     (mem_data_tag_dbg),
-        .icache_write_addr_dbg(icache_write_addr_dbg),
-        .icache_write_data_dbg(icache_write_data_dbg),
-        .icache_line_write_dbg(icache_line_write_dbg),
-        .icache_write_enable_mask_dbg(icache_write_enable_mask_dbg),
-        // Prefetcher debug outputs
-        .prefetcher_last_icache_miss_mem_req_dbg(prefetcher_last_icache_miss_mem_req_dbg),
-        .prefetcher_next_last_icache_miss_mem_req_dbg(prefetcher_next_last_icache_miss_mem_req_dbg),
-        .prefetcher_addr_incrementor_dbg(prefetcher_addr_incrementor_dbg),
-        .prefetcher_next_addr_incrementor_dbg(prefetcher_next_addr_incrementor_dbg),
-        // Logic block debug outputs
-        .mem_req_addr_dbg(mem_req_addr_dbg),
-        .snooping_found_icache_dbg(snooping_found_icache_dbg),
-        .new_mshr_entry_dbg(new_mshr_entry_dbg)
+        .mem_req_accepted (mem_req_accepted)
     );
 
     // icache access memory only
@@ -431,28 +334,25 @@ module cpu (
     DATA    [`N-1:0] decode_immediate;
 
     // Instantiate decoders for each instruction in the bundle
-    generate
-        for (genvar i = 0; i < `N; i++) begin
-            decoder decoder_i (
-                .inst      (ib_dispatch_window[i].inst),
-                .valid     (i < ib_window_valid_count),
-                .opa_select(decode_opa_select[i]),
-                .opb_select(decode_opb_select[i]),
-                .has_dest  (decode_has_dest[i]),
-                .op_type   (decode_op_type[i]),
-                .csr_op    (decode_csr_op[i]),
-                .halt      (decode_halt[i]),
-                .illegal   (decode_illegal[i]),
-                // Enhanced outputs
-                .rs1_idx   (decode_rs1_idx[i]),
-                .rs2_idx   (decode_rs2_idx[i]),
-                .rd_idx    (decode_rd_idx[i]),
-                .uses_rd   (decode_uses_rd[i]),
-                .immediate (decode_immediate[i])
-            );
-        end
-    endgenerate
-
+    for (genvar i = 0; i < `N; i++) begin
+        decoder decoder_i (
+            .inst      (ib_dispatch_window[i].inst),
+            .valid     (i < ib_window_valid_count),
+            .opa_select(decode_opa_select[i]),
+            .opb_select(decode_opb_select[i]),
+            .has_dest  (decode_has_dest[i]),
+            .op_type   (decode_op_type[i]),
+            .csr_op    (decode_csr_op[i]),
+            .halt      (decode_halt[i]),
+            .illegal   (decode_illegal[i]),
+            // Enhanced outputs
+            .rs1_idx   (decode_rs1_idx[i]),
+            .rs2_idx   (decode_rs2_idx[i]),
+            .rd_idx    (decode_rd_idx[i]),
+            .uses_rd   (decode_uses_rd[i]),
+            .immediate (decode_immediate[i])
+        );
+    end
     //////////////////////////////////////////////////
     //                                              //
     //                Dispatch-Stage                //
@@ -488,7 +388,7 @@ module cpu (
         .rs_branch_free_slots(rs_branch.free_slots),
         .rs_mem_free_slots   (rs_mem.free_slots),
 
-        // To Fetch
+        // To Instruction Buffer
         .dispatch_count(dispatch_count),
 
         // TO ROB
@@ -746,25 +646,7 @@ module cpu (
         .ex_comp (ex_comp),
 
         // From CDB for grant selection
-        .gnt_bus(cdb_0.grant_bus_out),
-
-        // Debug outputs
-        .fu_results_dbg(fu_results_dbg),
-        .prf_read_en_src1_dbg(prf_read_en_src1_dbg),
-        .prf_read_en_src2_dbg(prf_read_en_src2_dbg),
-        .prf_read_tag_src1_dbg(prf_read_tag_src1_dbg),
-        .prf_read_tag_src2_dbg(prf_read_tag_src2_dbg),
-        .resolved_src1_dbg(resolved_src1_dbg),
-        .resolved_src2_dbg(resolved_src2_dbg),
-        .mult_start_dbg(mult_start_dbg),
-        .mult_done_dbg(mult_done_dbg),
-        .branch_take_dbg(branch_take_dbg),
-        .branch_target_dbg(branch_target_dbg),
-        .alu_executing_dbg(alu_executing_dbg),
-        .alu_func_dbg(alu_func_dbg),
-        .mult_executing_dbg(mult_executing_dbg),
-        .branch_executing_dbg(branch_executing_dbg),
-        .mem_executing_dbg(mem_executing_dbg)
+        .gnt_bus(cdb_0.grant_bus_out)
     );
 
     //////////////////////////////////////////////////
@@ -977,7 +859,7 @@ module cpu (
         .arch_write_addrs    (arch_write_addrs),
         .arch_write_phys_regs(arch_write_phys_regs),
 
-        .retire_commits_dbg(retire_commits_dbg),
+        .committed_insts(committed_insts),
 
 
         // To fetch
@@ -1004,7 +886,6 @@ module cpu (
 
     // Output the committed instructions to the testbench for counting
     // For superscalar, show the oldest ready instruction (whether retired or not)
-    assign committed_insts = retire_commits_dbg;
 
 
     // Fake-fetch outputs
@@ -1023,8 +904,6 @@ module cpu (
     // Execute stage debug outputs
     assign ex_valid_dbg           = ex_valid;
     assign ex_comp_dbg            = ex_comp;
-    assign fu_gnt_bus_dbg         = cdb_0.grant_bus_out;
-    assign mult_request_dbg       = mult_request;
 
     // Additional RS debug outputs
     assign rs_mult_entries_dbg    = rs_mult_entries;

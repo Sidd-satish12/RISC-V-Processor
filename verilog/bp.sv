@@ -26,10 +26,10 @@ module bp (
     localparam BTB_ENTRY_COUNT = (1 << `BP_BTB_BITS);
 
     // Internal storage
-    logic                     [`BP_GHR_WIDTH-1:0] ghr, ghr_next;
+    logic              [`BP_GHR_WIDTH-1:0] ghr, ghr_next;
     logic                                  recovery_active;
     BP_COUNTER_STATE [PHT_ENTRY_COUNT-1:0] pattern_history_table;
-    BP_BTB_ENTRY     [PHT_ENTRY_COUNT-1:0] btb_array;
+    BP_BTB_ENTRY     [BTB_ENTRY_COUNT-1:0] btb_array;
 
     BP_INDICES prediction_indices, training_indices;
     logic btb_hit;
@@ -45,9 +45,9 @@ module bp (
         endcase
     endfunction
 
-    function automatic BP_INDICES compute_indices(logic [31:0] pc, logic [`BP_GHR_WIDTH-1:0] global_history);
+    function automatic BP_INDICES compute_indices(logic [31:0] pc, logic [`BP_GHR_WIDTH-1:0] ghr);
         BP_INDICES computed_indices;
-        computed_indices.pht_idx = pc[`BP_PC_WORD_ALIGN_BITS+:`BP_PHT_BITS] ^ {{(`BP_PHT_BITS - `BP_GHR_WIDTH) {1'b0}}, global_history};
+        computed_indices.pht_idx = pc[`BP_PC_WORD_ALIGN_BITS+:`BP_PHT_BITS] ^ {{(`BP_PHT_BITS - `BP_GHR_WIDTH) {1'b0}}, ghr};
         computed_indices.btb_idx = pc[`BP_PC_WORD_ALIGN_BITS+:`BP_BTB_BITS];
         computed_indices.btb_tag = pc[`BP_PC_WORD_ALIGN_BITS+`BP_BTB_BITS+:`BP_BTB_TAG_BITS];
         return computed_indices;
