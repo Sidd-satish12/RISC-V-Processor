@@ -67,6 +67,7 @@ module bp (
 
         btb_hit = btb_array[prediction_indices.btb_idx].valid && btb_array[prediction_indices.btb_idx].tag == prediction_indices.btb_tag;
 
+        predict_resp_o.taken = predict_taken;
         predict_resp_o.target = (predict_taken && btb_hit) ? btb_array[prediction_indices.btb_idx].target : (predict_req_i.pc + 32'h4);
     end
 
