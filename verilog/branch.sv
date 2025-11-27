@@ -26,8 +26,11 @@ module branch (
             default: take = `FALSE;
         endcase
 
-        // Compute target address: PC+4 if not taken, PC+offset if taken
-        target = take ? (pc + offset) : (pc + 32'h4);
+        case (func)
+            JALR: target = rs1 + offset; // always taken
+            default: target = take ? (pc + offset) : (pc + 32'h4);
+        endcase
     end
 
 endmodule  // branch
+// immature doesn't know what she wants 
