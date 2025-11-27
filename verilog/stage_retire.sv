@@ -1,34 +1,28 @@
 `include "sys_defs.svh"
 
-module stage_retire #(
-    parameter  int N          = `N,
-    parameter  int ARCH_COUNT = `ARCH_REG_SZ,
-    parameter  int PHYS_REGS  = `PHYS_REG_SZ_R10K,
-    localparam int PRW        = (PHYS_REGS <= 2) ? 1 : $clog2(PHYS_REGS),
-    localparam logic [PHYS_REGS-1:0] INITIAL_AVAIL_MASK = {{PHYS_REGS - `ARCH_REG_SZ{1'b1}}, {`ARCH_REG_SZ{1'b0}}}
-) (
+module stage_retire (
     input logic clock,
     input logic reset,
 
     // From ROB: head window (0 = oldest, N-1 = youngest)
-    input ROB_ENTRY [N-1:0] head_entries,
-    input logic     [N-1:0] head_valids,
-    input ROB_IDX   [N-1:0] head_idxs,     // ROB index per head slot
+    input ROB_ENTRY [`N-1:0] head_entries,
+    input logic     [`N-1:0] head_valids,
+    input ROB_IDX   [`N-1:0] head_idxs,     // ROB index per head slot
 
     // To ROB: flush younger if head is a mispredicted branch
     output logic   mispredict,      // Single consolidated mispredict signal
     output ROB_IDX rob_mispred_idx, // ROB index of mispredicted branch
 
     // To freelist: bitmap of PRs to free (all committed lanes' Told this cycle)
-    output logic [PHYS_REGS-1:0] free_mask,
+    output logic [`PHYS_REG_SZ_R10K-1:0] free_mask,
 
     // To archMapTable: N write ports (commit multiple per cycle)
-    output logic    [N-1:0] arch_write_enables,
-    output REG_IDX  [N-1:0] arch_write_addrs,
-    output PHYS_TAG [N-1:0] arch_write_phys_regs,
+    output logic    [`N-1:0] arch_write_enables,
+    output REG_IDX  [`N-1:0] arch_write_addrs,
+    output PHYS_TAG [`N-1:0] arch_write_phys_regs,
 
     // debug output which is used to count committed instructions at retire
-    output COMMIT_PACKET [N-1:0] retire_commits_dbg,
+    output COMMIT_PACKET [`N-1:0] committed_insts,
 
     // Fetch stage IOs
     output ADDR branch_target_out,
@@ -41,16 +35,19 @@ module stage_retire #(
     input MAP_ENTRY [`ARCH_REG_SZ-1:0] arch_table_snapshot,
 
     // To freelist: restore mask on mispredict
-    output logic [PHYS_REGS-1:0] freelist_restore_mask
+    output logic [`PHYS_REG_SZ_R10K-1:0] freelist_restore_mask
 
 );
+
+    localparam int PRW        = (`PHYS_REG_SZ_R10K <= 2) ? 1 : $clog2(`PHYS_REG_SZ_R10K);
+    localparam logic [`PHYS_REG_SZ_R10K-1:0] INITIAL_AVAIL_MASK = {{`PHYS_REG_SZ_R10K - `ARCH_REG_SZ{1'b1}}, {`ARCH_REG_SZ{1'b0}}};
 
     ROB_ENTRY entry;
     logic trained;
     logic mispred_dir, mispred_tgt, mispred;
 
     // Freelist checkpoint for mispredict restore
-    logic [PHYS_REGS-1:0] freelist_checkpoint_mask, freelist_checkpoint_mask_next;
+    logic [`PHYS_REG_SZ_R10K-1:0] freelist_checkpoint_mask, freelist_checkpoint_mask_next;
 
     always_comb begin
         freelist_checkpoint_mask_next = freelist_checkpoint_mask;
@@ -64,13 +61,13 @@ module stage_retire #(
         mispred_tgt = 1'b0;
         mispred = 1'b0;
         entry = '0;
-        retire_commits_dbg = '0;
+        committed_insts = '0;
 
         // branch info for fetch
         branch_target_out = '0;
 
         // Walk oldest -> youngest and commit until first incomplete
-        for (int w = 0; w < N; w++) begin
+        for (int w = 0; w < `N; w++) begin
             if (!head_valids[w]) begin
                 // empty slot, skip
                 continue;
@@ -84,12 +81,12 @@ module stage_retire #(
             end
 
             // Record debug info
-            retire_commits_dbg[w].NPC    = entry.PC + 4;
-            retire_commits_dbg[w].data   = regfile_entries[entry.phys_rd];
-            retire_commits_dbg[w].reg_idx = entry.branch ? `ZERO_REG : entry.arch_rd;
-            retire_commits_dbg[w].halt   = entry.halt;
-            retire_commits_dbg[w].illegal = (entry.exception == ILLEGAL_INST);
-            retire_commits_dbg[w].valid  = 1'b1;
+            committed_insts[w].NPC    = entry.PC + 4;
+            committed_insts[w].data   = regfile_entries[entry.phys_rd];
+            committed_insts[w].reg_idx = entry.branch ? `ZERO_REG : entry.arch_rd;
+            committed_insts[w].halt   = entry.halt;
+            committed_insts[w].illegal = (entry.exception == ILLEGAL_INST);
+            committed_insts[w].valid  = 1'b1;
 
             // Commit this entry (it's complete)
             if (entry.arch_rd != '0 && !entry.branch) begin
@@ -99,7 +96,7 @@ module stage_retire #(
 
                 freelist_checkpoint_mask_next[arch_write_phys_regs[w]] = 1'b0;
 
-                if ((entry.prev_phys_rd != '0) && (entry.prev_phys_rd < PHYS_REGS)) begin
+                if ((entry.prev_phys_rd != '0) && (entry.prev_phys_rd < `PHYS_REG_SZ_R10K)) begin
                     free_mask[entry.prev_phys_rd] = 1'b1;
                     freelist_checkpoint_mask_next[entry.prev_phys_rd] = 1'b1;
                 end
