@@ -24,7 +24,7 @@ module stage_fetch (
         BRANCH_CAT_NONE   = 3'b000,
         BRANCH_CAT_J      = 3'b001,  // J, no writeback, no need for PB
         BRANCH_CAT_JAL    = 3'b010,  // JAL, has writeback, no need for PB
-        BRANCH_CAT_JALR   = 3'b011,  // JALR, has writeback, needs PB
+        BRANCH_CAT_JALR   = 3'b011,  // JALR, has writeback, needs PB 
         BRANCH_CAT_BRANCH = 3'b100   // BEQ, BNE, etc.
     } BRANCH_CATEGORY;
 
@@ -54,6 +54,13 @@ module stage_fetch (
         return ADDR'(signed'(pc) + signed'(imm));
     endfunction
 
+    // Helper: compute BRANCH target
+    function automatic ADDR compute_branch_target(ADDR pc, INST instr);
+        DATA imm;
+        imm = `RV32_signext_Bimm(instr);
+        return ADDR'(signed'(pc) + signed'(imm));
+    endfunction
+
     logic [2:0] first_branch_idx;   // 4, out of bound index, means not found
     logic [2:0] second_branch_idx;  // 4, out of bound index, means not found
     BRANCH_CATEGORY first_branch_cat;
@@ -67,6 +74,7 @@ module stage_fetch (
     ADDR first_branch_pc;
     ADDR second_branch_pc;
     ADDR jal_target;
+    ADDR branch_target;  // Computed BRANCH target
     logic first_branch_taken;
     logic [2:0] num_valids;  // Count of valid instructions in fetch_packet (0-4)
 
@@ -86,6 +94,14 @@ module stage_fetch (
         if (first_branch_idx != 3'd4 && 
             (first_branch_cat == BRANCH_CAT_J || first_branch_cat == BRANCH_CAT_JAL)) begin
             jal_target = compute_jal_target(first_branch_pc, insts[first_branch_idx]);
+        end
+    end
+
+    // Compute BRANCH target if first branch is BRANCH type
+    always_comb begin
+        branch_target = '0;
+        if (first_branch_idx != 3'd4 && first_branch_cat == BRANCH_CAT_BRANCH) begin
+            branch_target = compute_branch_target(first_branch_pc, insts[first_branch_idx]);
         end
     end
 
@@ -206,7 +222,8 @@ module stage_fetch (
                     PC_next = bp_response.target;
                 end else if (first_branch_cat == BRANCH_CAT_BRANCH) begin
                     if (first_branch_taken) begin
-                        PC_next = bp_response.target;
+                        // Use computed branch target (correct even when BTB misses)
+                        PC_next = branch_target;
                     end else begin
                         if (second_branch_idx != 3'd4) begin
                             PC_next = second_branch_pc;
@@ -261,9 +278,17 @@ module stage_fetch (
             fetch_packet[first_branch_idx].bp_pred_taken   = first_branch_taken;
             
             // Set predicted target based on branch category
-            if (first_branch_cat == BRANCH_CAT_JALR || first_branch_cat == BRANCH_CAT_BRANCH) begin
-                // JALR and BRANCH use bp_response target
+            if (first_branch_cat == BRANCH_CAT_JALR) begin
+                // JALR uses bp_response target (register-based, can't compute in fetch)
                 fetch_packet[first_branch_idx].bp_pred_target  = bp_response.target;
+                fetch_packet[first_branch_idx].bp_ghr_snapshot = bp_response.ghr_snapshot;
+            end else if (first_branch_cat == BRANCH_CAT_BRANCH) begin
+                // BRANCH: use computed target when predicted taken, sequential when not taken
+                if (first_branch_taken) begin
+                    fetch_packet[first_branch_idx].bp_pred_target = branch_target;
+                end else begin
+                    fetch_packet[first_branch_idx].bp_pred_target = first_branch_pc + 4;
+                end
                 fetch_packet[first_branch_idx].bp_ghr_snapshot = bp_response.ghr_snapshot;
             end else if (first_branch_cat == BRANCH_CAT_J || first_branch_cat == BRANCH_CAT_JAL) begin
                 // J and JAL use computed jal_target

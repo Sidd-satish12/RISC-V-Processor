@@ -664,7 +664,6 @@ typedef struct packed {
 } BP_PREDICT_REQUEST;
 
 typedef struct packed {
-    logic              valid;
     logic              taken;         // Predicted taken/not taken
     ADDR               target;        // Predicted target
     logic [`BP_GHR_WIDTH-1:0] ghr_snapshot;  // GHR snapshot for mispredict recovery

@@ -32,7 +32,7 @@ B1:	slli	x21,	x1,	1 #
 
     wfi
     wfi
-B2:	slli	x21,	x2,	2 #
+B2:	slli	x21,	x2,	2 #    missing
     or	x30,	x21,	x30 #
     beq	x1,	x0,	B34 #
     j   bad
