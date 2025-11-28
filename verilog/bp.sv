@@ -61,14 +61,13 @@ module bp (
 
     // Prediction logic
     always_comb begin
-        predict_resp_o.valid = predict_req_i.valid;
         predict_resp_o.ghr_snapshot = ghr;
         predict_taken = pattern_history_table[prediction_indices.pht_idx][1];  // MSB of counter is the taken bit
 
         btb_hit = btb_array[prediction_indices.btb_idx].valid && btb_array[prediction_indices.btb_idx].tag == prediction_indices.btb_tag;
 
         predict_resp_o.taken = predict_taken;
-        predict_resp_o.target = (predict_taken && btb_hit) ? btb_array[prediction_indices.btb_idx].target : (predict_req_i.pc + 32'h4);
+        predict_resp_o.target = btb_hit ? btb_array[prediction_indices.btb_idx].target : (predict_req_i.pc + 32'h4);
     end
 
     // ghr_next logic
