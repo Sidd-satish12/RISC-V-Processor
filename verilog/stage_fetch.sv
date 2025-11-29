@@ -1,6 +1,6 @@
 `include "sys_defs.svh"
 `include "ISA.svh"
-
+// TODO make sure, pb always send back BTB whatever even if predict not taken,
 module stage_fetch (
     input logic                       clock,
     input logic                       reset,
@@ -12,138 +12,261 @@ module stage_fetch (
     // branch predictor
     output BP_PREDICT_REQUEST         bp_request,
     input  BP_PREDICT_RESPONSE        bp_response,
-    output logic                      bp_response_used,
 
     // retire when mispredict
     input I_ADDR_PACKET               correct_branch_target,
 
     // instruction buffer
     input logic          [`IB_IDX_BITS:0]   ib_free_slots,
-    output FETCH_PACKET  [3:0]                fetch_packet,
-    output logic [$clog2(`IB_PUSH_WIDTH+1)-1:0] num_pushes
+    output FETCH_PACKET  [3:0]              fetch_packet
 );
+    typedef enum logic [2:0] {
+        BRANCH_CAT_NONE   = 3'b000,
+        BRANCH_CAT_J      = 3'b001,  // J, no writeback, no need for PB
+        BRANCH_CAT_JAL    = 3'b010,  // JAL, has writeback, no need for PB
+        BRANCH_CAT_JALR   = 3'b011,  // JALR, has writeback, needs PB 
+        BRANCH_CAT_BRANCH = 3'b100   // BEQ, BNE, etc.
+    } BRANCH_CATEGORY;
 
-    // Internal state
-    ADDR PC, PC_next;
-    
-    // Derived signals
-    INST [3:0] insts;
-    logic [3:0] cache_valid_bits;
-    logic [3:0] align_valid_bits;
-    logic [3:0] final_valid_bits;
-    logic [3:0] is_branch_bits;
-    
-    logic       found_branch;
-    logic [1:0] first_branch_idx;
-    logic       stall;
-    
-    // Mispredict handling
-    logic       mispredict;
-    ADDR        mispredict_target;
-    ADDR        branch_pc;
-    ADDR        PC_aligned;
-    logic       pred_taken;
-    
-    logic       icache_ready;
-    logic [2:0] valid_count;
-
-    // Helper: conditional branch
-    function automatic logic is_conditional_branch(INST instr);
-        return instr.r.opcode == `RV32_BRANCH;
+    function automatic logic is_branch(INST instr);
+        return instr.r.opcode == `RV32_BRANCH || instr.r.opcode == `RV32_JALR_OP || instr.r.opcode == `RV32_JAL_OP;
     endfunction
 
-    // Unpack Inputs
-    assign mispredict        = correct_branch_target.valid;
-    assign mispredict_target = ADDR'(correct_branch_target.addr);
+    function automatic BRANCH_CATEGORY get_branch_category(INST instr);
+        case (instr.r.opcode)
+            `RV32_JAL_OP: begin
+                if (instr.r.rd == `ZERO_REG) begin
+                    return BRANCH_CAT_J;
+                end else begin
+                    return BRANCH_CAT_JAL;
+                end
+            end
+            `RV32_JALR_OP: return BRANCH_CAT_JALR;
+            `RV32_BRANCH:  return BRANCH_CAT_BRANCH;
+            default:       return BRANCH_CAT_NONE;
+        endcase
+    endfunction
 
-    // PC alignment (rounded down to 8-byte boundary)
-    assign PC_aligned = {PC[31:3], 3'b000};
+    // Helper: compute JAL target
+    function automatic ADDR compute_jal_target(ADDR pc, INST instr);
+        DATA imm;
+        imm = `RV32_signext_Jimm(instr);
+        return ADDR'(signed'(pc) + signed'(imm));
+    endfunction
 
-    // Extract instructions and valid bits from cache lines
+    // Helper: compute BRANCH target
+    function automatic ADDR compute_branch_target(ADDR pc, INST instr);
+        DATA imm;
+        imm = `RV32_signext_Bimm(instr);
+        return ADDR'(signed'(pc) + signed'(imm));
+    endfunction
+
+    logic [2:0] first_branch_idx;   // 4, out of bound index, means not found
+    logic [2:0] second_branch_idx;  // 4, out of bound index, means not found
+    BRANCH_CATEGORY first_branch_cat;
+    BRANCH_CATEGORY second_branch_cat;
+    logic [3:0] fetch_packet_valid_bits;
+    INST  [3:0] insts;
+    ADDR PC, PC_next;
+    
+    // Reusable signals for next PC and other logic
+    ADDR PC_aligned;
+    ADDR first_branch_pc;
+    ADDR second_branch_pc;
+    ADDR jal_target;
+    ADDR branch_target;  // Computed BRANCH target
+    logic first_branch_taken;
+    logic [2:0] num_valids;  // Count of valid instructions in fetch_packet (0-4)
+    logic send_to_ib;
+
     assign insts[0] = cache_data[0].data.word_level[0];
     assign insts[1] = cache_data[0].data.word_level[1];
     assign insts[2] = cache_data[1].data.word_level[0];
     assign insts[3] = cache_data[1].data.word_level[1];
 
-    assign cache_valid_bits[0] = cache_data[0].valid;
-    assign cache_valid_bits[1] = cache_data[0].valid;
-    assign cache_valid_bits[2] = cache_data[1].valid;
-    assign cache_valid_bits[3] = cache_data[1].valid;
-
-    assign icache_ready = &cache_valid_bits;
-
-    // Alignment Logic
-    // PC[2] determines if we start at the 1st or 2nd word of the 8-byte aligned block
-    // PC[2]==0 -> start at offset 0 (index 0)
-    // PC[2]==1 -> start at offset 4 (index 1)
+    // Compute PC_aligned and branch PCs
+    assign PC_aligned = {PC[31:3], 3'b000};
+    assign first_branch_pc = (first_branch_idx != 3'd4) ? (PC_aligned + (ADDR'(first_branch_idx) << 2)) : '0;
+    assign second_branch_pc = (second_branch_idx != 3'd4) ? (PC_aligned + (ADDR'(second_branch_idx) << 2)) : '0;
+    
+    // Compute JAL target if first branch is J or JAL
     always_comb begin
-        for (int i = 0; i < 4; i++) begin
-            align_valid_bits[i] = cache_valid_bits[i] && (i >= {1'b0, PC[2]});
+        jal_target = '0;
+        if (first_branch_idx != 3'd4 && 
+            (first_branch_cat == BRANCH_CAT_J || first_branch_cat == BRANCH_CAT_JAL)) begin
+            jal_target = compute_jal_target(first_branch_pc, insts[first_branch_idx]);
         end
     end
 
-    // Branch Detection
+    // Compute BRANCH target if first branch is BRANCH type
     always_comb begin
-        found_branch     = 1'b0;
-        first_branch_idx = '0;
-        
-        for (int i = 0; i < 4; i++) begin
-            is_branch_bits[i] = align_valid_bits[i] && is_conditional_branch(insts[i]);
+        branch_target = '0;
+        if (first_branch_idx != 3'd4 && first_branch_cat == BRANCH_CAT_BRANCH) begin
+            branch_target = compute_branch_target(first_branch_pc, insts[first_branch_idx]);
+        end
+    end
+
+    // branch_idx
+    always_comb begin
+        first_branch_idx = 3'd4;   // Default: not found
+        second_branch_idx = 3'd4;  // Default: not found
+
+        // first_branch_idx - start from index 1 if PC misaligned, otherwise from 0
+        for (int i = (PC[2] ? 1 : 0); i < 4; i++) begin
+            if (first_branch_idx == 3'd4 && is_branch(insts[i])) begin
+                first_branch_idx = 3'(i);
+            end
         end
 
-        // Priority encoder to find the first VALID branch in the bundle
-        for (int i = 0; i < 4; i++) begin
-            if (!found_branch && is_branch_bits[i]) begin
-                found_branch     = 1'b1;
-                first_branch_idx = 2'(i);
+        // second_branch_idx - only search if first was found
+        if (first_branch_idx != 3'd4) begin
+            for (int i = first_branch_idx + 1; i < 4; i++) begin
+                if (second_branch_idx == 3'd4 && is_branch(insts[i])) begin
+                    second_branch_idx = 3'(i);
+                end
             end
         end
     end
 
-    assign branch_pc = PC_aligned + (ADDR'(first_branch_idx) << 2);
+    // branch categorization
+    always_comb begin
+        first_branch_cat = BRANCH_CAT_NONE;
+        second_branch_cat = BRANCH_CAT_NONE;
 
-    // Branch Prediction Request
+        if (first_branch_idx != 3'd4) begin
+            first_branch_cat = get_branch_category(insts[first_branch_idx]);
+        end
+
+        if (second_branch_idx != 3'd4) begin
+            second_branch_cat = get_branch_category(insts[second_branch_idx]);
+        end
+    end
+
+    // Compute first_branch_taken (reusable signal)
+    always_comb begin
+        first_branch_taken = 1'b0;
+        
+        if (first_branch_idx != 3'd4) begin
+            if (first_branch_cat == BRANCH_CAT_J || 
+                first_branch_cat == BRANCH_CAT_JALR || 
+                first_branch_cat == BRANCH_CAT_JAL) begin
+                // J/JALR/JAL are always taken
+                first_branch_taken = 1'b1;
+            end else if (first_branch_cat == BRANCH_CAT_BRANCH) begin
+                // BRANCH: use taken bit from bp_response
+                first_branch_taken = bp_response.taken;
+            end
+        end
+    end
+
+    // bp request
     always_comb begin
         bp_request.valid = 1'b0;
         bp_request.pc    = '0;
 
-        // Only request if we found a valid branch and we aren't stalled by cache miss/mispredict
-        if (icache_ready && !mispredict && found_branch) begin
-            bp_request.valid = 1'b1;
-            bp_request.pc    = branch_pc;
-        end
-    end
-    
-    assign bp_response_used = bp_request.valid;
-    
-    // Infer taken status from target (if target != PC+4, it's taken)
-    assign pred_taken = (bp_response.target != (branch_pc + 4));
-
-    // Final Valid Logic
-    always_comb begin
-        for (int i = 0; i < 4; i++) begin
-            // Start with aligned valid
-            final_valid_bits[i] = align_valid_bits[i];
-            
-            // If we have a taken branch, mask everything after it
-            if (found_branch && pred_taken && (2'(i) > first_branch_idx)) begin
-                final_valid_bits[i] = 1'b0;
+        // Only request for JALR or BRANCH type (J and JAL targets computed in fetch)
+        if (first_branch_idx != 3'd4) begin
+            if (first_branch_cat == BRANCH_CAT_JALR || first_branch_cat == BRANCH_CAT_BRANCH) begin
+                bp_request.valid = 1'b1;
+                bp_request.pc    = first_branch_pc;
             end
         end
     end
-    
-    assign valid_count = 3'($countones(final_valid_bits));
 
-    // Stall Logic
-    assign stall = !icache_ready || (ib_free_slots < valid_count) || mispredict;
-
-    // Output Packets (to IB)
+    // fetch_packet valid bits
     always_comb begin
+        fetch_packet_valid_bits = 4'b1111;
+
+        // If misaligned, invalidate first instruction
+        if (PC[2]) begin
+            fetch_packet_valid_bits[0] = 1'b0;
+        end
+
+        // Handle first branch
+        if (first_branch_idx != 3'd4) begin
+            // If first branch is taken, invalidate everything after it
+            if (first_branch_taken) begin
+                for (int i = first_branch_idx + 1; i < 4; i++) begin
+                    fetch_packet_valid_bits[i] = 1'b0;
+                end
+            end
+
+            // If first branch is J, invalidate itself (no writeback, no need to send to processor)
+            if (first_branch_cat == BRANCH_CAT_J) begin
+                fetch_packet_valid_bits[first_branch_idx] = 1'b0;
+            end
+        end
+
+        // Handle second branch - if exists, invalidate itself and everything after it
+        if (second_branch_idx != 3'd4) begin
+            for (int i = second_branch_idx; i < 4; i++) begin
+                fetch_packet_valid_bits[i] = 1'b0;
+            end
+        end
+    end
+
+    // Count number of valid instructions in fetch_packet
+    assign num_valids = 3'($countones(fetch_packet_valid_bits));
+
+    // Next PC logic
+    always_comb begin
+        PC_next = PC; // Default: hold current PC (stall)
+
+        // Handle mispredict recovery
+        if (correct_branch_target.valid) begin
+            PC_next = ADDR'(correct_branch_target.addr);
+        end
+
+        else if (cache_data[0].valid && cache_data[1].valid && num_valids <= ib_free_slots) begin
+            if (first_branch_idx != 3'd4) begin
+                if (first_branch_cat == BRANCH_CAT_JALR) begin
+                    PC_next = bp_response.target;
+                end else if (first_branch_cat == BRANCH_CAT_BRANCH) begin
+                    if (first_branch_taken) begin
+                        // Use computed branch target (correct even when BTB misses)
+                        PC_next = branch_target;
+                    end else begin
+                        if (second_branch_idx != 3'd4) begin
+                            PC_next = second_branch_pc;
+                        end else begin
+                            PC_next = PC_aligned + 16;
+                        end
+                    end
+                end else if (first_branch_cat == BRANCH_CAT_J || first_branch_cat == BRANCH_CAT_JAL) begin
+                    PC_next = jal_target;
+                end else begin
+                    PC_next = PC_aligned + 16;
+                end
+            end else begin
+                PC_next = PC_aligned + 16;
+            end
+        end
+    end
+
+    // cache read
+    always_comb begin
+        // Send current PC and PC + 8 to cache (each cache line is 2 instructions = 8 bytes)
+        read_addrs[0].valid = 1'b1;
+        read_addrs[0].addr  = I_ADDR'(PC_aligned);
+        
+        read_addrs[1].valid = 1'b1;
+        read_addrs[1].addr  = I_ADDR'(PC_aligned + 8);
+    end
+    
+    // Compute send_to_ib signal
+    assign send_to_ib = !correct_branch_target.valid && 
+                       cache_data[0].valid && 
+                       cache_data[1].valid && 
+                       num_valids <= ib_free_slots;
+
+    // Fetch packet
+    always_comb begin
+        
+        // Initialize all fetch packets
         for (int i = 0; i < 4; i++) begin
-            fetch_packet[i].pc              = PC_aligned + (ADDR'(i) << 2);
-            fetch_packet[i].inst            = insts[i];
-            // Only valid if not stalled and passed all masks
-            fetch_packet[i].valid           = !stall && final_valid_bits[i];
+            fetch_packet[i].pc    = PC_aligned + (ADDR'(i) << 2);
+            fetch_packet[i].inst  = insts[i];
+            fetch_packet[i].valid = send_to_ib ? fetch_packet_valid_bits[i] : 1'b0;
             
             // Default branch metadata
             fetch_packet[i].is_branch       = 1'b0;
@@ -151,35 +274,29 @@ module stage_fetch (
             fetch_packet[i].bp_pred_target  = '0;
             fetch_packet[i].bp_ghr_snapshot = '0;
         end
-
-        if (!stall && found_branch && final_valid_bits[first_branch_idx]) begin
+        
+        // Set branch metadata for first branch if it's valid and we're send_to_ib
+        if (send_to_ib && first_branch_idx != 3'd4 && fetch_packet_valid_bits[first_branch_idx]) begin
             fetch_packet[first_branch_idx].is_branch       = 1'b1;
-            fetch_packet[first_branch_idx].bp_pred_taken   = pred_taken;
-            fetch_packet[first_branch_idx].bp_pred_target  = bp_response.target;
-            fetch_packet[first_branch_idx].bp_ghr_snapshot = bp_response.ghr_snapshot;
-        end
-    end
-
-    // Compute num_pushes using $countones
-    // Note: Use final_valid_bits, not fetch_packet[].valid, to avoid circular dependency
-    // fetch_packet[].valid includes !stall, but num_pushes is used to compute stall condition
-    assign num_pushes = stall ? '0 : ($clog2(`IB_PUSH_WIDTH+1))'(valid_count);
-
-    // Next PC Logic
-    always_comb begin
-        PC_next = PC; // Default: hold current PC (stall)
-
-        if (mispredict) begin
-            // Recovery: go to correct target immediately
-            PC_next = mispredict_target;
-        end else if (!stall) begin
-            if (found_branch && pred_taken) begin
-                // Predict taken: jump to target
-                PC_next = bp_response.target;
-            end else begin
-                // Predict not taken or no branch: advance by bundle size
-                // We align to the next 16-byte block boundary
-                PC_next = PC_aligned + 16;
+            fetch_packet[first_branch_idx].bp_pred_taken   = first_branch_taken;
+            
+            // Set predicted target based on branch category
+            if (first_branch_cat == BRANCH_CAT_JALR) begin
+                // JALR uses bp_response target (register-based, can't compute in fetch)
+                fetch_packet[first_branch_idx].bp_pred_target  = bp_response.target;
+                fetch_packet[first_branch_idx].bp_ghr_snapshot = bp_response.ghr_snapshot;
+            end else if (first_branch_cat == BRANCH_CAT_BRANCH) begin
+                // BRANCH: use computed target when predicted taken, sequential when not taken
+                if (first_branch_taken) begin
+                    fetch_packet[first_branch_idx].bp_pred_target = branch_target;
+                end else begin
+                    fetch_packet[first_branch_idx].bp_pred_target = first_branch_pc + 4;
+                end
+                fetch_packet[first_branch_idx].bp_ghr_snapshot = bp_response.ghr_snapshot;
+            end else if (first_branch_cat == BRANCH_CAT_J || first_branch_cat == BRANCH_CAT_JAL) begin
+                // J and JAL use computed jal_target
+                fetch_packet[first_branch_idx].bp_pred_target  = jal_target;
+                fetch_packet[first_branch_idx].bp_ghr_snapshot = '0;  // J/JAL don't use BP
             end
         end
     end
@@ -191,19 +308,73 @@ module stage_fetch (
             PC <= PC_next;
         end
     end
-
-    // ICache Read Addresses
-    always_comb begin
-        // Prepare read requests for current PC
-        // Note: ICache handles unaligned requests by returning the line containing the address
-        read_addrs[0].addr  = I_ADDR'(PC_aligned);
-        read_addrs[1].addr  = I_ADDR'(PC_aligned + 8);
-        
-        // Valid logic:
-        // Request if we are not reset. 
-        // Even if stalled, we want to maintain the request to get data (if miss) or because we are waiting.
-        read_addrs[0].valid = 1'b1;
-        read_addrs[1].valid = 1'b1;
+    
+    // ============================================================================
+    // DEBUG CODE BELOW - Remove when done debugging
+    // ============================================================================
+    
+    // Helper: get instruction type name
+    function automatic string get_inst_type(INST instr);
+        case (instr.r.opcode)
+            `RV32_LOAD:     return "LOAD";
+            `RV32_STORE:    return "STORE";
+            `RV32_BRANCH:   return "BRANCH";
+            `RV32_JALR_OP:  return "JALR";
+            `RV32_JAL_OP:   return "JAL";
+            `RV32_OP_IMM:   return "OP_IMM";
+            `RV32_OP:       return "OP";
+            `RV32_SYSTEM:   return "SYSTEM";
+            `RV32_AUIPC_OP: return "AUIPC";
+            `RV32_LUI_OP:   return "LUI";
+            `RV32_FENCE:    return "FENCE";
+            `RV32_AMO:      return "AMO";
+            default:        return "UNKNOWN";
+        endcase
+    endfunction
+    
+    // DEBUG: Track previous values to avoid duplicate prints
+    logic prev_send_to_ib;
+    ADDR prev_PC;
+    
+    // DEBUG: Print instruction types, valid bits, send_to_ib, and correct_branch_target.valid
+    always_ff @(posedge clock) begin
+        if (reset) begin
+            prev_send_to_ib <= 1'b0;
+            prev_PC <= '0;
+        end else begin
+            
+            // Print fetched instructions when cache becomes ready (only once per PC)
+            if (cache_data[0].valid && cache_data[1].valid && (PC != prev_PC)) begin
+                $display("[FETCH] PC %04x: (aligned=%04x, PC[2]=%b) | correct_branch_target.valid=%b",
+                         PC, PC_aligned, PC[2], correct_branch_target.valid);
+                $display("[FETCH] cache_data[0].valid=%b cache_data[1].valid=%b",
+                         cache_data[0].valid, cache_data[1].valid);
+                for (int i = 0; i < 4; i++) begin
+                    $display("[FETCH] Inst[%0d] PC %04x: %s(0x%08x)[%b]",
+                             i, PC_aligned + (ADDR'(i) << 2),
+                             get_inst_type(insts[i]), insts[i], fetch_packet_valid_bits[i]);
+                end
+                $display("[FETCH] send_to_ib=%b", send_to_ib);
+            end
+            
+            // Print send_to_ib transitions
+            if (send_to_ib != prev_send_to_ib) begin
+                $display("[FETCH] send_to_ib=%b (was %b) | cache_data[0].valid=%b cache_data[1].valid=%b num_valids=%0d ib_free_slots=%0d correct_branch_target.valid=%b",
+                         send_to_ib, prev_send_to_ib,
+                         cache_data[0].valid, cache_data[1].valid,
+                         num_valids, ib_free_slots, correct_branch_target.valid);
+            end
+            
+            // Print correct_branch_target.valid transitions
+            if (correct_branch_target.valid) begin
+                $display("[FETCH] MISPREDICT: correct_branch_target.valid=1 | target PC %04x:",
+                         correct_branch_target.addr);
+            end
+            
+            // Update previous values
+            prev_send_to_ib <= send_to_ib;
+            prev_PC <= PC;
+        end
     end
-
+    
 endmodule
