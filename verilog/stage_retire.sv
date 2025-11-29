@@ -129,14 +129,14 @@ module stage_retire (
                     // DEBUG: Mispredict detection
                     $display("[RETIRE] *** MISPREDICT *** PC=%0d | ROB_idx=%0d | pred_taken=%b actual_taken=%b | pred_target=%0d actual_target=%0d",
                              entry.PC, head_idxs[w], entry.pred_taken, entry.branch_taken, entry.pred_target, entry.branch_target);
+                    
+                    // Stop committing younger entries after mispredicted branch
+                    break;
                 end else begin
                     // DEBUG: Branch retirement (correct prediction)
                     $display("[RETIRE] Branch Retire | PC=%0d | taken=%b | target=%0d",
                              entry.PC, entry.branch_taken, entry.branch_target);
                 end
-
-                // stop committing younger entries
-                break;
             end
         end
     end
