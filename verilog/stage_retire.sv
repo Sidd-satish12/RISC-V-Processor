@@ -82,7 +82,7 @@ module stage_retire (
 
             // Record debug info
             committed_insts[w].NPC    = entry.PC + 4;
-            committed_insts[w].data   = regfile_entries[entry.phys_rd];
+            committed_insts[w].data   =  regfile_entries[entry.phys_rd];
             committed_insts[w].reg_idx = entry.branch ? `ZERO_REG : entry.arch_rd;
             committed_insts[w].halt   = entry.halt;
             committed_insts[w].illegal = (entry.exception == ILLEGAL_INST);
