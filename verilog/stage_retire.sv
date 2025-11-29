@@ -39,7 +39,7 @@ module stage_retire (
 
 );
 
-    localparam int PRW        = (`PHYS_REG_SZ_R10K <= 2) ? 1 : $clog2(`PHYS_REG_SZ_R10K);
+    localparam int PRW = (`PHYS_REG_SZ_R10K <= 2) ? 1 : $clog2(`PHYS_REG_SZ_R10K);
     localparam logic [`PHYS_REG_SZ_R10K-1:0] INITIAL_AVAIL_MASK = {{`PHYS_REG_SZ_R10K - `ARCH_REG_SZ{1'b1}}, {`ARCH_REG_SZ{1'b0}}};
 
     ROB_ENTRY entry;
@@ -126,16 +126,7 @@ module stage_retire (
                     rob_mispred_idx = head_idxs[w];  // ROB index of the mispredicted branch
                     train_req_o.mispredict = 1'b1;
 
-                    // DEBUG: Mispredict detection
-                    $display("[RETIRE] *** MISPREDICT *** PC=%0d | ROB_idx=%0d | pred_taken=%b actual_taken=%b | pred_target=%0d actual_target=%0d",
-                             entry.PC, head_idxs[w], entry.pred_taken, entry.branch_taken, entry.pred_target, entry.branch_target);
-                    
-                    // Stop committing younger entries after mispredicted branch
                     break;
-                end else begin
-                    // DEBUG: Branch retirement (correct prediction)
-                    $display("[RETIRE] Branch Retire | PC=%0d | taken=%b | target=%0d",
-                             entry.PC, entry.branch_taken, entry.branch_target);
                 end
             end
         end
