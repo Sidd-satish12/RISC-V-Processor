@@ -743,26 +743,8 @@ module cpu (
         .gnt_bus(cdb_0.grant_bus_out),
 
         // To Store Queue
-        .execute_storeq_packet(execute_storeq_packet),
+        .execute_storeq_packet(execute_storeq_packet)
 
-        // Debug outputs
-        .fu_results_dbg(fu_results_dbg),
-        .prf_read_en_src1_dbg(prf_read_en_src1_dbg),
-        .prf_read_en_src2_dbg(prf_read_en_src2_dbg),
-        .prf_read_tag_src1_dbg(prf_read_tag_src1_dbg),
-        .prf_read_tag_src2_dbg(prf_read_tag_src2_dbg),
-        .resolved_src1_dbg(resolved_src1_dbg),
-        .resolved_src2_dbg(resolved_src2_dbg),
-        .mult_start_dbg(mult_start_dbg),
-        .mult_done_dbg(mult_done_dbg),
-        .branch_take_dbg(branch_take_dbg),
-        .branch_target_dbg(branch_target_dbg),
-        .alu_executing_dbg(alu_executing_dbg),
-        .alu_func_dbg(alu_func_dbg),
-        .mult_executing_dbg(mult_executing_dbg),
-        .branch_executing_dbg(branch_executing_dbg),
-        .mem_executing_dbg(mem_executing_dbg)
-        .gnt_bus(cdb_0.grant_bus_out)
     );
 
     //////////////////////////////////////////////////
