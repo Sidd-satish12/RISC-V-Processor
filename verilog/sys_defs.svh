@@ -664,7 +664,7 @@ typedef struct packed {
 } BP_PREDICT_REQUEST;
 
 typedef struct packed {
-    logic              valid;
+    logic              taken;         // Predicted taken/not taken
     ADDR               target;        // Predicted target
     logic [`BP_GHR_WIDTH-1:0] ghr_snapshot;  // GHR snapshot for mispredict recovery
 } BP_PREDICT_RESPONSE;
@@ -699,9 +699,9 @@ typedef struct packed {
 
 // From fetch stage to instruction buffer
 typedef struct packed {
+    logic        valid;
     ADDR         pc;    // PC of this instruction
     logic [31:0] inst;  // raw 32-bit instruction
-    logic        valid;
 
     // Branch prediction metadata (for branch instructions)
     logic              is_branch;        // 1 if this inst is a branch
