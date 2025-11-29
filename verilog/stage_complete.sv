@@ -26,7 +26,7 @@ module stage_complete #(
             rob_update_packet = '0;  // Initialize all fields to 0
             rob_update_packet_dbg = '0;  // Initialize debug output
 
-            for (int i = 0; i < N; i++) begin  // Per-lane fan-out (not a dependent loop)
+            for (int i = 0; i < N; i++) begin
                 if (ex_valid_in[i]) begin
                     rob_update_packet.valid[i] = 1'b1;
                     rob_update_packet.idx[i] = ex_comp_in.rob_idx[i];
