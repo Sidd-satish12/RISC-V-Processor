@@ -23,14 +23,14 @@ module store_queue (
     // ============================================================
     // Execute I/O
     // ============================================================
-    // from execute (updates store instructions data and address fields in store queue)
-    input EXECUTE_STOREQ_PACKET execute_storeq_packet,
+    // from MEM FUs (updates store instructions data and address fields in store queue)
+    input EXECUTE_STOREQ_ENTRY [`NUM_FU_MEM-1:0] mem_storeq_entries,
 
     // ============================================================
     // Retire I/O
     // ============================================================
     input logic                     mispredict,
-    input logic [$clog2(`N+1)-1:0]  free_count // number of entries to free (from rob)
+    input logic [$clog2(`N+1)-1:0]  free_count, // number of entries to free (from rob)
 );
 
     // ============================================================
@@ -77,9 +77,9 @@ module store_queue (
         // 3. Update entries with executed store address/data
         // ============================
         for (int i = 0; i < `NUM_FU_MEM; i++) begin
-            if (execute_storeq_packet.valid[i]) begin
-                sq_entries_next[execute_storeq_packet.store_queue_idx[i]].address = execute_storeq_packet.addr[i];
-                sq_entries_next[execute_storeq_packet.store_queue_idx[i]].data = execute_storeq_packet.data[i];
+            if (mem_storeq_entries[i].valid) begin
+                sq_entries_next[mem_storeq_entries[i].store_queue_idx].address = mem_storeq_entries[i].addr;
+                sq_entries_next[mem_storeq_entries[i].store_queue_idx].data = mem_storeq_entries[i].data;
             end
         end
 

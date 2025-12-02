@@ -113,8 +113,6 @@ module dcache_subsystem (
             mem_write_addr.valid = 1'b1;
             mem_write_addr.addr = '{zeros: 16'b0,
                                    tag: writeback_line.tag,
-                                   index: writeback_line.index,
-                                   bank: writeback_line.bank,
                                    block_offset: 3'b0};
             mem_write_data = writeback_line.data;
         end
@@ -223,7 +221,7 @@ endmodule
 module dcache #(
     parameter MEM_DEPTH = `DCACHE_LINES,
     parameter D_CACHE_INDEX_BITS = $clog2(MEM_DEPTH),
-    parameter MEM_WIDTH = 1 + 1 + `DTAG_BITS + `DSET_INDEX_BITS + 1 + `MEM_BLOCK_BITS  // valid + dirty + tag + index + bank + data
+    parameter MEM_WIDTH = 1 + 1 + `DTAG_BITS + `MEM_BLOCK_BITS  // valid + dirty + tag + data
 ) (
     input clock,
     input reset,
@@ -297,8 +295,6 @@ module dcache #(
         cache_line_write = '{valid: write_addr.valid,
                             dirty: 1'b0,  // Data from memory is clean
                             tag: write_addr.addr.tag,
-                            index: write_addr.addr.index,
-                            bank: write_addr.addr.bank,
                             data: write_data};
         evicted_line = '0;
         evicted_valid = 1'b0;
@@ -359,7 +355,7 @@ endmodule
 module victim_cache #(
     parameter VICTIM_DEPTH = `DCACHE_VICTIM_SZ,
     parameter VICTIM_INDEX_BITS = $clog2(VICTIM_DEPTH),
-    parameter MEM_WIDTH = 1 + 1 + `DTAG_BITS + `DSET_INDEX_BITS + 1 + `MEM_BLOCK_BITS  // valid + dirty + tag + index + bank + data
+    parameter MEM_WIDTH = 1 + 1 + `DTAG_BITS + `MEM_BLOCK_BITS  // valid + dirty + tag + data
 ) (
     input clock,
     input reset,
