@@ -52,6 +52,7 @@ module mem_fu (
 
         // Extract dcache address from computed address
         current_dcache_addr = '{
+            zeros: 16'b0,
             tag: addr[31:12],
             block_offset: addr[4:3]
         };
@@ -142,7 +143,11 @@ module mem_fu (
             pending_load_next = '{
                 valid: 1'b1,
                 dest_tag: dest_tag,
-                addr: current_dcache_addr
+                addr: '{
+                    zeros: 16'b0,
+                    tag: addr[31:12],
+                    block_offset: addr[4:3]
+                }
             };
         end
     end

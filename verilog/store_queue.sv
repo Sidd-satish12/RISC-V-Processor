@@ -30,7 +30,7 @@ module store_queue (
     // Retire I/O
     // ============================================================
     input logic                     mispredict,
-    input logic [$clog2(`N+1)-1:0]  free_count, // number of entries to free (from rob)
+    input logic [$clog2(`N+1)-1:0]  free_count  // number of entries to free (from rob)
 );
 
     // ============================================================
