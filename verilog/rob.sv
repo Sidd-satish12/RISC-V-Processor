@@ -31,7 +31,10 @@ module rob (
     // Retire
     output ROB_ENTRY [`N-1:0] head_entries,  // Could be retired
     output ROB_IDX   [`N-1:0] head_idxs,     // Head entry indices
-    output logic     [`N-1:0] head_valids    // Head entry valid flags
+    output logic     [`N-1:0] head_valids,    // Head entry valid flags
+
+    //Store
+    output logic [$clog2(`N+1)-1:0] retired_store_count
 );
     ROB_ENTRY [`ROB_SZ-1:0] rob_entries, rob_entries_next;
     logic [$clog2(`ROB_SZ+1)-1:0] free_count, free_count_next;
@@ -44,11 +47,13 @@ module rob (
     logic [$clog2(`N+1)-1:0] num_retired, num_dispatched;
     // Prefix-retire bookkeeping
     logic [$clog2(`N+1)-1:0] retire_count;
+    logic [$clog2(`N+1)-1:0] retire_store_count;
 
     always_comb begin
         free_count_next = free_count;
         rob_entries_next = rob_entries;
         retire_count = '0;
+        retire_store_count = '0;
 
         for (int i = 0; i < `N; i++) begin
             // Dispatch, assume incoming valid instructions to be contiguous from index 0
@@ -76,17 +81,29 @@ module rob (
 
         //num_retired = retire ? `N : 0;
         num_retired = retire_count;
+
+        // NEW: among the retiring prefix, count how many are stores
+        // Retiring prefix lives at indices: head_idx, head_idx+1, ..., head_idx+retire_count-1
+        for (int i = 0; i < retire_count; i++) begin
+            if (rob_entries[(head_idx + i) % `ROB_SZ].store) begin
+                retire_store_count = retire_store_count + 1'b1;
+            end
+        end
+
         // Invalidate only the retired prefix at the head
         for (int i = 0; i < retire_count; i++) begin
             rob_entries_next[(head_idx + i) % `ROB_SZ].valid = 1'b0;
         end
-        num_dispatched = $countones(entry_packet_valid_bits);
-        free_count_next = free_count + num_retired - num_dispatched;
+
+        num_dispatched   = $countones(entry_packet_valid_bits);
+        free_count_next  = free_count + num_retired - num_dispatched;
 
         // Head and tail pointers
         head_idx_next = (head_idx + retire_count) % `ROB_SZ;
-        //    head_idx_next = retire ? ((head_idx + `N) % `ROB_SZ) : head_idx;
         tail_idx_next = (tail_idx + num_dispatched) % `ROB_SZ;
+
+        // NEW: drive the output port
+        retired_store_count = retire_store_count;
     end
 
     // Generate allocation indices (tail + i)

@@ -641,6 +641,7 @@ typedef struct packed {
     logic          complete;       // Instruction has completed
     EXCEPTION_CODE exception;      // Any exception code
     logic          branch;         // Is this a branch?
+    logic          store;           // Is this a store instruction?
     ADDR           branch_target;  // Resolved branch target
     logic          branch_taken;   // Resolved taken/not taken
     ADDR           pred_target;    // Predicted branch target

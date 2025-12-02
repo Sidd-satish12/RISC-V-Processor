@@ -262,6 +262,7 @@ module stage_dispatch (
                     phys_rd: allocated_phys[i],
                     prev_phys_rd: local_Told[i],
                     complete: 1'b0,
+                    store:        (decode_op_type[i].category == CAT_MEM && !decode_uses_rd[i]),
                     exception: NO_ERROR,
                     branch: (decode_op_type[i].category == CAT_BRANCH),
                     pred_target: dispatch_window[i].bp_pred_target,  // No prediction target

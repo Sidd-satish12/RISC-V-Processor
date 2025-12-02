@@ -497,7 +497,8 @@ module cpu (
         // Retire
         .head_entries(rob_head_entries),
         .head_idxs(rob_head_idxs),
-        .head_valids(rob_head_valids)
+        .head_valids(rob_head_valids),
+        .retired_store_count (sq_free_count)
     );
 
     //////////////////////////////////////////////////
