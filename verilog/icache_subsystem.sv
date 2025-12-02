@@ -221,7 +221,11 @@ module i_prefetcher (
 
 endmodule
 
-module icache (
+module icache #(
+    parameter MEM_DEPTH = `ICACHE_LINES + `PREFETCH_STREAM_BUFFER_SIZE,
+    parameter I_CACHE_INDEX_BITS = $clog2(MEM_DEPTH),
+    parameter MEM_WIDTH = 1 + `ITAG_BITS + `MEM_BLOCK_BITS  // valid + tag + data
+) (
     input clock,
     input reset,
 
@@ -239,29 +243,18 @@ module icache (
     input MEM_BLOCK     write_data
 );
 
-    localparam MEM_DEPTH = `ICACHE_LINES + `PREFETCH_STREAM_BUFFER_SIZE;
-    localparam I_CACHE_INDEX_BITS = $clog2(MEM_DEPTH);
-    localparam MEM_WIDTH = 1 + `ITAG_BITS + `MEM_BLOCK_BITS;
-
-    wor CACHE_DATA [1:0]                  cache_outs_temp;
+    CACHE_DATA [1:0]                  cache_outs_temp;
     I_CACHE_LINE [MEM_DEPTH-1:0]          cache_lines;
     I_CACHE_LINE                          cache_line_write;
     logic [MEM_DEPTH-1:0]                 cache_write_enable_mask;
     logic [MEM_DEPTH-1:0]                 cache_write_no_evict_one_hot;
     logic [I_CACHE_INDEX_BITS-1:0]        cache_write_evict_index;
-    logic [MEM_DEPTH-1:0]                 cache_write_evict_one_hot;
-
-    logic [1:0][MEM_DEPTH-1:0]            cache_reads_one_hot;
-    logic [1:0][I_CACHE_INDEX_BITS-1:0]   cache_reads_index;
-
-    logic [MEM_DEPTH-1:0]                 snooping_one_hot;
+    logic [I_CACHE_INDEX_BITS-1:0]        lfsr_out;
     logic [MEM_DEPTH-1:0]                 valid_bits;
 
     memDP #(
         .WIDTH(MEM_WIDTH),
-        .DEPTH(1'b1),
-        .READ_PORTS(1'b1),
-        .BYPASS_EN(1'b0)
+        .DEPTH(1'b1)
     ) cache_line[MEM_DEPTH-1:0] (
         .clock(clock),
         .reset(reset),
@@ -283,50 +276,68 @@ module icache (
     );
 
     // Write selection random eviction
-    LFSR LFSR_inst (
+    LFSR #(
+        .WIDTH(I_CACHE_INDEX_BITS)
+    ) LFSR_inst (
         .clk(clock),
         .rst(reset),
-        .op(cache_write_evict_index)
+        .op(lfsr_out)
     );
+    
+    // Extend LFSR output to full index width (modulo handles out-of-range)
+    assign cache_write_evict_index = I_CACHE_INDEX_BITS'(lfsr_out % MEM_DEPTH);
 
 
     // Cache write logic
-    for (genvar k = 0; k < MEM_DEPTH; k++) begin
-        assign cache_write_evict_one_hot[k] = (cache_write_evict_index == k);
+    always_comb begin
+        cache_write_enable_mask = '0;
+        cache_line_write = '{valid: write_addr.valid,
+                            tag: write_addr.addr.tag,
+                            data: write_data};
+        
+        if (write_addr.valid) begin
+            // Try to find an invalid (free) slot first
+            if (|cache_write_no_evict_one_hot) begin
+                cache_write_enable_mask = cache_write_no_evict_one_hot;
+            end else begin
+                // No free slot, evict using LFSR-selected index
+                cache_write_enable_mask[cache_write_evict_index] = 1'b1;
+            end
+        end
     end
-    
-    assign cache_write_enable_mask = write_addr.valid ? 
-                                    (|cache_write_no_evict_one_hot ? cache_write_no_evict_one_hot : cache_write_evict_one_hot) : 
-                                    '0;
-
-    assign cache_line_write = '{valid: write_addr.valid,
-                                tag: write_addr.addr.tag,
-                                data: write_data};
 
     // Prefetch snooping logic
-    for (genvar i = 0; i < MEM_DEPTH; i++) begin
-        assign snooping_one_hot[i] = (snooping_addr.addr.tag == cache_lines[i].tag) & 
-                                      snooping_addr.valid & 
-                                      cache_lines[i].valid;
+    always_comb begin
+        addr_found = 1'b0;
+        for (int i = 0; i < MEM_DEPTH; i++) begin
+            if (snooping_addr.valid && cache_lines[i].valid && 
+                (snooping_addr.addr.tag == cache_lines[i].tag)) begin
+                addr_found = 1'b1;
+            end
+        end
     end
-    assign addr_found = |snooping_one_hot;
 
-    for (genvar i = 0; i < MEM_DEPTH; i++) begin
-        assign valid_bits[i] = cache_lines[i].valid;
+    // Full detection
+    always_comb begin
+        // Extract valid bits
+        for (int i = 0; i < MEM_DEPTH; i++) begin
+            valid_bits[i] = cache_lines[i].valid;
+        end
+        full = &valid_bits;
     end
-    assign full = &valid_bits;
 
     // Cache read logic
-    for (genvar j = 0; j <= 1; j++) begin
-        for (genvar i = 0; i < MEM_DEPTH; i++) begin
-            assign cache_reads_one_hot[j][i] = (read_addrs[j].addr.tag == cache_lines[i].tag) &
-                                                read_addrs[j].valid &
-                                                cache_lines[i].valid;
-
-            assign cache_outs_temp[j].data = cache_lines[i].data & {`MEM_BLOCK_BITS{cache_reads_one_hot[j][i]}};
+    always_comb begin
+        cache_outs_temp = '0;
+        for (int j = 0; j < 2; j++) begin
+            for (int i = 0; i < MEM_DEPTH; i++) begin
+                if (read_addrs[j].valid && cache_lines[i].valid && 
+                    (read_addrs[j].addr.tag == cache_lines[i].tag)) begin
+                    cache_outs_temp[j].data = cache_lines[i].data;
+                    cache_outs_temp[j].valid = 1'b1;
+                end
+            end
         end
-        // Assign valid bit based on whether any cache line matched (hit)
-        assign cache_outs_temp[j].valid = |cache_reads_one_hot[j];
     end
     assign cache_outs = cache_outs_temp;
 
