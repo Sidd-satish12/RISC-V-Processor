@@ -158,9 +158,8 @@ typedef logic [3:0] MEM_TAG;
 `define DCACHE_LINE_BYTES 8      // 8 bytes/line 8 * 32 (2 words; 256 bytes total)
 `define DCACHE_VICTIM_SZ 4       // Small victim cache
 
-`define DSET_INDEX_BITS $clog2(`DCACHE_LINES / `DCACHE_ASSOC)   // indexing into each cache line
 `define DBLOCK_OFFSET_BITS $clog2(`DCACHE_LINE_BYTES)           // indexing into bytes in a cache line/block
-`define DTAG_BITS 16 - `DSET_INDEX_BITS - `DBLOCK_OFFSET_BITS
+`define DTAG_BITS 32 - `DBLOCK_OFFSET_BITS                      // Tag for fully associative cache
 
 typedef union packed {
     logic [7:0][7:0]  byte_level;
@@ -182,8 +181,6 @@ typedef struct packed {
     logic valid;
     logic dirty;
     logic [`DTAG_BITS-1:0] tag;
-    logic [`DSET_INDEX_BITS-1:0] index;
-    logic bank;
     MEM_BLOCK data;
 } D_CACHE_LINE;
 
@@ -228,10 +225,8 @@ typedef struct packed {
 typedef struct packed {
     logic [15:0]                    zeros;
     logic [`DTAG_BITS-1:0]          tag;
-    logic [`DSET_INDEX_BITS-1:0]    index;
-    logic                           bank;
     logic [`DBLOCK_OFFSET_BITS-1:0] block_offset;
-} D_ADDR; // DCache Breakdown of D-cache address
+} D_ADDR; // DCache Breakdown of fully associative D-cache address
 
 typedef enum logic [1:0] {
     BYTE   = 2'h0,

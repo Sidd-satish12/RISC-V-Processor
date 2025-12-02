@@ -122,7 +122,7 @@ module cpu (
     logic [$clog2(`LSQ_SZ+1)-1:0] sq_free_slots;
 
     // From execute: address/data updates for stores
-    EXECUTE_STOREQ_PACKET execute_storeq_packet;
+    EXECUTE_STOREQ_ENTRY [`NUM_FU_MEM-1:0] mem_storeq_entries;
 
     // From ROB: how many SQ entries to free this cycle
     logic [$clog2(`N+1)-1:0] sq_free_count;
@@ -251,7 +251,7 @@ module cpu (
 
     // D-cache <-> memory execution
     // TODO: Connect these to actual memory operation addresses from execute stage
-    I_ADDR_PACKET          [1:0] d_cache_read_addrs;
+    D_ADDR_PACKET          [1:0] d_cache_read_addrs;
     CACHE_DATA             [1:0] dcache_data;
     I_ADDR_PACKET                dcache_mem_req_addr;
     I_ADDR_PACKET                dcache_mem_write_addr;
@@ -259,8 +259,8 @@ module cpu (
     logic                        dcache_mem_write_valid;
     logic                        dcache_mem_req_accepted;
 
-    // Placeholder: Set dcache read addresses to invalid until memory ops are connected
-    assign d_cache_read_addrs = '0;
+    // Dcache read addresses come from execute stage (for loads)
+    // Note: This is connected below in the execute stage instantiation
 
     dcache_subsystem dcache_subsystem_inst (
         .clock            (clock),
@@ -538,7 +538,7 @@ module cpu (
         .sq_alloc_idxs     (sq_alloc_idxs),
 
         // Execute side
-        .execute_storeq_packet(execute_storeq_packet),
+        .mem_storeq_entries(mem_storeq_entries),
 
         // Retire / flush side
         .mispredict(mispredict),
@@ -762,8 +762,12 @@ module cpu (
         // From CDB for grant selection
         .gnt_bus(cdb_0.grant_bus_out),
 
+        // to/from dcache
+        .dcache_read_addrs(d_cache_read_addrs),
+        .dcache_read_data(dcache_data),
+
         // To Store Queue
-        .execute_storeq_packet(execute_storeq_packet)
+        .mem_storeq_entries(mem_storeq_entries)
 
     );
 
