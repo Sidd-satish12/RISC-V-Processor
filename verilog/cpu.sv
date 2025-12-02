@@ -124,7 +124,7 @@ module cpu (
     // From execute: address/data updates for stores
     EXECUTE_STOREQ_PACKET execute_storeq_packet;
 
-    // From retire: how many SQ entries to free this cycle
+    // From ROB: how many SQ entries to free this cycle
     logic [$clog2(`N+1)-1:0] sq_free_count;
 
     // Free list allocation signals
@@ -499,6 +499,7 @@ module cpu (
         .head_entries(rob_head_entries),
         .head_idxs(rob_head_idxs),
         .head_valids(rob_head_valids)
+        .retired_store_count (sq_free_count)
     );
 
 
@@ -976,18 +977,6 @@ module cpu (
         .freelist_restore_mask(freelist_restore_mask)
     );
 
-
-    //////////////////////////////////////////////////
-    //                                              //
-    //         Store Queue free_count logic         //
-    //                                              //
-    //////////////////////////////////////////////////
-
-    // TEMP: don't free from the store queue yet.
-    // TODO: Implement real free_count logic here.
-    always_comb begin
-        sq_free_count = '0;
-    end
 
     //////////////////////////////////////////////////
     //                                              //

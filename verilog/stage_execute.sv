@@ -416,23 +416,6 @@ module stage_execute (
         end
     end
 
-
-    // // send store instruction address and data to store queue
-    // always_comb begin
-    //     execute_storeq_packet = '0;
-    //     for (int i = 0; i < `NUM_FU_MEM; i++) begin
-    //         if (issue_entries.mem[i].valid && (issue_entries.mem[i].op_type.func == STORE_BYTE 
-    //         || issue_entries.mem[i].op_type.func == STORE_HALF || issue_entries.mem[i].op_type.func == STORE_WORD
-    //         || issue_entries.mem[i].op_type.func == STORE_DOUBLE)) begin
-    
-    //             execute_storeq_packet.valid[i]        = 1'b1;
-    //             execute_storeq_packet.addr[i]         = mem_addr[i];
-    //             execute_storeq_packet.data[i]         = mem_data[i];
-    //             execute_storeq_packet.store_queue_idx = issue_entries.mem[i].store_queue_idx;
-    //         end
-    //     end
-    // end
-
     always_comb begin
         for (int i = 0; i < `NUM_FU_MEM; i++) begin
             fu_results.mem[i] = '0;  // Initialize MEM results to 0
