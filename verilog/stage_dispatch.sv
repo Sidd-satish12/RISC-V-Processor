@@ -60,7 +60,7 @@ module stage_dispatch (
     logic rs_bank_available;
 
     // RS allocation counters
-    int alu_count, mult_count, branch_count, mem_count;
+    int alu_count, mult_count, branch_count, mem_count, storeq_count;
 
     // Track RS usage dynamically as we go
     int alu_used;
@@ -68,6 +68,9 @@ module stage_dispatch (
     int branch_used;
     int mem_used;
     int storeq_used;
+
+    // Instruction property flags
+    logic is_store;
 
     // Map table read results
     logic [`PHYS_TAG_BITS-1:0] local_reg1_tag[`N-1:0];
@@ -118,7 +121,7 @@ module stage_dispatch (
             if (i >= num_valid_from_fetch) break;  // No more valid instructions
 
             // Determine instruction properties
-            logic is_store = decode_op_type[i].category == CAT_MEM && !decode_uses_rd[i];
+            is_store = decode_op_type[i].category == CAT_MEM && !decode_uses_rd[i];
 
             // Check ROB space
             if (rob_slots_used >= free_slots_rob) break;

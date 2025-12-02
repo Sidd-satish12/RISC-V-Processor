@@ -172,6 +172,7 @@ module cpu (
     PRF_READ_TAGS prf_read_tag_src1, prf_read_tag_src2;
     PRF_READ_DATA prf_read_data_src1, prf_read_data_src2;
     logic [`NUM_FU_MULT-1:0] mult_request;
+    logic [`NUM_FU_MEM-1:0] execute_mem_cdb_requests;
 
     // Retire stage signals
     ROB_ENTRY [`N-1:0] rob_head_entries;
