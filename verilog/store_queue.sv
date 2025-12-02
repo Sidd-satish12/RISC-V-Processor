@@ -102,7 +102,7 @@ module store_queue (
         end
     end
 
-    assign free_slots = free_slots_reg_next;
+    assign free_slots = free_slots_reg;
 
     // ============================================================
     // Sequential
