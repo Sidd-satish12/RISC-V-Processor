@@ -203,7 +203,7 @@ module cpu (
     assign cdb_requests.alu    = issue_cdb_requests.alu;  // From issue stage
     assign cdb_requests.mult   = mult_request;  // From execute stage (when completing)
     assign cdb_requests.branch = issue_cdb_requests.branch;  // From issue stage
-    assign cdb_requests.mem    = issue_cdb_requests.mem;  // From issue stage
+    assign cdb_requests.mem    = execute_mem_cdb_requests;  // From execute stage (late requests for cache hits)
 
     // Connect dispatch outputs to freelist inputs
     assign freelist_alloc_req  = free_alloc_valid;
@@ -767,7 +767,10 @@ module cpu (
         .dcache_read_data(dcache_data),
 
         // To Store Queue
-        .mem_storeq_entries(mem_storeq_entries)
+        .mem_storeq_entries(mem_storeq_entries),
+
+        // Late CDB requests from MEM FUs
+        .mem_cdb_requests_out(execute_mem_cdb_requests)
 
     );
 
