@@ -31,7 +31,7 @@ module rob (
     // Retire
     output ROB_ENTRY [`N-1:0] head_entries,  // Could be retired
     output ROB_IDX   [`N-1:0] head_idxs,     // Head entry indices
-    output logic     [`N-1:0] head_valids    // Head entry valid flags
+    output logic     [`N-1:0] head_valids,    // Head entry valid flags
 
     //Store
     output logic [$clog2(`N+1)-1:0] retired_store_count
