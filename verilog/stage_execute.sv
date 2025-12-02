@@ -35,6 +35,9 @@ module stage_execute (
     output logic [`N-1:0] ex_valid,
     output EX_COMPLETE_PACKET ex_comp,
 
+    // Late CDB requests from MEM FUs (for cache miss handling)
+    output logic [`NUM_FU_MEM-1:0] mem_cdb_requests_out,
+
     // to store queue
     output EXECUTE_STOREQ_ENTRY [`NUM_FU_MEM-1:0] mem_storeq_entries,
 
@@ -398,7 +401,9 @@ module stage_execute (
     // Outputs from each MEM FU
     EXECUTE_STOREQ_ENTRY [`NUM_FU_MEM-1:0] mem_store_queue_entries;
     CDB_ENTRY [`NUM_FU_MEM-1:0] mem_cdb_results;
+    logic [`NUM_FU_MEM-1:0] mem_cdb_requests;  // CDB requests from MEM FUs
     logic [`NUM_FU_MEM-1:0] mem_is_load_request;
+    logic [`NUM_FU_MEM-1:0] mem_is_store;
     D_ADDR [`NUM_FU_MEM-1:0] mem_dcache_addrs;
 
     // Generate MEM FUs
@@ -417,7 +422,9 @@ module stage_execute (
                 .data(mem_data[i]),
                 .store_queue_entry(mem_store_queue_entries[i]),
                 .cdb_result(mem_cdb_results[i]),
+                .cdb_request(mem_cdb_requests[i]),
                 .is_load_request(mem_is_load_request[i]),
+                .is_store_op(mem_is_store[i]),
                 .dcache_addr(mem_dcache_addrs[i])
             );
         end
@@ -425,6 +432,9 @@ module stage_execute (
 
     // Output MEM FU store queue entries directly
     assign mem_storeq_entries = mem_store_queue_entries;
+
+    // Late CDB requests from MEM FUs
+    assign mem_cdb_requests_out = mem_cdb_requests;
 
     // Send load addresses to dcache (first 2 MEM FUs that request loads)
     // Track which MEM FU corresponds to which dcache slot
@@ -537,13 +547,12 @@ module stage_execute (
         for (int i = 0; i < `N; i++) begin
             for (int k = 0; k < `NUM_FU_MEM; k++) begin
                 if (gnt_mem[i][k]) begin
-                    ex_valid[i] = 1'b1;
                     ex_comp.rob_idx[i] = issue_entries.mem[k].rob_idx;
                     ex_comp.dest_pr[i] = issue_entries.mem[k].dest_tag;
 
-                    // For loads: use data from cache hit (handled by mem_fu)
-                    // For stores: no result data needed
-                    ex_comp.result[i] = '0;  // mem_fu handles CDB results separately
+                    // MEM operations complete when they get CDB grants (they only request when ready)
+                    ex_valid[i] = 1'b1;
+                    ex_comp.result[i] = mem_cdb_results[k].valid ? mem_cdb_results[k].data : '0;
                 end
             end
         end
