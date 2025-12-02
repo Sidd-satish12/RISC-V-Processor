@@ -58,7 +58,7 @@
 `define NUM_FU_ALU 3      // Enough for superscalar width
 `define NUM_FU_MULT 1     // Single pipelined multiplier
 `define NUM_FU_BRANCH 1   // Single branch resolver
-`define NUM_FU_MEM 1     // Single address calculator for mem ops
+`define NUM_FU_MEM 2     // Single address calculator for mem ops
 `define NUM_FU_TOTAL (`NUM_FU_ALU + `NUM_FU_MULT + `NUM_FU_BRANCH + `NUM_FU_MEM)
 
 // reservation station sizes per FU type
@@ -201,6 +201,12 @@ typedef struct packed {
 } I_ADDR_PACKET;
 
 typedef struct packed {
+    logic [15:0]                    zeros;
+    logic [`DTAG_BITS-1:0]          tag;
+    logic [`DBLOCK_OFFSET_BITS-1:0] block_offset;
+} D_ADDR; // DCache Breakdown of fully associative D-cache address
+
+typedef struct packed {
     logic valid;
     D_ADDR  addr;
 } D_ADDR_PACKET;
@@ -221,12 +227,6 @@ typedef struct packed {
     MEM_TAG mem_tag;
     D_ADDR  d_addr;
 } D_MSHR_PACKET;
-
-typedef struct packed {
-    logic [15:0]                    zeros;
-    logic [`DTAG_BITS-1:0]          tag;
-    logic [`DBLOCK_OFFSET_BITS-1:0] block_offset;
-} D_ADDR; // DCache Breakdown of fully associative D-cache address
 
 typedef enum logic [1:0] {
     BYTE   = 2'h0,
@@ -254,6 +254,21 @@ typedef struct packed {
     logic valid;  // Valid broadcasts this cycle
     PHYS_TAG tag;  // Physical dest tags
 } CDB_EARLY_TAG_ENTRY;
+
+// Store Queue Entry structure
+typedef struct packed {
+    ADDR                   address;   // Store address
+    DATA                   data;      // Store data
+    ROB_IDX                rob_idx;   // associated rob idx (may not be needed but kept for squashing)
+    logic                  valid;     // Entry occupancy bit
+} STOREQ_ENTRY;
+
+typedef struct packed {
+    logic valid;
+    ADDR  addr;
+    DATA  data;
+    STOREQ_IDX store_queue_idx;
+} EXECUTE_STOREQ_ENTRY;
 
 // Map table entry structure
 typedef struct packed {
@@ -666,22 +681,6 @@ typedef struct packed {
     logic          halt;           // Is this a halt?
     logic          illegal;        // Is this illegal?
 } ROB_ENTRY;
-
-
-// Store Queue Entry structure
-typedef struct packed {
-    ADDR                   address;   // Store address
-    DATA                   data;      // Store data
-    ROB_IDX                rob_idx;   // associated rob idx (may not be needed but kept for squashing)
-    logic                  valid;     // Entry occupancy bit
-} STOREQ_ENTRY;
-
-typedef struct packed {
-    logic valid;
-    ADDR  addr;
-    DATA  data;
-    STOREQ_IDX store_queue_idx;
-} EXECUTE_STOREQ_ENTRY;
 
 typedef struct packed {
     logic [`NUM_FU_MEM-1:0] valid;
