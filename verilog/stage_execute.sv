@@ -67,6 +67,9 @@ module stage_execute (
 
     // FU metadata computed on-the-fly in EX/COMP register fill (SoA approach)
 
+    // Load counter for dcache address selection
+    int load_count;
+
     // Metadata for mult module (passed through pipeline)
     EX_COMPLETE_ENTRY mult_meta_in[`NUM_FU_MULT-1:0];
     EX_COMPLETE_ENTRY mult_meta_out[`NUM_FU_MULT-1:0];
@@ -387,7 +390,6 @@ module stage_execute (
     // MEM Functional Units
     // =========================================================================
     // Store operations handled by MEM FUs with store queue interaction
-    // TODO load instructions need to be implemented (WIP)
 
     always_comb begin
         for (int i = 0; i < `NUM_FU_MEM; i++) begin
@@ -405,6 +407,9 @@ module stage_execute (
     logic [`NUM_FU_MEM-1:0] mem_is_load_request;
     logic [`NUM_FU_MEM-1:0] mem_is_store;
     D_ADDR [`NUM_FU_MEM-1:0] mem_dcache_addrs;
+    
+    // Maps MEM FU index to dcache slot (0 or 1) for load data routing
+    logic [1:0] mem_fu_to_dcache_slot [`NUM_FU_MEM-1:0];
 
     // Generate MEM FUs
     generate
@@ -437,15 +442,12 @@ module stage_execute (
     assign mem_cdb_requests_out = mem_cdb_requests;
 
     // Send load addresses to dcache (first 2 MEM FUs that request loads)
-    // Track which MEM FU corresponds to which dcache slot
-    logic [`NUM_FU_MEM-1:0] mem_fu_to_dcache_slot;  // Maps MEM FU index to dcache slot (0 or 1)
-
     always_comb begin
         dcache_read_addrs = '0;
-        mem_fu_to_dcache_slot = '0;
+        mem_fu_to_dcache_slot = '{default: '0};
 
         // Collect load requests from MEM FUs and send first 2 to dcache
-        int load_count = 0;
+        load_count = 0;
         for (int i = 0; i < `NUM_FU_MEM && load_count < 2; i++) begin
             if (mem_is_load_request[i]) begin
                 dcache_read_addrs[load_count].valid = 1'b1;
