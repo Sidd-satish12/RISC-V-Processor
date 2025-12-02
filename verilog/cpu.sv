@@ -222,9 +222,10 @@ module cpu (
 
 
     // I-cache <-> fetch
-    I_ADDR_PACKET          [1:0] i_cache_read_addrs ;
-    I_ADDR_PACKET           mem_req_addr;
-    CACHE_DATA             [1:0] icache_data ;
+    I_ADDR_PACKET          [1:0] i_cache_read_addrs;
+    I_ADDR_PACKET           icache_mem_req_addr;
+    CACHE_DATA             [1:0] icache_data;
+    logic                        icache_mem_req_accepted;
 
     icache_subsystem icache_subsystem_inst (
         .clock            (clock),
@@ -238,60 +239,81 @@ module cpu (
         .mem_data_tag     (mem2proc_data_tag),
 
         // Arbitor IOs
-        .mem_req_addr     (mem_req_addr),
-        .mem_req_accepted (mem_req_accepted)
+        .mem_req_addr     (icache_mem_req_addr),
+        .mem_req_accepted (icache_mem_req_accepted)
     );
 
-    // icache access memory only
-    // needs to be decided by arbitrator later when dcache is done
-    always_comb begin
-        dmem_req_valid   = 1'b0;
-        dmem_req_command = MEM_NONE;
-        dmem_req_addr    = '0;
-        dmem_req_data    = '0;
-    `ifndef CACHE_MODE
-        dmem_req_size    = WORD;  // sw = store word
-    `endif
+    //////////////////////////////////////////////////
+    //                                              //
+    //                dcache                        //
+    //                                              //
+    //////////////////////////////////////////////////
 
-        // For now, if any MEM FU lane has a valid store, use that
-        for (int i = 0; i < `NUM_FU_MEM; i++) begin
-            if (execute_storeq_packet.valid[i]) begin
-                dmem_req_valid   = 1'b1;
-                dmem_req_command = MEM_STORE;
-                dmem_req_addr    = execute_storeq_packet.addr[i];
-                // MEM_BLOCK is 64 bits; store word goes in low bits
-                dmem_req_data[31:0] = execute_storeq_packet.data[i];
-            end
-        end
-    end
+    // D-cache <-> memory execution
+    // TODO: Connect these to actual memory operation addresses from execute stage
+    I_ADDR_PACKET          [1:0] d_cache_read_addrs;
+    CACHE_DATA             [1:0] dcache_data;
+    I_ADDR_PACKET                dcache_mem_req_addr;
+    I_ADDR_PACKET                dcache_mem_write_addr;
+    MEM_BLOCK                    dcache_mem_write_data;
+    logic                        dcache_mem_write_valid;
+    logic                        dcache_mem_req_accepted;
 
+    // Placeholder: Set dcache read addresses to invalid until memory ops are connected
+    assign d_cache_read_addrs = '0;
+
+    dcache_subsystem dcache_subsystem_inst (
+        .clock            (clock),
+        .reset            (reset),
+        // Memory operations read
+        .read_addrs       (d_cache_read_addrs),
+        .cache_outs       (dcache_data),
+        // Mem.sv IOs - Read requests
+        .current_req_tag  (mem2proc_transaction_tag),
+        .mem_data         (mem2proc_data),
+        .mem_data_tag     (mem2proc_data_tag),
+        // Arbitor IOs - Read requests
+        .mem_req_addr     (dcache_mem_req_addr),
+        .mem_req_accepted (dcache_mem_req_accepted),
+        // Arbitor IOs - Write requests (dirty writebacks)
+        .mem_write_addr   (dcache_mem_write_addr),
+        .mem_write_data   (dcache_mem_write_data),
+        .mem_write_valid  (dcache_mem_write_valid)
+    );
     //////////////////////////////////////////////////
     //                                              //
     //          Memory Arbiter Logic                //
     //                                              //
     //////////////////////////////////////////////////
 
-    logic icache_mem_req_accepted;
-
-    // Arbitration: Data stores (from store queue) prioritized over instruction requests (icache)
+    // Arbitration: Data requests (dcache) prioritized over instruction requests (icache)
+    // Writes: Only dcache writes, no conflicts
     always_comb begin
         // Default values
         proc2mem_command = MEM_NONE;
         proc2mem_addr    = '0;
         proc2mem_data    = '0;
         icache_mem_req_accepted = 1'b0;
+        dcache_mem_req_accepted = 1'b0;
 
-        // Priority 1: Store queue writes (stores from execute stage)
-        if (dmem_req_valid) begin
+        // Priority 1: Dcache writes (dirty writebacks)
+        if (dcache_mem_write_valid) begin
             proc2mem_command = MEM_STORE;
-            proc2mem_addr    = dmem_req_addr;
-            proc2mem_data    = dmem_req_data;
-            // Stores are always accepted (no need to check tag)
+            proc2mem_addr    = dcache_mem_write_addr.addr;
+            proc2mem_data    = dcache_mem_write_data;
+            // Writes are always accepted if transaction tag is available
+            // Note: mem_req_accepted logic is for reads only
         end
-        // Priority 2: Icache reads (instruction fetch)
-        else if (mem_req_addr.valid) begin
+        // Priority 2: Dcache reads (data memory operations)
+        else if (dcache_mem_req_addr.valid) begin
             proc2mem_command = MEM_LOAD;
-            proc2mem_addr    = mem_req_addr.addr;
+            proc2mem_addr    = dcache_mem_req_addr.addr;
+            dcache_mem_req_accepted = (mem2proc_transaction_tag != 0);
+        end
+        // Priority 3: Icache reads (instruction fetch)
+        else if (icache_mem_req_addr.valid) begin
+            proc2mem_command = MEM_LOAD;
+            proc2mem_addr    = icache_mem_req_addr.addr;
             icache_mem_req_accepted = (mem2proc_transaction_tag != 0);
         end
 
@@ -299,10 +321,6 @@ module cpu (
         proc2mem_size = DOUBLE; // Always 64-bit blocks in cache mode
 `endif
     end
-
-    // Keep old interface for compatibility
-    assign mem_req_accepted = icache_mem_req_accepted;
-
     //////////////////////////////////////////////////
     //                                              //
     //                  Fetch-Stage                 //
