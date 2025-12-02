@@ -1,71 +1,158 @@
 `include "sys_defs.svh"
 
-// Memory module: compute addresses and handle memory operations
-// Handles both loads and stores, with store queue interaction and load cache interface
-// Purely combinational
+// Memory Functional Unit: compute addresses and handle load/store operations
+// Stateful to handle cache miss latency - loads wait for cache hits before completing
 module mem_fu (
-    input  logic valid,              // Is this FU active?
-    input  MEM_FUNC func,            // Memory operation type
-    input  DATA rs1,                 // Base register for address
-    input  DATA rs2,                 // Data to store (for stores)
-    input  DATA imm,                 // Immediate offset from instruction
-    input  STOREQ_IDX store_queue_idx, // Store queue index from dispatch (for stores)
-    input  PHYS_TAG dest_tag,        // Destination register tag (for loads)
-    input  CACHE_DATA cache_hit_data, // Cache hit data from dcache (for loads)
+    input clock,
+    reset,
+    valid,
+    input MEM_FUNC func,
+    input DATA rs1,
+    rs2,
+    imm,
+    input STOREQ_IDX store_queue_idx,
+    input PHYS_TAG dest_tag,
+    input CACHE_DATA cache_hit_data,
 
-    output DATA addr,                // Effective address (for both loads and stores)
-    output DATA data,                // Store data (only meaningful for stores)
-    output EXECUTE_STOREQ_ENTRY store_queue_entry,  // Store queue entry
-    output CDB_ENTRY cdb_result,      // CDB result for loads that hit cache
-    output logic is_load_request,     // Whether this FU needs dcache access for a load
-    output D_ADDR dcache_addr         // Dcache address for load requests
+    output DATA addr,
+    data,
+    output EXECUTE_STOREQ_ENTRY store_queue_entry,
+    output CDB_ENTRY cdb_result,
+    output logic cdb_request,
+    is_load_request,
+    is_store_op,
+    output D_ADDR dcache_addr
 );
 
-    always_comb begin
-        // Always compute effective address
-        addr = rs1 + imm;
+    // =========================================================================
+    // State for handling cache misses
+    // =========================================================================
 
-        // Store data is always rs2
+    typedef struct packed {
+        logic valid;
+        PHYS_TAG dest_tag;
+        D_ADDR addr;
+    } PENDING_LOAD;
+
+    PENDING_LOAD pending_load, pending_load_next;
+
+    // =========================================================================
+    // Combinational Logic
+    // =========================================================================
+
+    // Helper signals for operation type detection
+    logic is_load, is_store;
+    logic pending_load_hit;
+    D_ADDR current_dcache_addr;
+
+    always_comb begin
+        // Compute effective address (always valid)
+        addr = rs1 + imm;
         data = rs2;
 
-        // Build store queue entry for stores
-        if (valid && (func == STORE_BYTE   ||
-                      func == STORE_HALF   ||
-                      func == STORE_WORD   ||
-                      func == STORE_DOUBLE)) begin
+        // Extract dcache address from computed address
+        current_dcache_addr = '{
+            tag: addr[31:12],
+            block_offset: addr[4:3]
+        };
+
+        // Determine operation type
+        is_load = (func == LOAD_BYTE   || func == LOAD_HALF   || func == LOAD_WORD   ||
+                   func == LOAD_DOUBLE || func == LOAD_BYTE_U || func == LOAD_HALF_U);
+
+        is_store = (func == STORE_BYTE || func == STORE_HALF ||
+                    func == STORE_WORD || func == STORE_DOUBLE);
+
+        // Check if pending load now hits cache
+        pending_load_hit = pending_load.valid && cache_hit_data.valid &&
+                          (pending_load.addr.tag == current_dcache_addr.tag) &&
+                          (pending_load.addr.block_offset == current_dcache_addr.block_offset);
+    end
+
+    // Store queue entry generation
+    always_comb begin
+        if (valid && is_store) begin
             store_queue_entry = '{
                 valid: 1'b1,
-                addr: addr,                    // effective address
-                data: data,                    // store data
-                store_queue_idx: store_queue_idx  // index from dispatch
+                addr: addr,
+                data: data,
+                store_queue_idx: store_queue_idx
             };
+            is_store_op = 1'b1;
         end else begin
-            store_queue_entry = '0;  // Not a store or not valid
+            store_queue_entry = '0;
+            is_store_op = 1'b0;
         end
+    end
 
-        // Build CDB result for loads that hit in cache
-        if (valid && cache_hit_data.valid &&
-            (func == LOAD_BYTE   || func == LOAD_HALF   || func == LOAD_WORD   ||
-             func == LOAD_DOUBLE || func == LOAD_BYTE_U || func == LOAD_HALF_U)) begin
+    // CDB result and request generation
+    always_comb begin
+        if (pending_load_hit) begin
+            // Pending load completes when cache hit occurs
+            cdb_result = '{
+                valid: 1'b1,
+                tag: pending_load.dest_tag,
+                data: cache_hit_data.data
+            };
+            cdb_request = 1'b1;
+        end else if (valid && is_load && cache_hit_data.valid) begin
+            // New load hits cache immediately
             cdb_result = '{
                 valid: 1'b1,
                 tag: dest_tag,
                 data: cache_hit_data.data
             };
+            cdb_request = 1'b1;
+        end else if (valid && is_store) begin
+            // Store completes immediately (no data result)
+            cdb_result = '0;
+            cdb_request = 1'b1;
         end else begin
-            cdb_result = '0;  // No load hit or not a load
+            // No completion this cycle
+            cdb_result = '0;
+            cdb_request = 1'b0;
         end
+    end
 
-        // Output load request information for dcache
-        if (valid && (func == LOAD_BYTE   || func == LOAD_HALF   || func == LOAD_WORD   ||
-                      func == LOAD_DOUBLE || func == LOAD_BYTE_U || func == LOAD_HALF_U)) begin
+    // Dcache request generation
+    always_comb begin
+        if (valid && is_load) begin
+            // New load request
             is_load_request = 1'b1;
-            dcache_addr = '{tag: addr[31:12],      // Extract tag from address
-                           block_offset: addr[4:3]}; // Extract block offset
+            dcache_addr = current_dcache_addr;
+        end else if (pending_load.valid) begin
+            // Continue requesting for pending load
+            is_load_request = 1'b1;
+            dcache_addr = pending_load.addr;
         end else begin
             is_load_request = 1'b0;
             dcache_addr = '0;
         end
     end
 
-endmodule  // mem
+    // Pending load state management
+    always_comb begin
+        pending_load_next = pending_load;  // Default: keep state
+
+        if (pending_load_hit) begin
+            // Clear pending load when it completes
+            pending_load_next.valid = 1'b0;
+        end else if (valid && is_load && !cache_hit_data.valid && !pending_load.valid) begin
+            // New load misses cache - make it pending
+            pending_load_next = '{
+                valid: 1'b1,
+                dest_tag: dest_tag,
+                addr: current_dcache_addr
+            };
+        end
+    end
+
+    // Sequential update of pending load state
+    always_ff @(posedge clock) begin
+        if (reset) begin
+            pending_load <= '0;
+        end else begin
+            pending_load <= pending_load_next;
+        end
+    end
+endmodule  // mem_fu
