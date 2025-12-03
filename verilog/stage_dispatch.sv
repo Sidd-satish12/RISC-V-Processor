@@ -27,6 +27,8 @@ module stage_dispatch (
     input logic   [     $clog2(`RS_MULT_SZ+1)-1:0] rs_mult_free_slots,
     input logic   [   $clog2(`RS_BRANCH_SZ+1)-1:0] rs_branch_free_slots,
     input logic   [      $clog2(`RS_MEM_SZ+1)-1:0] rs_mem_free_slots,
+   // input logic [$clog2(`LSQ_SZ)-1:0] store_queue_complete_ptr, // Maybe can you use this to compare with load_position pointer later
+    input logic                         store_queue_has_pending_store,
 
 
     // To Instruction Buffer: dispatch count (0 = stall)
@@ -68,9 +70,9 @@ module stage_dispatch (
     int branch_used;
     int mem_used;
     int storeq_used;
-
-    // Instruction property flags
     logic is_store;
+    logic is_load;
+    logic saw_store_in_bundle;
 
     // Map table read results
     logic [`PHYS_TAG_BITS-1:0] local_reg1_tag[`N-1:0];
@@ -116,12 +118,19 @@ module stage_dispatch (
         branch_used = 0;
         mem_used = 0;
         storeq_used = 0;
+        saw_store_in_bundle = 1'b0;
 
         for (int i = 0; i < `N; i++) begin
             if (i >= num_valid_from_fetch) break;  // No more valid instructions
 
             // Determine instruction properties
             is_store = decode_op_type[i].category == CAT_MEM && !decode_uses_rd[i];
+            is_load  = (decode_op_type[i].category == CAT_MEM) &&  decode_uses_rd[i];
+
+            if (is_load && (store_queue_has_pending_store || saw_store_in_bundle)) begin
+                // Do not dispatch this load or anything after it this cycle
+                break;
+            end
 
             // Check ROB space
             if (rob_slots_used >= free_slots_rob) break;
@@ -145,7 +154,10 @@ module stage_dispatch (
             num_to_dispatch++;
             rob_slots_used++;
             if (decode_uses_rd[i]) freelist_slots_used++;
-            if (is_store) storeq_used++;
+            if (is_store) begin
+                storeq_used++;
+                saw_store_in_bundle = 1'b1;  // mark that there is an older store in this group
+            end
 
             // Reserve RS slot for this instruction type
             case (decode_op_type[i].category)
