@@ -476,6 +476,9 @@ module cpu (
         .rs_branch_free_slots(rs_branch.free_slots),
         .rs_mem_free_slots   (rs_mem.free_slots),
 
+        // From Store Queue
+        .store_queue_has_pending_store(sq_unexecuted_store)
+
         // To Instruction Buffer
         .dispatch_count(dispatch_count),
 
@@ -546,7 +549,10 @@ module cpu (
 
         // Retire / flush side
         .mispredict(mispredict),
-        .free_count(sq_free_count)
+        .free_count(sq_free_count),
+
+        // .complete_ptr(sq_complete_ptr),
+        .unexecuted_store(sq_unexecuted_store)
     );
 
     //////////////////////////////////////////////////
