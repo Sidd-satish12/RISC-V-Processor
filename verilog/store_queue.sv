@@ -32,7 +32,9 @@ module store_queue (
     input logic                     mispredict,
     input logic [$clog2(`N+1)-1:0]  free_count,  // number of entries to free (from rob)
 
-    output logic [$clog2(`LSQ_SZ)-1:0] complete_ptr
+   // output logic [$clog2(`LSQ_SZ)-1:0] complete_ptr, //not being used rn might use later
+
+    output logic                       unexecuted_store
 );
 
     // ============================================================
@@ -44,14 +46,14 @@ module store_queue (
     logic [$clog2(`LSQ_SZ)-1:0] head_idx, head_idx_next;
     logic [$clog2(`LSQ_SZ)-1:0] tail_idx, tail_idx_next;
     logic [$clog2(`N+1)-1:0] num_dispatched;
-    logic [`LSQ_SZ-1:0] completed, completed_next;
+    logic [`LSQ_SZ-1:0] executed, executed_next; // change this to executed
     
     always_comb begin
         sq_entries_next      = sq_entries;
         free_slots_reg_next  = free_slots_reg;
         head_idx_next        = head_idx;
         tail_idx_next        = tail_idx;
-        completed_next       = completed;
+        executed_next       = executed;
 
         // ============================
         // 1. Retire logic
@@ -59,7 +61,7 @@ module store_queue (
         // Clear up to free_count entries starting at head
         for (int i = 0; i < free_count; i++) begin
             sq_entries_next[(head_idx + i) % `LSQ_SZ].valid = 1'b0;
-            completed_next[(head_idx + i) % `LSQ_SZ]        = 1'b0; 
+            executed_next[(head_idx + i) % `LSQ_SZ]        = 1'b0; 
         end
 
 
@@ -73,7 +75,7 @@ module store_queue (
         for (int i = 0; i < `N; i++) begin
             if (sq_dispatch_packet[i].valid) begin
                 sq_entries_next[(tail_idx + num_dispatched) % `LSQ_SZ] = sq_dispatch_packet[i];
-                completed_next[(tail_idx + num_dispatched) % `LSQ_SZ]  = 1'b0;
+                executed_next[(tail_idx + num_dispatched) % `LSQ_SZ]  = 1'b0;
                 num_dispatched++;
             end
         end
@@ -86,7 +88,7 @@ module store_queue (
             if (mem_storeq_entries[i].valid) begin
                 sq_entries_next[mem_storeq_entries[i].store_queue_idx].address = mem_storeq_entries[i].addr;
                 sq_entries_next[mem_storeq_entries[i].store_queue_idx].data    = mem_storeq_entries[i].data;
-                completed_next[mem_storeq_entries[i].store_queue_idx]          = 1'b1; 
+                executed_next[mem_storeq_entries[i].store_queue_idx]          = 1'b1; 
             end
         end
 
@@ -111,23 +113,37 @@ module store_queue (
 
     assign free_slots = free_slots_reg;
 
-    // Walk forward from head_idx while entries are {valid && completed}.
-    // complete_ptr = first index that is NOT (valid && completed).
+    // Walk forward from head_idx while entries are {valid && executed}.
+    // complete_ptr = first index that is NOT (valid && executed).
     always_comb begin
         logic [$clog2(`LSQ_SZ)-1:0] ptr;
         ptr = head_idx;
 
         // at most LSQ_SZ steps to avoid infinite loop
         for (int step = 0; step < `LSQ_SZ; step++) begin
-            if (sq_entries[ptr].valid && completed[ptr]) begin
+            if (sq_entries[ptr].valid && executed[ptr]) begin
                 ptr = (ptr + 1) % `LSQ_SZ;
             end else begin
                 break;
             end
         end
 
-        complete_ptr = ptr;
+        // complete_ptr = ptr;
     end
+
+    // ------------------------------------------------------------
+    // Has-pending-store flag
+    // 1 if there is any store that is valid but not yet executed
+    // ------------------------------------------------------------
+    always_comb begin
+        unexecuted_store = 1'b0;
+        for (int i = 0; i < `LSQ_SZ; i++) begin
+            if (sq_entries[i].valid && !executed[i]) begin
+                unexecuted_store = 1'b1;
+            end
+        end
+    end
+
 
 
     // ============================================================
@@ -138,13 +154,13 @@ module store_queue (
             sq_entries <= '0;
             head_idx   <= '0;
             tail_idx   <= '0;
-            completed  <= '0;
+            executed  <= '0;
             free_slots_reg <= `LSQ_SZ;
         end else begin
             sq_entries <= sq_entries_next;
             head_idx   <= head_idx_next;
             tail_idx   <= tail_idx_next;
-            completed <= completed_next;
+            executed <= executed_next;
             free_slots_reg <= free_slots_reg_next;
         end
     end
