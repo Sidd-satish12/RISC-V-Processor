@@ -673,12 +673,13 @@ typedef struct packed {
     logic          store;          // is this a store instruction
     EXCEPTION_CODE exception;      // Any exception code
     logic          branch;         // Is this a branch?
-    ADDR           branch_target;  // Resolved branch target
     logic          branch_taken;   // Resolved taken/not taken
-    ADDR           pred_target;    // Predicted branch target
+    ADDR           branch_target;  // Resolved branch target
     logic          pred_taken;     // Predicted taken/not taken
+    ADDR           pred_target;    // Predicted branch target
     logic [`BP_GHR_WIDTH-1:0] ghr_snapshot;   // new: GHR snapshot
     logic          mispredict;     // Branch misprediction flag
+    logic          is_store;       // Is this a store?
     logic          halt;           // Is this a halt?
     logic          illegal;        // Is this illegal?
 } ROB_ENTRY;
