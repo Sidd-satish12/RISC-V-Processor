@@ -477,7 +477,7 @@ module cpu (
         .rs_mem_free_slots   (rs_mem.free_slots),
 
         // From Store Queue
-        .store_queue_has_pending_store(sq_unexecuted_store)
+        .store_queue_has_pending_store(sq_unexecuted_store),
 
         // To Instruction Buffer
         .dispatch_count(dispatch_count),
