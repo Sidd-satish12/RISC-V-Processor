@@ -111,8 +111,6 @@ module store_queue (
 
     assign free_slots = free_slots_reg;
 
-        assign free_slots = free_slots_reg;
-
     // Walk forward from head_idx while entries are {valid && completed}.
     // complete_ptr = first index that is NOT (valid && completed).
     always_comb begin
