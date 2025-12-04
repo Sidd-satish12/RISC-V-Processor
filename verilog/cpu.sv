@@ -91,7 +91,10 @@ module cpu (
     output RS_CLEAR_SIGNALS rs_clear_signals_dbg,
 
     // Fetch stage debug outputs
-    output FETCH_PACKET [3:0]   fetch_packet_dbg
+    output FETCH_PACKET [3:0]   fetch_packet_dbg,
+
+    // Debug output, exposes DCache so memory is written back to .out file
+    output D_CACHE_LINE [`DCACHE_LINES-1:0]      cache_lines_dbg
 );
 
     //////////////////////////////////////////////////
@@ -287,6 +290,7 @@ module cpu (
     logic                        dcache_mem_write_valid;
     logic                        dcache_mem_req_accepted;
 
+
     // Dcache read addresses come from execute stage (for loads)
     // Note: This is connected below in the execute stage instantiation
 
@@ -311,7 +315,9 @@ module cpu (
         .proc_store_valid (retire_store_request), // Driven by Retire, using data from SQ
         .proc_store_addr  (sq_to_dcache_addr),
         .proc_store_data  (sq_to_dcache_data),
-        .proc_store_response (dcache_store_response)
+        .proc_store_response (dcache_store_response),
+        // debug to expose DCache to testbench
+        .cache_lines_debug (cache_lines_dbg)
     );
     //////////////////////////////////////////////////
     //                                              //
