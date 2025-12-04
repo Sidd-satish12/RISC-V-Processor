@@ -324,8 +324,8 @@ module cpu (
     // Writes: Only dcache writes, no conflicts
     // 
     // D_ADDR to 32-bit address conversion:
-    // D_ADDR stores: tag = addr[31:12] (20 bits), block_offset = addr[4:3] (2 bits)
-    // To reconstruct line-aligned address: {tag[19:0], 12'b0}
+    // D_ADDR stores: tag = addr[31:3] (29 bits), block_offset = addr[2:0] (3 bits)
+    // To reconstruct 8-byte-aligned address: {tag, 3'b0}
     always_comb begin
         // Default values
         proc2mem_command = MEM_NONE;
@@ -337,8 +337,8 @@ module cpu (
         // Priority 1: Dcache writes (dirty writebacks)
         if (dcache_mem_write_valid) begin
             proc2mem_command = MEM_STORE;
-            // Convert D_ADDR to 32-bit line-aligned address
-            proc2mem_addr    = {dcache_mem_write_addr.addr.tag[19:0], 12'b0};
+            // Convert D_ADDR to 32-bit 8-byte-aligned address
+            proc2mem_addr    = {dcache_mem_write_addr.addr.tag, 3'b0};
             proc2mem_data    = dcache_mem_write_data;
             // Writes are always accepted if transaction tag is available
             // Note: mem_req_accepted logic is for reads only
@@ -346,8 +346,8 @@ module cpu (
         // Priority 2: Dcache reads (data memory operations)
         else if (dcache_mem_req_addr.valid) begin
             proc2mem_command = MEM_LOAD;
-            // Convert D_ADDR to 32-bit line-aligned address
-            proc2mem_addr    = {dcache_mem_req_addr.addr.tag[19:0], 12'b0};
+            // Convert D_ADDR to 32-bit 8-byte-aligned address
+            proc2mem_addr    = {dcache_mem_req_addr.addr.tag, 3'b0};
             dcache_mem_req_accepted = (mem2proc_transaction_tag != 0);
         end
         // Priority 3: Icache reads (instruction fetch)

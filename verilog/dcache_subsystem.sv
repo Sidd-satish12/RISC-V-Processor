@@ -100,9 +100,9 @@ module dcache_subsystem (
 
     // Store Request Processing
     // Convert processor store address to cache address format and generate byte enables
-    // NOTE: Address breakdown matches mem_fu.sv:
-    //   tag = addr[31:12] (20 bits)
-    //   block_offset = addr[4:3] (2 bits - word index within 8-byte line)
+    // NOTE: Address breakdown for 8-byte cache lines:
+    //   tag = addr[31:3] (29 bits - uniquely identifies 8-byte aligned block)
+    //   block_offset = addr[2:0] (3 bits - byte offset within 8-byte line)
     //   word_offset = addr[2] (1 bit - which word: 0=lower, 1=upper)
     always_comb begin
         store_req_addr = '0;
@@ -111,8 +111,8 @@ module dcache_subsystem (
         
         if (proc_store_valid) begin
             store_req_addr.valid = 1'b1;
-            store_req_addr.addr.tag = proc_store_addr[31:12];  // Match mem_fu.sv tag extraction
-            store_req_addr.addr.block_offset = proc_store_addr[4:3];  // Word index within line
+            store_req_addr.addr.tag = proc_store_addr[31:3];  // Full tag for 8-byte lines
+            store_req_addr.addr.block_offset = proc_store_addr[2:0];  // Byte offset within line
             store_req_addr.addr.zeros = '0;
             
             // For now, assume WORD stores (4 bytes)
@@ -155,7 +155,7 @@ module dcache_subsystem (
         // If store misses the cache, request the line
         if (proc_store_valid && !store_hit_dcache) begin
             oldest_miss_addr.valid = 1'b1;
-            oldest_miss_addr.addr.tag = proc_store_addr[31:12];  // Match mem_fu.sv
+            oldest_miss_addr.addr.tag = proc_store_addr[31:3];  // Full tag for 8-byte lines
             oldest_miss_addr.addr.block_offset = '0;  // Request full line
             oldest_miss_addr.addr.zeros = '0;
         end
