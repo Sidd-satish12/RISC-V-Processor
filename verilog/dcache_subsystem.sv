@@ -543,7 +543,7 @@ module dcache #(
             end
 
             cache_line_write = '{valid: 1'b1,
-                                dirty: 1'b1,  // Store makes it dirty
+                                dirty: cache_lines[hit_index].dirty || (merged_data != cache_lines[hit_index].data),
                                 tag: cache_lines[hit_index].tag,
                                 data: merged_data};
         end

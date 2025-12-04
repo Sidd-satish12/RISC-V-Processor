@@ -17,7 +17,7 @@ module mem_fu (
     // Store-to-load forwarding from store queue
     input logic forward_valid,   // Store queue found matching store with data
     input DATA  forward_data,    // Forwarded data from store queue
-    input logic forward_stall,   // Matching store exists but hasn't executed yet
+    input logic forward_stall,   // UNUSED - kept for interface compatibility (always 0)
 
     // Outputs
     output DATA addr,
@@ -81,7 +81,7 @@ module mem_fu (
                     func == STORE_WORD || func == STORE_DOUBLE);
 
         // Check if pending load now gets data (from cache or forwarding)
-        pending_load_hit = pending_load.valid && (cache_hit_data.valid || forward_valid) && !forward_stall;
+        pending_load_hit = pending_load.valid && (cache_hit_data.valid || forward_valid);
     end
 
     // Store queue entry generation (for store operations)
@@ -131,7 +131,7 @@ module mem_fu (
         end
         
         // Priority: forwarded data > cache data
-        if (forward_valid && !forward_stall) begin
+        if (forward_valid) begin
             // Use forwarded data from store queue
             loaded_data = forward_data;
         end else if (cache_hit_data.valid) begin
@@ -153,12 +153,7 @@ module mem_fu (
         cdb_result  = '0;
         cdb_request = 1'b0;
 
-        if (forward_stall) begin
-            // Matching store hasn't executed yet - cannot complete this load
-            // No CDB request - load must wait
-            cdb_result  = '0;
-            cdb_request = 1'b0;
-        end else if (pending_load_hit) begin
+        if (pending_load_hit) begin
             // Pending load completes (either from cache hit or forwarding)
             cdb_result = '{
                 valid: 1'b1,
@@ -187,11 +182,7 @@ module mem_fu (
         is_load_request = 1'b0;
         dcache_addr     = '0;
 
-        if (forward_stall) begin
-            // Don't request from cache - we're waiting for a store to execute
-            is_load_request = 1'b0;
-            dcache_addr     = '0;
-        end else if (valid && is_load && !forward_valid) begin
+        if (valid && is_load && !forward_valid) begin
             // New load request - no forwarding available, go to dcache
             is_load_request = 1'b1;
             dcache_addr     = current_dcache_addr;
@@ -210,10 +201,10 @@ module mem_fu (
     always_comb begin
         pending_load_next = pending_load;  // Default: keep state
 
-        if (pending_load_hit && !forward_stall) begin
+        if (pending_load_hit) begin
             // Clear pending load when it completes
             pending_load_next.valid = 1'b0;
-        end else if (valid && is_load && !cache_hit_data.valid && !forward_valid && !pending_load.valid && !forward_stall) begin
+        end else if (valid && is_load && !cache_hit_data.valid && !forward_valid && !pending_load.valid) begin
             // New load misses both cache and store queue - make it pending
             pending_load_next = '{
                 valid: 1'b1,
