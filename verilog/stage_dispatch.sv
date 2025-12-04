@@ -129,17 +129,28 @@ module stage_dispatch (
             if (i >= num_valid_from_fetch) break;  // No more valid instructions
 
             // Determine instruction properties
-            is_store = decode_op_type[i].category == CAT_MEM && !decode_uses_rd[i];
-            is_load  = (decode_op_type[i].category == CAT_MEM) &&  decode_uses_rd[i];
+            // Use the actual func field to identify stores, not uses_rd
+            // This handles edge cases like "lw x0, ..." which has uses_rd=false but is a load
+            is_store = decode_op_type[i].category == CAT_MEM && 
+                       (decode_op_type[i].func == STORE_BYTE || 
+                        decode_op_type[i].func == STORE_HALF || 
+                        decode_op_type[i].func == STORE_WORD || 
+                        decode_op_type[i].func == STORE_DOUBLE);
+            is_load  = decode_op_type[i].category == CAT_MEM && 
+                       (decode_op_type[i].func == LOAD_BYTE || 
+                        decode_op_type[i].func == LOAD_HALF || 
+                        decode_op_type[i].func == LOAD_WORD || 
+                        decode_op_type[i].func == LOAD_DOUBLE ||
+                        decode_op_type[i].func == LOAD_BYTE_U || 
+                        decode_op_type[i].func == LOAD_HALF_U);
 
-            // With store-to-load forwarding, loads can dispatch even with pending stores.
-            // The forwarding mechanism handles dependencies:
-            // - If matching store has executed: forward data from store queue
-            // - If matching store hasn't executed: forward_stall prevents load completion
-            // However, we still block a load from dispatching AFTER a store in the SAME bundle
-            // since the store's SQ index won't be visible to the load's forwarding lookup.
-            if (is_load && saw_store_in_bundle) begin
-                // Don't dispatch this load after a store in the same bundle
+            // CRITICAL: Do NOT dispatch loads until ALL stores in the store queue have executed.
+            // This prevents deadlock where:
+            //   1. Loads issue to MEM FU and stall waiting for older stores
+            //   2. Stores can't execute because MEM FU is blocked by waiting loads
+            // Also block loads after a store in the SAME bundle (store's SQ index not visible yet).
+            if (is_load && (store_queue_has_pending_store || saw_store_in_bundle)) begin
+                // Don't dispatch this load - wait for all stores to execute first
                 break;
             end
 
@@ -206,9 +217,14 @@ module stage_dispatch (
 
             // Determine if this instruction needs rs2 to be ready:
             // - Normal case: opb_select == OPB_IS_RS2 (rs2 is ALU operand B)
-            // - Store case: MEM instruction with no dest (rs2 holds data to store)
+            // - Store case: MEM instruction that is a store (rs2 holds data to store)
+            // Use func field to identify stores (not uses_rd, to handle lw x0 correctly)
             needs_rs2[i] = (decode_opb_select[i] == OPB_IS_RS2) ||
-                           (decode_op_type[i].category == CAT_MEM && !decode_uses_rd[i]);
+                           (decode_op_type[i].category == CAT_MEM && 
+                            (decode_op_type[i].func == STORE_BYTE || 
+                             decode_op_type[i].func == STORE_HALF || 
+                             decode_op_type[i].func == STORE_WORD || 
+                             decode_op_type[i].func == STORE_DOUBLE));
 
             // Halt instructions don't use source registers, so mark them ready
             if (decode_halt[i]) begin
@@ -293,7 +309,11 @@ module stage_dispatch (
                     phys_rd: allocated_phys[i],
                     prev_phys_rd: local_Told[i],
                     complete: 1'b0,
-                    store:        (decode_op_type[i].category == CAT_MEM && !decode_uses_rd[i]),
+                    store:        (decode_op_type[i].category == CAT_MEM && 
+                                   (decode_op_type[i].func == STORE_BYTE || 
+                                    decode_op_type[i].func == STORE_HALF || 
+                                    decode_op_type[i].func == STORE_WORD || 
+                                    decode_op_type[i].func == STORE_DOUBLE)),
                     exception: NO_ERROR,
                     branch: (decode_op_type[i].category == CAT_BRANCH),
                     pred_target: dispatch_window[i].bp_pred_target,  // No prediction target
@@ -324,8 +344,12 @@ module stage_dispatch (
                         rs_alloc.mem.valid[mem_count]   = 1'b1;
                         rs_alloc.mem.entries[mem_count] = create_rs_entry(i);
 
-                        // Store instructions: MEM category and no dest register
-                        if (!decode_uses_rd[i]) begin
+                        // Store instructions: use func field to identify stores (same logic as counting loop)
+                        // This correctly handles "lw x0, ..." which has uses_rd=false but is a load
+                        if (decode_op_type[i].func == STORE_BYTE || 
+                            decode_op_type[i].func == STORE_HALF || 
+                            decode_op_type[i].func == STORE_WORD || 
+                            decode_op_type[i].func == STORE_DOUBLE) begin
                             // Create store queue entry at position storeq_used
                             store_queue_entry_packet[storeq_used] = '{
                                 valid:   1'b1,
