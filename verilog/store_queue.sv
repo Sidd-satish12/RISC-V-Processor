@@ -201,30 +201,25 @@ module store_queue (
 
     // ============================================================
     // Store-to-Load Forwarding Logic
-    // For each load:
-    //   1. First check if ALL older stores have executed - if not, stall
-    //   2. Only if all older stores are executed, search for address match
+    // Since dispatch blocks loads until all stores execute, we only need
+    // to search for address matches - no stall checking needed.
     // ============================================================
     always_comb begin
         // Default outputs
         forward_valid = '0;
         forward_data  = '0;
-        forward_stall = '0;
+        forward_stall = '0;  // Always 0 - dispatch ensures no unexecuted older stores
 
         // Process each MEM FU's load lookup request
         for (int fu = 0; fu < `NUM_FU_MEM; fu++) begin
             if (load_lookup_valid[fu]) begin
                 logic [$clog2(`LSQ_SZ)-1:0] search_idx;
                 STOREQ_IDX load_tail;
-                logic has_unexecuted_older_store;
                 
                 load_tail = load_lookup_sq_tail[fu];
-                has_unexecuted_older_store = 1'b0;
                 
-                // --------------------------------------------------------
-                // PHASE 1: Check if ANY older store is unexecuted
-                // Walk through all older stores [head_idx, load_tail)
-                // --------------------------------------------------------
+                // Search for address match among older stores
+                // Walk backwards from youngest to oldest to find youngest match
                 for (int step = 0; step < `LSQ_SZ; step++) begin
                     search_idx = (load_tail + `LSQ_SZ - 1 - step) % `LSQ_SZ;
                     
@@ -233,44 +228,18 @@ module store_queue (
                         break;
                     end
                     
-                    // Check if this is a valid but unexecuted store
-                    if (sq_entries[search_idx].valid && !executed[search_idx]) begin
-                        has_unexecuted_older_store = 1'b1;
-                        break;  // Found one, no need to continue
-                    end
-                end
-                
-                // --------------------------------------------------------
-                // PHASE 2: If any older store is unexecuted, stall the load
-                // --------------------------------------------------------
-                if (has_unexecuted_older_store) begin
-                    forward_stall[fu] = 1'b1;
-                end else begin
-                    // --------------------------------------------------------
-                    // PHASE 3: All older stores executed - search for address match
-                    // Walk backwards from youngest to oldest to find youngest match
-                    // --------------------------------------------------------
-                    for (int step = 0; step < `LSQ_SZ; step++) begin
-                        search_idx = (load_tail + `LSQ_SZ - 1 - step) % `LSQ_SZ;
-                        
-                        // Stop if we've passed head (no more older stores)
-                        if (!idx_in_range(search_idx, head_idx, load_tail)) begin
+                    // Check for address match
+                    if (sq_entries[search_idx].valid) begin
+                        // Compare addresses (word-aligned - compare upper bits)
+                        if (sq_entries[search_idx].address[31:2] == load_lookup_addr[fu][31:2]) begin
+                            // Found youngest matching store - forward its data
+                            forward_valid[fu] = 1'b1;
+                            forward_data[fu]  = sq_entries[search_idx].data;
                             break;
                         end
-                        
-                        // Check for address match (all stores here are executed)
-                        if (sq_entries[search_idx].valid) begin
-                            // Compare addresses (word-aligned - compare upper bits)
-                            if (sq_entries[search_idx].address[31:2] == load_lookup_addr[fu][31:2]) begin
-                                // Found youngest matching executed store - forward its data
-                                forward_valid[fu] = 1'b1;
-                                forward_data[fu]  = sq_entries[search_idx].data;
-                                break;
-                            end
-                        end
                     end
-                    // If no match found, forward_valid stays 0 - load goes to cache
                 end
+                // If no match found, forward_valid stays 0 - load goes to cache
             end
         end
     end
