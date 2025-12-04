@@ -27,7 +27,9 @@ module dcache_subsystem (
     input logic                 proc_store_valid,
     input ADDR                  proc_store_addr,
     input DATA                  proc_store_data,
-    output logic                proc_store_response  // 1 = Store Complete, 0 = Stall/Retry
+    output logic                proc_store_response,  // 1 = Store Complete, 0 = Stall/Retry
+    // debug to expose DCache to testbench
+    output D_CACHE_LINE [`DCACHE_LINES-1:0]      cache_lines_debug
 );
 
     // Internal wires
@@ -69,7 +71,9 @@ module dcache_subsystem (
         .store_byte_en(dcache_store_byte_en),
         // Eviction interface (for dirty writeback to memory)
         .evicted_line (evicted_line),
-        .evicted_valid(evicted_valid)
+        .evicted_valid(evicted_valid),
+        // debug to expose DCache to testbench
+        .cache_lines_debug(cache_lines_debug)
     );
 
     // Direct output from dcache (no victim cache)
@@ -423,7 +427,9 @@ module dcache #(
     
     // Eviction interface
     output D_CACHE_LINE evicted_line,
-    output logic        evicted_valid
+    output logic        evicted_valid,
+    // debug to expose DCache to testbench
+    output D_CACHE_LINE [MEM_DEPTH-1:0]      cache_lines_debug
 );
 
     CACHE_DATA [1:0]                  cache_outs_temp;
@@ -439,6 +445,7 @@ module dcache #(
     logic [D_CACHE_INDEX_BITS-1:0]    hit_index;
     logic                             hit_valid;
 
+    assign cache_lines_debug = cache_lines;
     memDP #(
         .WIDTH(MEM_WIDTH),
         .DEPTH(1'b1)
