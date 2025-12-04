@@ -136,6 +136,8 @@ module testbench;
     logic [$clog2(`LSQ_SZ)-1:0] head_idx;
     logic [$clog2(`LSQ_SZ)-1:0] tail_idx;
 
+    // ROB info
+    logic [$clog2(`ROB_SZ+1)-1:0] rob_free_slots;
 
     // Issue clear signals debug output
     RS_CLEAR_SIGNALS rs_clear_signals;
@@ -232,6 +234,9 @@ module testbench;
         .sq_free_slots_dbg(sq_free_slots),
         .head_idx_dbg(head_idx),
         .tail_idx_dbg(tail_idx),
+
+        // ROB outputs
+        .rob_free_slots_dbg(rob_free_slots),
 
         // Issue clear signals debug output
         .rs_clear_signals_dbg(rs_clear_signals),
@@ -542,15 +547,20 @@ module testbench;
             end
         end
 
+        // ========================================
+        // ROB
+        // ========================================
+        $display("\n--- ROB Info ---");
+        $display("  ROB Free Slots   : %0d", rob_free_slots);
 
         // ========================================
         // Store Queue Debug (entries coming from Dispatch)
         // ========================================
 
         $display("\n--- STORE QUEUE: Free Slots ---");
-        $display("\n   SQ Free slots: %0d   ", sq_free_slots);
-        $display("\n   SQ Head Pointer: %d   ", head_idx);
-        $display("\n   SQ Tail Pointer: %d   ", tail_idx);
+        $display("  SQ Free Slots   : %0d", sq_free_slots);
+        $display("  SQ Head Pointer : %0d", head_idx);
+        $display("  SQ Tail Pointer : %0d", tail_idx);
 
 
         $display("\n--- STORE QUEUE from DISPATCH PACKET ---");
