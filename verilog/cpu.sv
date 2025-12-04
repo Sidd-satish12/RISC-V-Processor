@@ -382,6 +382,24 @@ module cpu (
         proc2mem_size = DOUBLE; // Always 64-bit blocks in cache mode
 `endif
     end
+
+    // Debug: Memory Arbiter Output
+    always_ff @(negedge clock) begin
+        if (!reset) begin
+            $display("=== MEMORY ARBITER (negedge) ===");
+            $display("  dcache_mem_write_valid=%b dcache_mem_req_addr.valid=%b icache_mem_req_addr.valid=%b",
+                     dcache_mem_write_valid, dcache_mem_req_addr.valid, icache_mem_req_addr.valid);
+            if (dcache_mem_write_valid) begin
+                $display("  WRITEBACK: tag=%h addr=%h data=%h",
+                         dcache_mem_write_addr.addr.tag, 
+                         {dcache_mem_write_addr.addr.tag, 3'b0},
+                         dcache_mem_write_data.dbbl_level);
+            end
+            $display("  proc2mem_command=%s proc2mem_addr=%h proc2mem_data=%h",
+                     proc2mem_command.name(), proc2mem_addr, proc2mem_data.dbbl_level);
+            $display("");
+        end
+    end
     //////////////////////////////////////////////////
     //                                              //
     //                  Fetch-Stage                 //
