@@ -61,7 +61,6 @@ module rob (
             // Complete ROB entries update
             if (rob_update_packet.valid[i]) begin
                 rob_entries_next[rob_update_packet.idx[i]].complete = 1'b1;
-                rob_entries_next[rob_update_packet.idx[i]].mispredict = rob_update_packet.mispredicts[i];
                 rob_entries_next[rob_update_packet.idx[i]].branch_taken = rob_update_packet.branch_taken[i];
                 rob_entries_next[rob_update_packet.idx[i]].branch_target = rob_update_packet.branch_targets[i];
             end
