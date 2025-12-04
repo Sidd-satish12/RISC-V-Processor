@@ -201,7 +201,9 @@ module store_queue (
 
     // ============================================================
     // Store-to-Load Forwarding Logic
-    // For each load, find the youngest older store with matching address
+    // For each load:
+    //   1. First check if ALL older stores have executed - if not, stall
+    //   2. Only if all older stores are executed, search for address match
     // ============================================================
     always_comb begin
         // Default outputs
@@ -212,51 +214,62 @@ module store_queue (
         // Process each MEM FU's load lookup request
         for (int fu = 0; fu < `NUM_FU_MEM; fu++) begin
             if (load_lookup_valid[fu]) begin
-                // Search for youngest matching store older than this load
-                // Walk backwards from (load's tail - 1) to head
-                // First match found is the youngest (most recent)
-                
-                logic found_match;
                 logic [$clog2(`LSQ_SZ)-1:0] search_idx;
                 STOREQ_IDX load_tail;
+                logic has_unexecuted_older_store;
                 
-                found_match = 1'b0;
                 load_tail = load_lookup_sq_tail[fu];
+                has_unexecuted_older_store = 1'b0;
                 
-                // Search from youngest to oldest older store
-                // Start at (load_tail - 1) and walk backward to head_idx_next
-                // Use _next versions to account for same-cycle retirements and executions
+                // --------------------------------------------------------
+                // PHASE 1: Check if ANY older store is unexecuted
+                // Walk through all older stores [head_idx, load_tail)
+                // --------------------------------------------------------
                 for (int step = 0; step < `LSQ_SZ; step++) begin
-                    // Calculate index: (load_tail - 1 - step) with wrap-around
-                    search_idx = (load_tail - 1 - step) % `LSQ_SZ;
+                    search_idx = (load_tail + `LSQ_SZ - 1 - step) % `LSQ_SZ;
                     
-                    // Stop if we've reached or passed updated head (no more older stores)
-                    // Use head_idx_next to exclude entries being retired this cycle
-                    if (!idx_in_range(search_idx, head_idx_next, load_tail)) begin
+                    // Stop if we've passed head (no more older stores)
+                    if (!idx_in_range(search_idx, head_idx, load_tail)) begin
                         break;
                     end
                     
-                    // Check if this entry is a valid store with matching address
-                    // Use sq_entries_next to see same-cycle store executions
-                    if (sq_entries_next[search_idx].valid) begin
-                        // Compare addresses (word-aligned for now - compare upper bits)
-                        if (sq_entries_next[search_idx].address[31:2] == load_lookup_addr[fu][31:2]) begin
-                            found_match = 1'b1;
-                            
-                            // Use executed_next to see same-cycle executions
-                            if (executed_next[search_idx]) begin
-                                // Store has executed - forward its data
-                                forward_valid[fu] = 1'b1;
-                                forward_data[fu]  = sq_entries_next[search_idx].data;
-                            end else begin
-                                // Store exists but hasn't executed yet - must stall
-                                forward_stall[fu] = 1'b1;
-                            end
-                            
-                            // Stop searching - we found the youngest match
+                    // Check if this is a valid but unexecuted store
+                    if (sq_entries[search_idx].valid && !executed[search_idx]) begin
+                        has_unexecuted_older_store = 1'b1;
+                        break;  // Found one, no need to continue
+                    end
+                end
+                
+                // --------------------------------------------------------
+                // PHASE 2: If any older store is unexecuted, stall the load
+                // --------------------------------------------------------
+                if (has_unexecuted_older_store) begin
+                    forward_stall[fu] = 1'b1;
+                end else begin
+                    // --------------------------------------------------------
+                    // PHASE 3: All older stores executed - search for address match
+                    // Walk backwards from youngest to oldest to find youngest match
+                    // --------------------------------------------------------
+                    for (int step = 0; step < `LSQ_SZ; step++) begin
+                        search_idx = (load_tail + `LSQ_SZ - 1 - step) % `LSQ_SZ;
+                        
+                        // Stop if we've passed head (no more older stores)
+                        if (!idx_in_range(search_idx, head_idx, load_tail)) begin
                             break;
                         end
+                        
+                        // Check for address match (all stores here are executed)
+                        if (sq_entries[search_idx].valid) begin
+                            // Compare addresses (word-aligned - compare upper bits)
+                            if (sq_entries[search_idx].address[31:2] == load_lookup_addr[fu][31:2]) begin
+                                // Found youngest matching executed store - forward its data
+                                forward_valid[fu] = 1'b1;
+                                forward_data[fu]  = sq_entries[search_idx].data;
+                                break;
+                            end
+                        end
                     end
+                    // If no match found, forward_valid stays 0 - load goes to cache
                 end
             end
         end
