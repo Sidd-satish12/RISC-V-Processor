@@ -292,7 +292,7 @@ CPU_SOURCES = verilog/cpu.sv \
 			  verilog/mem_fu.sv \
 			  verilog/bp.sv \
 			  verilog/memDP.sv \
-			  verilog/LFSR.sv \
+			  verilog/lfsr.sv \
 			  verilog/store_queue.sv
 
 
