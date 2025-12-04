@@ -256,7 +256,6 @@ module stage_execute (
             if (issue_entries.mult[i].valid) begin
                 mult_meta_in[i].rob_idx = issue_entries.mult[i].rob_idx;
                 mult_meta_in[i].branch_valid = 0;
-                mult_meta_in[i].mispredict = 0;
                 mult_meta_in[i].branch_taken = 0;
                 mult_meta_in[i].branch_target = 0;
                 mult_meta_in[i].dest_pr = issue_entries.mult[i].dest_tag;
@@ -566,7 +565,6 @@ module stage_execute (
 
         // Initialize defaults (non-branch)
         ex_comp.branch_valid = '0;
-        ex_comp.mispredict = '0;
         ex_comp.branch_taken = '0;
         ex_comp.branch_target = '0;
 
@@ -579,7 +577,6 @@ module stage_execute (
                     ex_valid[i] = 1'b1;
                     ex_comp.rob_idx[i] = mult_meta_out[k].rob_idx;
                     ex_comp.branch_valid[i] = mult_meta_out[k].branch_valid;
-                    ex_comp.mispredict[i] = mult_meta_out[k].mispredict;
                     ex_comp.branch_taken[i] = mult_meta_out[k].branch_taken;
                     ex_comp.branch_target[i] = mult_meta_out[k].branch_target;
                     ex_comp.dest_pr[i] = mult_meta_out[k].dest_pr;
@@ -623,7 +620,6 @@ module stage_execute (
                     ex_comp.branch_valid[i] = 1;
                     ex_comp.branch_taken[i] = branch_take[k];
                     ex_comp.branch_target[i] = branch_targets[k];
-                    ex_comp.mispredict[i] = (branch_take[k] != issue_entries.branch[k].pred_taken);
                     ex_comp.dest_pr[i] = issue_entries.branch[k].dest_tag;
                     ex_comp.result[i] = issue_entries.branch[k].PC + 4;
                 end
