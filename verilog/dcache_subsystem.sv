@@ -175,6 +175,8 @@ module dcache_subsystem (
 
     // Memory write logic - send dirty evictions to memory
     // Since we removed victim cache, evictions go directly to memory
+    // NOTE: evicted_line and evicted_valid are now REGISTERED in dcache module
+    // to capture eviction data before the refill overwrites the cache line
     always_comb begin
         mem_write_valid = evicted_valid && evicted_line.dirty;
         mem_write_addr = '0;
@@ -506,11 +508,15 @@ module dcache #(
     // Cache write logic with byte-enable support for stores
     MEM_BLOCK merged_data;
     
+    // Combinational eviction signals (captured BEFORE posedge overwrites cache)
+    D_CACHE_LINE evicted_line_comb;
+    logic        evicted_valid_comb;
+    
     always_comb begin
         cache_write_enable_mask = '0;
         cache_line_write = '0;
-        evicted_line = '0;
-        evicted_valid = 1'b0;
+        evicted_line_comb = '0;
+        evicted_valid_comb = 1'b0;
         merged_data = '0;
 
         // Priority 1: Refill (allocating new line from memory)
@@ -526,8 +532,8 @@ module dcache #(
             end else begin
                 // No free slot, evict using LFSR-selected index
                 cache_write_enable_mask[cache_write_evict_index] = 1'b1;
-                evicted_line = cache_lines[cache_write_evict_index];
-                evicted_valid = cache_lines[cache_write_evict_index].valid;
+                evicted_line_comb = cache_lines[cache_write_evict_index];
+                evicted_valid_comb = cache_lines[cache_write_evict_index].valid;
             end
         end
         // Priority 2: Store update (hit only - merge with existing data)
@@ -546,6 +552,22 @@ module dcache #(
                                 dirty: cache_lines[hit_index].dirty || (merged_data != cache_lines[hit_index].data),
                                 tag: cache_lines[hit_index].tag,
                                 data: merged_data};
+        end
+    end
+    
+    // Register eviction signals at posedge to capture data BEFORE refill overwrites cache
+    // This is necessary because:
+    // 1. Eviction data is read combinationally from cache_lines
+    // 2. At posedge, memDP writes the refill data to cache_lines[evict_index]
+    // 3. After posedge, cache_lines[evict_index] contains NEW data (dirty=0)
+    // 4. Memory samples at negedge, so we need stable registered values
+    always_ff @(posedge clock) begin
+        if (reset) begin
+            evicted_line <= '0;
+            evicted_valid <= 1'b0;
+        end else begin
+            evicted_line <= evicted_line_comb;
+            evicted_valid <= evicted_valid_comb;
         end
     end
 
