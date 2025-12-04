@@ -65,10 +65,12 @@ module mem_fu (
         data = rs2;
 
         // Extract dcache address from computed address
+        // D_ADDR: zeros[15:0] + tag[31:3] + block_offset[2:0]
+        // For 8-byte cache lines: tag = addr[31:3], block_offset = addr[2:0]
         current_dcache_addr = '{
             zeros: 16'b0,
-            tag: computed_addr[31:12],
-            block_offset: computed_addr[4:3]
+            tag: computed_addr[31:3],
+            block_offset: computed_addr[2:0]
         };
 
         // Determine operation type
@@ -198,8 +200,8 @@ module mem_fu (
             is_load_request = 1'b1;
             dcache_addr     = '{
                 zeros: 16'b0,
-                tag: pending_load.full_addr[31:12],
-                block_offset: pending_load.full_addr[4:3]
+                tag: pending_load.full_addr[31:3],
+                block_offset: pending_load.full_addr[2:0]
             };
         end
     end
