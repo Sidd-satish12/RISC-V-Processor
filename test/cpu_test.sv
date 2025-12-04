@@ -150,6 +150,9 @@ module testbench;
     MEM_BLOCK proc2mem_data;  // Data sent to memory
     MEM_SIZE proc2mem_size;  // Data size sent to memory
 
+    // debug to expose DCache to testbench
+    D_CACHE_LINE [`DCACHE_LINES-1:0]      cache_lines_debug;
+
     // Instantiate the Pipeline
     cpu verisimpleV (
         // Inputs
@@ -230,7 +233,10 @@ module testbench;
         .rs_clear_signals_dbg(rs_clear_signals),
 
         // Fetch stage debug outputs
-        .fetch_packet_dbg(fetch_packet_out)
+        .fetch_packet_dbg(fetch_packet_out),
+
+        // debug to expose DCache to testbench
+        .cache_lines_dbg(cache_lines_debug)
     );
 
     // Instruction Memory (for fake-fetch only - data operations disconnected)
@@ -445,20 +451,38 @@ module testbench;
     task show_final_mem_and_status;
         input EXCEPTION_CODE final_status;
         int showing_data;
+        logic [63:0] value;
+        logic [`DTAG_BITS-1:0] addr_tag;
+        int offset;
+        int i;
         begin
             $fdisplay(out_fileno, "\nFinal memory state and exit status:\n");
             $fdisplay(out_fileno, "@@@ Unified Memory contents hex on left, decimal on right: ");
             $fdisplay(out_fileno, "@@@");
             showing_data = 0;
+
             for (int k = 0; k <= `MEM_64BIT_LINES - 1; k = k + 1) begin
-                if (memory.unified_memory[k] != 0) begin
-                    $fdisplay(out_fileno, "@@@ mem[%5d] = %x : %0d", k * 8, memory.unified_memory[k], memory.unified_memory[k]);
+                // compute tag & offset for fully associative cache
+                addr_tag = k; // for simplicity, assume 1:1 mapping to cache line index for 64-bit words
+                value = memory.unified_memory[k]; // default to memory
+
+                // search all cache lines
+                for (i = 0; i < `DCACHE_LINES; i++) begin
+                    if (cache_lines_debug[i].valid && cache_lines_debug[i].dirty && cache_lines_debug[i].tag == addr_tag) begin
+                        value = cache_lines_debug[i].data; // override with cache content
+                        break;
+                    end
+                end
+
+                if (value != 0) begin
+                    $fdisplay(out_fileno, "@@@ mem[%5d] = %x : %0d", k * 8, value, value);
                     showing_data = 1;
                 end else if (showing_data != 0) begin
                     $fdisplay(out_fileno, "@@@");
                     showing_data = 0;
                 end
             end
+
             $fdisplay(out_fileno, "@@@");
 
             case (final_status)
@@ -470,7 +494,8 @@ module testbench;
             $fdisplay(out_fileno, "@@@");
             $fclose(out_fileno);
         end
-    endtask  // task show_final_mem_and_status
+    endtask
+
 
 
 
