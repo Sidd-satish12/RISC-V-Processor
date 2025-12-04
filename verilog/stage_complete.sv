@@ -30,7 +30,6 @@ module stage_complete #(
                 if (ex_valid_in[i]) begin
                     rob_update_packet.valid[i] = 1'b1;
                     rob_update_packet.idx[i] = ex_comp_in.rob_idx[i];
-                    rob_update_packet.mispredicts[i] = ex_comp_in.mispredict[i];
 
                     // Handle branch information if present
                     if (ex_comp_in.branch_valid[i]) begin
