@@ -534,7 +534,6 @@ typedef struct packed {
     DATA [`N-1:0]    values;          // Values to store (if applicable)
     logic [`N-1:0]   branch_taken;    // Resolved taken/not taken (if branch)
     ADDR [`N-1:0]    branch_targets;  // Resolved branch targets (if branch)
-    logic [`N-1:0]   mispredicts;     // Mispredict flags
 } ROB_UPDATE_PACKET;
 
 // RS entry structure (extended for full control signals)
@@ -550,11 +549,8 @@ typedef struct packed {
     DATA           src2_immediate;  // Source 2 value if immediate
     PHYS_TAG       dest_tag;        // Physical destination tag
     ROB_IDX        rob_idx;         // Associated ROB index (for flush and potential age selection)
-    ADDR           PC;              // PC for branch/debug (MIGHT merge with SRC but only if we can resolve mispredicts othersive)
-    // Added for branches (prediction info from fetch via dispatch)
+    ADDR           PC;              // PC for branch/debug
     STOREQ_IDX     store_queue_idx; // associated store queue index (if instruction is a store)
-    logic          pred_taken;
-    ADDR           pred_target;
 } RS_ENTRY;
 
 // Structured RS banks grouping by functional unit type
@@ -678,7 +674,6 @@ typedef struct packed {
     logic          pred_taken;     // Predicted taken/not taken
     ADDR           pred_target;    // Predicted branch target
     logic [`BP_GHR_WIDTH-1:0] ghr_snapshot;   // new: GHR snapshot
-    logic          mispredict;     // Branch misprediction flag
     logic          halt;           // Is this a halt?
     logic          illegal;        // Is this illegal?
 } ROB_ENTRY;
@@ -760,7 +755,6 @@ typedef struct packed {
 typedef struct packed {
     ROB_IDX  rob_idx;        // ROB index
     logic    branch_valid;   // Branch flag
-    logic    mispredict;     // Mispredict flag
     logic    branch_taken;   // Taken flag
     ADDR     branch_target;  // Branch target
     PHYS_TAG dest_pr;        // Destination PR
@@ -771,7 +765,6 @@ typedef struct packed {
 typedef struct packed {
     ROB_IDX [`N-1:0]  rob_idx;        // ROB indices
     logic [`N-1:0]    branch_valid;   // Branch flags
-    logic [`N-1:0]    mispredict;     // Mispredict flags
     logic [`N-1:0]    branch_taken;   // Taken flags
     ADDR [`N-1:0]     branch_target;  // Branch targets
     PHYS_TAG [`N-1:0] dest_pr;        // Destination PRs
