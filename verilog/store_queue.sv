@@ -224,26 +224,30 @@ module store_queue (
                 load_tail = load_lookup_sq_tail[fu];
                 
                 // Search from youngest to oldest older store
-                // Start at (load_tail - 1) and walk backward to head_idx
+                // Start at (load_tail - 1) and walk backward to head_idx_next
+                // Use _next versions to account for same-cycle retirements and executions
                 for (int step = 0; step < `LSQ_SZ; step++) begin
                     // Calculate index: (load_tail - 1 - step) with wrap-around
                     search_idx = (load_tail - 1 - step) % `LSQ_SZ;
                     
-                    // Stop if we've reached or passed head (no more older stores)
-                    if (!idx_in_range(search_idx, head_idx, load_tail)) begin
+                    // Stop if we've reached or passed updated head (no more older stores)
+                    // Use head_idx_next to exclude entries being retired this cycle
+                    if (!idx_in_range(search_idx, head_idx_next, load_tail)) begin
                         break;
                     end
                     
                     // Check if this entry is a valid store with matching address
-                    if (sq_entries[search_idx].valid) begin
+                    // Use sq_entries_next to see same-cycle store executions
+                    if (sq_entries_next[search_idx].valid) begin
                         // Compare addresses (word-aligned for now - compare upper bits)
-                        if (sq_entries[search_idx].address[31:2] == load_lookup_addr[fu][31:2]) begin
+                        if (sq_entries_next[search_idx].address[31:2] == load_lookup_addr[fu][31:2]) begin
                             found_match = 1'b1;
                             
-                            if (executed[search_idx]) begin
+                            // Use executed_next to see same-cycle executions
+                            if (executed_next[search_idx]) begin
                                 // Store has executed - forward its data
                                 forward_valid[fu] = 1'b1;
-                                forward_data[fu]  = sq_entries[search_idx].data;
+                                forward_data[fu]  = sq_entries_next[search_idx].data;
                             end else begin
                                 // Store exists but hasn't executed yet - must stall
                                 forward_stall[fu] = 1'b1;
@@ -274,6 +278,78 @@ module store_queue (
             head_idx       <= head_idx_next;
             tail_idx       <= tail_idx_next;
             free_slots_reg <= free_slots_reg_next;
+        end
+    end
+
+    // ============================================================
+    // Store Queue Debug Display
+    // ============================================================
+    always_ff @(posedge clock) begin
+        if (!reset) begin
+            $display("========================================");
+            $display("=== STORE QUEUE STATE (Cycle %0t) ===", $time);
+            $display("========================================");
+            
+            // Pointers and counters
+            $display("--- Pointers ---");
+            $display("  Head: %0d, Tail: %0d, Free Slots: %0d", head_idx, tail_idx, free_slots_reg);
+            $display("  Unexecuted Store: %0d", unexecuted_store);
+            
+            // All entries
+            $display("--- Store Queue Entries ---");
+            for (int i = 0; i < `LSQ_SZ; i++) begin
+                if (sq_entries[i].valid) begin
+                    $display("  [%2d] Valid=1 Executed=%0d Addr=%h Data=%h %s%s", 
+                             i, executed[i], 
+                             sq_entries[i].address, sq_entries[i].data,
+                             (i == head_idx) ? "<-HEAD" : "",
+                             (i == tail_idx) ? "<-TAIL" : "");
+                end else begin
+                    $display("  [%2d] Valid=0 %s%s", i,
+                             (i == head_idx) ? "<-HEAD" : "",
+                             (i == tail_idx) ? "<-TAIL" : "");
+                end
+            end
+            
+            // Dispatch inputs
+            $display("--- Dispatch Inputs ---");
+            for (int i = 0; i < `N; i++) begin
+                if (sq_dispatch_packet[i].valid) begin
+                    $display("  Dispatch[%0d]: Valid=1 Addr=%h Data=%h -> Alloc Idx=%0d", 
+                             i, sq_dispatch_packet[i].address, sq_dispatch_packet[i].data, sq_alloc_idxs[i]);
+                end
+            end
+            
+            // Execute inputs (from MEM FUs)
+            $display("--- Execute Updates (from MEM FUs) ---");
+            for (int i = 0; i < `NUM_FU_MEM; i++) begin
+                if (mem_storeq_entries[i].valid) begin
+                    $display("  MEM_FU[%0d]: Valid=1 SQ_Idx=%0d Addr=%h Data=%h", 
+                             i, mem_storeq_entries[i].store_queue_idx,
+                             mem_storeq_entries[i].addr, mem_storeq_entries[i].data);
+                end
+            end
+            
+            // Load forwarding lookups
+            $display("--- Load Forwarding Lookups ---");
+            for (int i = 0; i < `NUM_FU_MEM; i++) begin
+                if (load_lookup_valid[i]) begin
+                    $display("  Lookup[%0d]: Addr=%h SQ_Tail=%0d -> Forward_Valid=%0d Forward_Stall=%0d Forward_Data=%h", 
+                             i, load_lookup_addr[i], load_lookup_sq_tail[i],
+                             forward_valid[i], forward_stall[i], forward_data[i]);
+                end
+            end
+            
+            // Retire outputs
+            $display("--- Retire / D-Cache Output ---");
+            if (dcache_store_valid) begin
+                $display("  D-Cache Store: Valid=1 Addr=%h Data=%h", dcache_store_addr, dcache_store_data);
+            end else begin
+                $display("  D-Cache Store: Valid=0");
+            end
+            $display("  Free Count (from retire): %0d", free_count);
+            
+            $display("");
         end
     end
 
