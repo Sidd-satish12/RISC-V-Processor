@@ -274,7 +274,7 @@ module cpu (
     CACHE_DATA             [1:0] icache_data;
     logic                        icache_mem_req_accepted;
 
-    icache_subsystem icache_subsystem_inst (
+    icache_subsystem_optimized icache_subsystem_inst (
         .clock            (clock),
         .reset            (reset),
         // Fetch
