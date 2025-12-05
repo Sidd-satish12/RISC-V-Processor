@@ -27,13 +27,13 @@ module stage_execute (
     output logic [`N-1:0] ex_valid,
     output EX_COMPLETE_PACKET ex_comp,
 
-    // Late CDB requests from MEM FUs (for cache miss handling)
+    // Late CDB requests from MEM FUs
     output logic [`NUM_FU_MEM-1:0] mem_cdb_requests_out,
 
-    // to store queue
+    // To store queue
     output EXECUTE_STOREQ_ENTRY [`NUM_FU_MEM-1:0] mem_storeq_entries,
 
-    // to/from dcache
+    // To/from dcache
     output D_ADDR_PACKET [1:0] dcache_read_addrs,
     input  CACHE_DATA    [1:0] dcache_read_data,
 
@@ -60,19 +60,16 @@ module stage_execute (
     // =========================================================================
     // Unified Grant Computation
     // =========================================================================
-    // Single flat array: for each FU, OR together grants from all CDB slots
     logic [`NUM_FU_TOTAL-1:0] fu_grant_any;
 
     always_comb begin
         for (int k = 0; k < `NUM_FU_TOTAL; k++) begin
             fu_grant_any[k] = 1'b0;
-            for (int i = 0; i < `N; i++) begin
+            for (int i = 0; i < `N; i++)
                 fu_grant_any[k] |= gnt_bus[i][k];
-            end
         end
     end
 
-    // Extract grants for multi-cycle FUs (used to clear their holding state)
     logic [`NUM_FU_MULT-1:0] mult_grant;
     logic [`NUM_FU_MEM-1:0]  mem_grant;
 
@@ -84,16 +81,15 @@ module stage_execute (
     // =========================================================================
     FU_RESULTS fu_results;
 
-    // ALU signals
+    // ALU
     DATA [`NUM_FU_ALU-1:0] alu_opas, alu_opbs;
     ALU_FUNC [`NUM_FU_ALU-1:0] alu_funcs;
 
-    // MULT signals
-    DATA [`NUM_FU_MULT-1:0] mult_rs1, mult_rs2;
-    MULT_FUNC [`NUM_FU_MULT-1:0] mult_func;
-    logic [`NUM_FU_MULT-1:0] mult_start, mult_done;
+    // MULT (simplified - start pulse handled inside mult)
+    logic [`NUM_FU_MULT-1:0] mult_done;
+    EX_COMPLETE_ENTRY mult_meta_out [`NUM_FU_MULT-1:0];
 
-    // BRANCH signals
+    // BRANCH
     DATA [`NUM_FU_BRANCH-1:0] branch_rs1, branch_rs2;
     BRANCH_FUNC [`NUM_FU_BRANCH-1:0] branch_funcs;
     ADDR [`NUM_FU_BRANCH-1:0] branch_pcs;
@@ -101,19 +97,9 @@ module stage_execute (
     logic [`NUM_FU_BRANCH-1:0] branch_take;
     ADDR [`NUM_FU_BRANCH-1:0] branch_targets;
 
-    // MEM signals
+    // MEM
     DATA [`NUM_FU_MEM-1:0] mem_rs1, mem_rs2, mem_src2_imm;
     MEM_FUNC [`NUM_FU_MEM-1:0] mem_funcs;
-    DATA [`NUM_FU_MEM-1:0] mem_data;
-    ADDR [`NUM_FU_MEM-1:0] mem_addr;
-
-    // Metadata for mult pipeline
-    EX_COMPLETE_ENTRY mult_meta_in  [`NUM_FU_MULT-1:0];
-    EX_COMPLETE_ENTRY mult_meta_out [`NUM_FU_MULT-1:0];
-
-    // Mult start pulse generation state
-    logic [`NUM_FU_MULT-1:0] prev_mult_valid;
-    ROB_IDX [`NUM_FU_MULT-1:0] prev_mult_rob_idx;
 
     // Operand resolution
     PRF_READ_DATA resolved_src1, resolved_src2;
@@ -130,7 +116,6 @@ module stage_execute (
         prf_read_tag_src1 = '0;
         prf_read_tag_src2 = '0;
 
-        // ALU
         for (int i = 0; i < `NUM_FU_ALU; i++) begin
             if (issue_entries.alu[i].valid) begin
                 prf_read_en_src1.alu[i]  = 1'b1;
@@ -140,7 +125,6 @@ module stage_execute (
             end
         end
 
-        // MULT
         for (int i = 0; i < `NUM_FU_MULT; i++) begin
             if (issue_entries.mult[i].valid) begin
                 prf_read_en_src1.mult[i]  = 1'b1;
@@ -150,7 +134,6 @@ module stage_execute (
             end
         end
 
-        // BRANCH
         for (int i = 0; i < `NUM_FU_BRANCH; i++) begin
             if (issue_entries.branch[i].valid) begin
                 prf_read_en_src1.branch[i]  = 1'b1;
@@ -160,7 +143,6 @@ module stage_execute (
             end
         end
 
-        // MEM
         for (int i = 0; i < `NUM_FU_MEM; i++) begin
             if (issue_entries.mem[i].valid) begin
                 prf_read_en_src1.mem[i]  = 1'b1;
@@ -178,7 +160,6 @@ module stage_execute (
         resolved_src1 = prf_read_data_src1;
         resolved_src2 = prf_read_data_src2;
 
-        // ALU forwarding
         for (int i = 0; i < `NUM_FU_ALU; i++) begin
             for (int c = 0; c < `N; c++) begin
                 if (cdb_data[c].valid && prf_read_tag_src1.alu[i] == cdb_data[c].tag)
@@ -188,7 +169,6 @@ module stage_execute (
             end
         end
 
-        // MULT forwarding
         for (int i = 0; i < `NUM_FU_MULT; i++) begin
             for (int c = 0; c < `N; c++) begin
                 if (cdb_data[c].valid && prf_read_tag_src1.mult[i] == cdb_data[c].tag)
@@ -198,7 +178,6 @@ module stage_execute (
             end
         end
 
-        // BRANCH forwarding
         for (int i = 0; i < `NUM_FU_BRANCH; i++) begin
             for (int c = 0; c < `N; c++) begin
                 if (cdb_data[c].valid && prf_read_tag_src1.branch[i] == cdb_data[c].tag)
@@ -208,7 +187,6 @@ module stage_execute (
             end
         end
 
-        // MEM forwarding
         for (int i = 0; i < `NUM_FU_MEM; i++) begin
             for (int c = 0; c < `N; c++) begin
                 if (cdb_data[c].valid && prf_read_tag_src1.mem[i] == cdb_data[c].tag)
@@ -254,57 +232,27 @@ module stage_execute (
     );
 
     // =========================================================================
-    // MULT Functional Units (Pipelined)
+    // MULT Functional Units (Pipelined, start pulse handled internally)
     // =========================================================================
-
-    // Start pulse: new instruction when valid rises or ROB index changes
-    always_ff @(posedge clock) begin
-        if (reset | mispredict) begin
-            prev_mult_valid   <= '0;
-            prev_mult_rob_idx <= '0;
-        end else begin
-            for (int i = 0; i < `NUM_FU_MULT; i++) begin
-                prev_mult_valid[i]   <= issue_entries.mult[i].valid;
-                prev_mult_rob_idx[i] <= issue_entries.mult[i].rob_idx;
-            end
+    generate
+        for (genvar i = 0; i < `NUM_FU_MULT; i++) begin : mult_gen
+            mult mult_inst (
+                .clock(clock),
+                .reset(reset | mispredict),
+                .valid(issue_entries.mult[i].valid),
+                .rob_idx(issue_entries.mult[i].rob_idx),
+                .dest_tag(issue_entries.mult[i].dest_tag),
+                .rs1(resolved_src1.mult[i]),
+                .rs2(resolved_src2.mult[i]),
+                .func(issue_entries.mult[i].op_type.func),
+                .grant(mult_grant[i]),
+                .result(fu_results.mult[i]),
+                .request(mult_request[i]),
+                .done(mult_done[i]),
+                .meta_out(mult_meta_out[i])
+            );
         end
-    end
-
-    always_comb begin
-        for (int i = 0; i < `NUM_FU_MULT; i++) begin
-            mult_start[i] = issue_entries.mult[i].valid &&
-                           (!prev_mult_valid[i] ||
-                            issue_entries.mult[i].rob_idx != prev_mult_rob_idx[i]);
-
-            mult_rs1[i]  = resolved_src1.mult[i];
-            mult_rs2[i]  = resolved_src2.mult[i];
-            mult_func[i] = issue_entries.mult[i].op_type.func;
-
-            mult_meta_in[i] = '{
-                rob_idx:       issue_entries.mult[i].valid ? issue_entries.mult[i].rob_idx : '0,
-                branch_valid:  1'b0,
-                branch_taken:  1'b0,
-                branch_target: '0,
-                dest_pr:       issue_entries.mult[i].valid ? issue_entries.mult[i].dest_tag : '0,
-                result:        '0
-            };
-        end
-    end
-
-    mult mult_inst[`NUM_FU_MULT-1:0] (
-        .clock(clock),
-        .reset(reset | mispredict),
-        .start(mult_start),
-        .grant(mult_grant),
-        .rs1(mult_rs1),
-        .rs2(mult_rs2),
-        .func(mult_func),
-        .meta_in(mult_meta_in),
-        .result(fu_results.mult),
-        .request(mult_request),
-        .done(mult_done),
-        .meta_out(mult_meta_out)
-    );
+    endgenerate
 
     // =========================================================================
     // BRANCH Functional Units (Combinational)
@@ -342,6 +290,8 @@ module stage_execute (
     ADDR [`NUM_FU_MEM-1:0] mem_lookup_addr;
     STOREQ_IDX [`NUM_FU_MEM-1:0] mem_lookup_sq_tail;
     logic [1:0] mem_fu_to_dcache_slot [`NUM_FU_MEM-1:0];
+    DATA [`NUM_FU_MEM-1:0] mem_addr_out;
+    DATA [`NUM_FU_MEM-1:0] mem_data_out;
 
     always_comb begin
         for (int i = 0; i < `NUM_FU_MEM; i++) begin
@@ -369,11 +319,11 @@ module stage_execute (
                 .forward_data(sq_forward_data[i]),
                 .forward_stall(sq_forward_stall[i]),
                 .grant(mem_grant[i]),
-                .addr(mem_addr[i]),
-                .data(mem_data[i]),
-                .store_queue_entry(mem_store_queue_entries[i]),
                 .cdb_result(mem_cdb_results[i]),
                 .cdb_request(mem_cdb_requests[i]),
+                .addr(mem_addr_out[i]),
+                .data(mem_data_out[i]),
+                .store_queue_entry(mem_store_queue_entries[i]),
                 .is_load_request(mem_is_load_request[i]),
                 .is_store_op(mem_is_store[i]),
                 .dcache_addr(mem_dcache_addrs[i]),
@@ -384,9 +334,9 @@ module stage_execute (
         end
     endgenerate
 
-    assign sq_lookup_valid   = mem_lookup_valid;
-    assign sq_lookup_addr    = mem_lookup_addr;
-    assign sq_lookup_sq_tail = mem_lookup_sq_tail;
+    assign sq_lookup_valid    = mem_lookup_valid;
+    assign sq_lookup_addr     = mem_lookup_addr;
+    assign sq_lookup_sq_tail  = mem_lookup_sq_tail;
     assign mem_storeq_entries = mem_store_queue_entries;
     assign mem_cdb_requests_out = mem_cdb_requests;
 
@@ -409,7 +359,9 @@ module stage_execute (
     // CDB Output Generation
     // =========================================================================
     always_comb begin
-        // ALU: valid when issued and has destination
+        fu_results.branch = '0;
+        fu_results.mem = '0;
+
         for (int i = 0; i < `NUM_FU_ALU; i++) begin
             fu_outputs.alu[i].valid = issue_entries.alu[i].valid &&
                                       (issue_entries.alu[i].dest_tag != '0);
@@ -417,14 +369,12 @@ module stage_execute (
             fu_outputs.alu[i].data  = fu_results.alu[i];
         end
 
-        // MULT: valid when done and has destination
         for (int i = 0; i < `NUM_FU_MULT; i++) begin
             fu_outputs.mult[i].valid = mult_done[i] && (mult_meta_out[i].dest_pr != '0);
             fu_outputs.mult[i].tag   = mult_meta_out[i].dest_pr;
             fu_outputs.mult[i].data  = fu_results.mult[i];
         end
 
-        // BRANCH: only JAL/JALR produce results
         for (int i = 0; i < `NUM_FU_BRANCH; i++) begin
             if (issue_entries.branch[i].valid &&
                 (issue_entries.branch[i].op_type.func == JAL ||
@@ -438,13 +388,8 @@ module stage_execute (
             end
         end
 
-        // MEM: from mem_fu results
-        for (int i = 0; i < `NUM_FU_MEM; i++) begin
+        for (int i = 0; i < `NUM_FU_MEM; i++)
             fu_outputs.mem[i] = mem_cdb_results[i];
-        end
-
-        fu_results.branch = '0;
-        fu_results.mem = '0;
     end
 
     // =========================================================================
@@ -457,7 +402,6 @@ module stage_execute (
         candidates = '0;
         candidate_valid = '0;
 
-        // BRANCH candidates
         for (int k = 0; k < `NUM_FU_BRANCH; k++) begin
             candidates[BRANCH_START+k] = '{
                 rob_idx:       issue_entries.branch[k].rob_idx,
@@ -470,7 +414,6 @@ module stage_execute (
             candidate_valid[BRANCH_START+k] = issue_entries.branch[k].valid;
         end
 
-        // ALU candidates
         for (int k = 0; k < `NUM_FU_ALU; k++) begin
             candidates[ALU_START+k] = '{
                 rob_idx:       issue_entries.alu[k].rob_idx,
@@ -483,7 +426,6 @@ module stage_execute (
             candidate_valid[ALU_START+k] = issue_entries.alu[k].valid;
         end
 
-        // MEM candidates
         for (int k = 0; k < `NUM_FU_MEM; k++) begin
             candidates[MEM_START+k] = '{
                 rob_idx:       issue_entries.mem[k].rob_idx,
@@ -496,7 +438,6 @@ module stage_execute (
             candidate_valid[MEM_START+k] = mem_cdb_results[k].valid;
         end
 
-        // MULT candidates (use pipelined metadata)
         for (int k = 0; k < `NUM_FU_MULT; k++) begin
             candidates[MULT_START+k] = '{
                 rob_idx:       mult_meta_out[k].rob_idx,
