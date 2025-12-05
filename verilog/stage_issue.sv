@@ -8,6 +8,8 @@ module stage_issue (
     input RS_BANKS  rs_banks,  // Structured RS entries
     input FU_GRANTS fu_grants, // FU availability grants (structured) - from cdb arbiter
 
+    input logic [`NUM_FU_MULT-1:0] mult_ready,
+
     output ISSUE_CLEAR   issue_clear,    // Clear signals (structured)
     output ISSUE_ENTRIES issue_entries,  // To EX stage (structured)
     output FU_REQUESTS   cdb_requests,   // CDB requests for single-cycle FUs
@@ -45,12 +47,20 @@ module stage_issue (
 
     // Compute ready signals for each bank
     always_comb begin
+        logic any_mult_ready;
         for (int i = 0; i < `RS_ALU_SZ; i++) begin
             rs_ready_alu[i] = is_ready(rs_banks.alu[i]);
         end
-        for (int i = 0; i < `RS_MULT_SZ; i++) begin
-            rs_ready_mult[i] = is_ready(rs_banks.mult[i]);
+
+        // MULT
+        any_mult_ready = 1'b0;
+        for (int fu = 0; fu < `NUM_FU_MULT; fu++) begin
+            any_mult_ready |= mult_ready[fu];
         end
+        for (int i = 0; i < `RS_MULT_SZ; i++) begin
+        rs_ready_mult[i] = is_ready(rs_banks.mult[i]) && any_mult_ready;
+        end
+
         for (int i = 0; i < `RS_BRANCH_SZ; i++) begin
             rs_ready_branch[i] = is_ready(rs_banks.branch[i]);
         end
@@ -136,7 +146,7 @@ module stage_issue (
         // MULT - use local MULT RS indices
         for (int rs = 0; rs < `RS_MULT_SZ; rs++) begin
             for (int fu = 0; fu < `NUM_FU_MULT; fu++) begin
-                if (grants_mult[rs][fu]) begin
+                if (grants_mult[rs][fu] && mult_ready[fu]) begin
                     issue_clear.valid_mult[fu] = 1'b1;
                     issue_clear.idxs_mult[fu]  = RS_IDX'(rs);
                 end
@@ -200,10 +210,10 @@ module stage_issue (
             end
         end
 
-        // MULT - use structured MULT bank
+        // MULT - use structured MULT bank (only when FU ready)
         for (int rs = 0; rs < `RS_MULT_SZ; rs++) begin
             for (int fu = 0; fu < `NUM_FU_MULT; fu++) begin
-                if (grants_mult[rs][fu]) begin
+                if (grants_mult[rs][fu] && mult_ready[fu]) begin
                     issue_register_next.mult[fu] = rs_banks.mult[rs];
                 end
             end

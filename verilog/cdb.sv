@@ -70,7 +70,6 @@ module cdb (
     // Unflatten grants back to structured format, maintaining same order
     // grants_flat order: [mult, mem, alu, branch] (same as request concatenation)
     assign {grants.mult, grants.mem, grants.alu, grants.branch} = grants_flat;
-    assign cdb_output = cdb;
 
     always_ff @(posedge clock) begin
         if (reset) begin
@@ -84,8 +83,40 @@ module cdb (
         end
     end
 
+
+`ifdef DEBUG
+    // If you have exactly ONE mult FU and it is the last element in fu_outputs_flat:
+    localparam int MULT_IDX = `NUM_FU_TOTAL - 1;
+
+    always_ff @(posedge clock) begin
+        if (!reset) begin
+            $display("CDB t=%0t", $time);
+            $display("  REQ  : br=%b alu=%b mem=%b mult=%b",
+                     requests.branch, requests.alu, requests.mem, requests.mult);
+            $display("  GNTf_next : %b (flat)", grants_flat_next);
+            $display("  GNTb_next : %p", gnt_bus_next);
+            $display("  GNTb_reg  : %p", gnt_bus);
+            for (int k = 0; k < `N; k++) begin
+                $display("  PORT%0d early_tag: v=%0b tag=P%0d | cdb_next: v=%0b tag=P%0d | cdb_out: v=%0b tag=P%0d",
+                         k,
+                         early_tags[k].valid, early_tags[k].tag,
+                         cdb_next[k].valid,     cdb_next[k].tag,
+                         cdb_output[k].valid,   cdb_output[k].tag);
+            end
+
+            if (requests.mult != '0 || gnt_bus_next[0][MULT_IDX] || gnt_bus[0][MULT_IDX]) begin
+                $display("  CDB_MULT: req_mult=%b gnt_next_mult=%b gnt_mult=%b",
+                         requests.mult,
+                         gnt_bus_next[0][MULT_IDX],
+                         gnt_bus[0][MULT_IDX]);
+            end
+        end
+    end
+`endif
+
     // Connect grant_bus to output
     assign grant_bus_out = gnt_bus;
+    assign cdb_output = cdb;
 
     // Debug assignments
     assign requests_dbg = requests;
