@@ -255,6 +255,7 @@ typedef struct packed {
 typedef struct packed {
     ADDR                   address;   // Store address
     DATA                   data;      // Store data
+    MEM_SIZE               mem_size;  // size of operation (word, half, etc)
     ROB_IDX                rob_idx;   // associated rob idx (may not be needed but kept for squashing)
     logic                  valid;     // Entry occupancy bit
 } STOREQ_ENTRY;
