@@ -34,6 +34,9 @@ module bp (
     BP_INDICES prediction_indices, training_indices;
     logic btb_hit;
     logic predict_taken;
+    // Branch prediction statistics
+    logic [63:0] bp_total_branches;
+    logic [63:0] bp_correct_predictions;
 
     // Helper functions
     function automatic BP_COUNTER_STATE update_counter(BP_COUNTER_STATE current_counter, logic branch_taken);
@@ -83,27 +86,52 @@ module bp (
 
     always_ff @(posedge clock) begin
         if (reset) begin
-            ghr      <= '0;
-            pattern_history_table   <= '0;  // Initialize to weakly not-taken
-            btb_array               <= '0;  // Every BTB entry all zeros
+            ghr                    <= '0;
+            pattern_history_table  <= '0;
+            btb_array              <= '0;
+
+            // stats
+            bp_total_branches      <= 64'd0;
+            bp_correct_predictions <= 64'd0;
         end else begin
             ghr <= ghr_next;
 
-            // Handle training updates (independent of GHR update)
+            // Handle training updates
             if (train_req_i.valid) begin
+                // Update stats
+                bp_total_branches <= bp_total_branches + 1;
+                if (!train_req_i.mispredict)
+                    bp_correct_predictions <= bp_correct_predictions + 1;
+
                 // Update PHT counter
                 pattern_history_table[training_indices.pht_idx] <= update_counter(
-                    pattern_history_table[training_indices.pht_idx], train_req_i.actual_taken
+                    pattern_history_table[training_indices.pht_idx], 
+                    train_req_i.actual_taken
                 );
 
                 // Update BTB on taken branches
                 if (train_req_i.actual_taken) begin
-                    btb_array[training_indices.btb_idx].valid <= 1'b1;
-                    btb_array[training_indices.btb_idx].tag <= training_indices.btb_tag;
+                    btb_array[training_indices.btb_idx].valid  <= 1'b1;
+                    btb_array[training_indices.btb_idx].tag    <= training_indices.btb_tag;
                     btb_array[training_indices.btb_idx].target <= train_req_i.actual_target;
                 end
             end
         end
     end
+
+    final begin
+        real accuracy;
+        if (bp_total_branches != 0)
+            accuracy = 100.0 * bp_correct_predictions / bp_total_branches;
+        else
+            accuracy = 0.0;
+
+        $display("==== Branch Predictor Stats ====");
+        $display("Total branches      = %0d", bp_total_branches);
+        $display("Correct predictions = %0d", bp_correct_predictions);
+        $display("Accuracy            = %0.2f%%", accuracy);
+        $display("================================");
+    end
+
 
 endmodule
