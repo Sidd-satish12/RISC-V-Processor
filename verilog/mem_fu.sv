@@ -130,33 +130,92 @@ module mem_fu (
         end
     end
 
-    // Extract correct word from cache line based on address
-    DATA loaded_data;
-    logic word_select;
+    // 1. Extract correct word from cache line based on address
+    // 2. apply size/sign extension based on func
+    DATA loaded_word;        // 32-bit word from cache/forward
+    DATA final_load_data;    // the one send to the CDB
+    logic        word_select;
+    ADDR         addr_for_size;
+    logic [7:0]  byte_val;
+    logic [15:0] half_val;
+    logic [1:0]  byte_offset;
+
     always_comb begin
-        // Determine which word to extract: use pending load's address if completing a pending load
+        // -----------------------------
+        // 1) Choose address context
+        // -----------------------------
+        // If we're completing a pending load, use its stored full_addr,
+        // otherwise use the current computed address.
         if (pending_load_hit && pending_load.valid) begin
-            word_select = pending_load.full_addr[2];
+            addr_for_size = pending_load.full_addr;
         end else begin
-            word_select = computed_addr[2];
+            addr_for_size = computed_addr;
         end
-        
-        // Priority: forwarded data > cache data
+
+        // This bit picks lower/upper word from 64-bit cache line
+        word_select = addr_for_size[2];
+
+        // -----------------------------
+        // 2) Get 32-bit word (forward/cache)
+        // -----------------------------
         if (forward_valid) begin
-            // Use forwarded data from store queue
-            loaded_data = forward_data;
+            // Forwarded store data is already the correct 32-bit word
+            loaded_word = forward_data;
         end else if (cache_hit_data.valid) begin
-            // Extract word from 64-bit cache line based on word offset
+            // Select word from 64-bit line based on word_select
             if (word_select) begin
-                loaded_data = cache_hit_data.data.word_level[1];  // Upper word
+                loaded_word = cache_hit_data.data.word_level[1];  // Upper word
             end else begin
-                loaded_data = cache_hit_data.data.word_level[0];  // Lower word
+                loaded_word = cache_hit_data.data.word_level[0];  // Lower word
             end
         end else begin
-            loaded_data = '0;
+            loaded_word = '0;
         end
-        
-        // TODO: Handle byte/halfword loads with proper sign extension
+
+        // -----------------------------
+        // 3) Size + sign/zero extension
+        // -----------------------------
+        //   addr[2] chose word; addr[1:0] chooses byte/half inside that word.
+        byte_offset = addr_for_size[1:0];
+
+        // Extract byte and half-word from loaded_word
+        byte_val = loaded_word >> (8 * byte_offset);
+
+        if (byte_offset[1] == 1'b0) begin
+            // lower half (bits [15:0])
+            half_val = loaded_word[15:0];
+        end else begin
+            // upper half (bits [31:16])
+            half_val = loaded_word[31:16];
+        end
+
+        // Default: full word
+        final_load_data = loaded_word;
+
+        unique case (func)
+            LOAD_BYTE: begin
+                // sign-extend 8 bits
+                final_load_data = {{24{byte_val[7]}}, byte_val};
+            end
+            LOAD_BYTE_U: begin
+                // zero-extend 8 bits
+                final_load_data = {24'b0, byte_val};
+            end
+            LOAD_HALF: begin
+                // sign-extend 16 bits
+                final_load_data = {{16{half_val[15]}}, half_val};
+            end
+            LOAD_HALF_U: begin
+                // zero-extend 16 bits
+                final_load_data = {16'b0, half_val};
+            end
+            LOAD_WORD: begin
+                final_load_data = loaded_word;
+            end
+            default: begin
+                final_load_data = loaded_word;
+            end
+        endcase
     end
 
     // CDB result and request generation
@@ -182,7 +241,7 @@ module mem_fu (
             pending_result_next = '{
                 valid: 1'b1,
                 tag: pending_load.dest_tag,
-                data: loaded_data
+                data: final_load_data
             };
             cdb_result = pending_result_next;
             cdb_request = 1'b1;
@@ -191,7 +250,7 @@ module mem_fu (
             pending_result_next = '{
                 valid: 1'b1,
                 tag: dest_tag,
-                data: loaded_data
+                data: final_load_data
             };
             cdb_result = pending_result_next;
             cdb_request = 1'b1;
