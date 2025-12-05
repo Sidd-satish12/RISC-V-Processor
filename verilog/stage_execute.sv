@@ -46,7 +46,10 @@ module stage_execute (
     input  logic      [`NUM_FU_MEM-1:0] sq_forward_stall,
 
     // From CDB for grant selection
-    input logic [`N-1:0][`NUM_FU_TOTAL-1:0] gnt_bus
+    input logic [`N-1:0][`NUM_FU_TOTAL-1:0] gnt_bus,
+
+    output logic [`NUM_FU_MULT-1:0] mult_ready_out
+
 );
 
     // =========================================================================
@@ -62,6 +65,8 @@ module stage_execute (
     // =========================================================================
     logic [`NUM_FU_TOTAL-1:0] fu_grant_any;
 
+    logic [`NUM_FU_MULT-1:0] mult_ready;
+
     always_comb begin
         for (int k = 0; k < `NUM_FU_TOTAL; k++) begin
             fu_grant_any[k] = 1'b0;
@@ -75,6 +80,7 @@ module stage_execute (
 
     assign mult_grant = fu_grant_any[MULT_START +: `NUM_FU_MULT];
     assign mem_grant  = fu_grant_any[MEM_START +: `NUM_FU_MEM];
+
 
     // =========================================================================
     // Internal Signals
@@ -249,10 +255,45 @@ module stage_execute (
                 .result(fu_results.mult[i]),
                 .request(mult_request[i]),
                 .done(mult_done[i]),
-                .meta_out(mult_meta_out[i])
+                .meta_out(mult_meta_out[i]),
+                .ready   (mult_ready[i])
             );
         end
     endgenerate
+
+    `ifdef DEBUG
+    always_ff @(posedge clock) begin
+        if (!reset) begin
+            for (int i = 0; i < `NUM_FU_MULT; i++) begin
+                if (issue_entries.mult[i].valid && mult_ready[i]) begin
+                    $display("MULT_START: fu=%0d rob_idx=%0d dest_pr=P%0d rs1=%h rs2=%h PC=%h",
+                            i,
+                            issue_entries.mult[i].rob_idx,
+                            issue_entries.mult[i].dest_tag,
+                            resolved_src1.mult[i],
+                            resolved_src2.mult[i],
+                            issue_entries.mult[i].PC);
+                end
+            end
+        end
+    end
+    `endif
+    `ifdef DEBUG
+    always_ff @(posedge clock) begin
+        if (!reset) begin
+            for (int i = 0; i < `NUM_FU_MULT; i++) begin
+                if (mult_done[i]) begin
+                    $display("MULT_DONE: fu=%0d  rob_idx=%0d  dest_pr=P%0d  result=%h",
+                            i,
+                            mult_meta_out[i].rob_idx,
+                            mult_meta_out[i].dest_pr,
+                            fu_results.mult[i]);
+                end
+            end
+        end
+    end
+    `endif
+
 
     // =========================================================================
     // BRANCH Functional Units (Combinational)
@@ -342,6 +383,8 @@ module stage_execute (
     assign sq_lookup_sq_tail  = mem_lookup_sq_tail;
     assign mem_storeq_entries = mem_store_queue_entries;
     assign mem_cdb_requests_out = mem_cdb_requests;
+
+    assign mult_ready_out = mult_ready;
 
     // Dcache port allocation: first 2 load requests get ports
     always_comb begin

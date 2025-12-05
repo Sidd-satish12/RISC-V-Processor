@@ -787,6 +787,8 @@ module cpu (
     //                                              //
     //////////////////////////////////////////////////
 
+    logic [`NUM_FU_MULT-1:0] mult_ready_wire;
+
     // Issue stage structured inputs/outputs
     ISSUE_ENTRIES issue_entries;
     FU_REQUESTS issue_cdb_requests;
@@ -812,6 +814,8 @@ module cpu (
         // FU availability grants (structured) - comes from CDB
         .fu_grants(cdb_grants),
 
+        .mult_ready(mult_ready_wire),
+
         // Clear signals (structured)
         .issue_clear(issue_clear),
 
@@ -830,6 +834,8 @@ module cpu (
         .rs_mem_requests_dbg(rs_mem_requests_dbg),
         .alu_clear_signals_dbg(alu_clear_signals_dbg),
         .grants_alu_dbg(grants_alu_dbg)
+
+
     );
 
     // Extract clear signals from structured output for RS modules
@@ -888,7 +894,9 @@ module cpu (
         .sq_lookup_sq_tail(sq_lookup_sq_tail),
         .sq_forward_valid(sq_forward_valid),
         .sq_forward_data(sq_forward_data),
-        .sq_forward_stall(sq_forward_stall)
+        .sq_forward_stall(sq_forward_stall),
+
+        .mult_ready_out(mult_ready_wire)
     );
 
     //////////////////////////////////////////////////
