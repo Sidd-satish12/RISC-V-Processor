@@ -361,6 +361,11 @@ module stage_dispatch (
                                 rob_idx: rob_alloc_idxs[i],
                                 address: '0,   // filled in later by execute
                                 data:    '0,   // filled in later by execute
+                                mem_size: (decode_op_type[i].func == STORE_BYTE)   ? BYTE :
+                                            (decode_op_type[i].func == STORE_HALF)   ? HALF :
+                                            (decode_op_type[i].func == STORE_WORD)   ? WORD :
+                                            (decode_op_type[i].func == STORE_DOUBLE) ? DOUBLE :
+                                            '0,
                                 default: '0
                             };
 

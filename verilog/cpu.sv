@@ -165,6 +165,7 @@ module cpu (
     logic sq_to_dcache_valid;
     ADDR  sq_to_dcache_addr;
     DATA  sq_to_dcache_data;
+    MEM_SIZE sq_to_dcache_mem_size;
 
     // Retire <-> D-Cache Handshake
     logic retire_store_request;
@@ -331,6 +332,7 @@ module cpu (
         .proc_store_valid (retire_store_request), // Driven by Retire, using data from SQ
         .proc_store_addr  (sq_to_dcache_addr),
         .proc_store_data  (sq_to_dcache_data),
+        .proc_store_mem_size (sq_to_dcache_mem_size),
         .proc_store_response (dcache_store_response),
         // debug to expose DCache to testbench
         .cache_lines_debug (cache_lines_dbg)
@@ -646,6 +648,7 @@ module cpu (
         .dcache_store_valid(sq_to_dcache_valid),
         .dcache_store_addr (sq_to_dcache_addr),
         .dcache_store_data (sq_to_dcache_data),
+        .dcache_mem_size   (sq_to_dcache_mem_size),
 
         // Dbg Signals
         .head_idx_dbg (head_idx_dbg),

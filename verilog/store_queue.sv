@@ -52,6 +52,7 @@ module store_queue (
     output logic                    dcache_store_valid,
     output ADDR                     dcache_store_addr,
     output DATA                     dcache_store_data,
+    output MEM_SIZE                 dcache_mem_size,
 
     // To Dbg
     output logic [$clog2(`LSQ_SZ)-1:0] head_idx_dbg,
@@ -104,6 +105,7 @@ module store_queue (
         dcache_store_valid = 1'b0;
         dcache_store_addr  = '0;
         dcache_store_data  = '0;
+        dcache_mem_size    = '0;
 
         // ============================
         // 1. Retire: Output head store to D-Cache and free entries
@@ -112,6 +114,7 @@ module store_queue (
             dcache_store_valid = 1'b1;
             dcache_store_addr  = sq_entries[head_idx].address;
             dcache_store_data  = sq_entries[head_idx].data;
+            dcache_mem_size    = sq_entries[head_idx].mem_size;
         end
 
         // Free retired entries

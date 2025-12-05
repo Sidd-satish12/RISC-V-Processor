@@ -858,95 +858,95 @@ module testbench;
             end
         end
 
-        // // MAP TABLES
-        // $display("\n--- MAP TABLES ---");
-        // $display("Architected Map Table (speculative):");
-        // for (integer i = 0; i < `ARCH_REG_SZ; i += 4) begin
-        //     $display("  r%0d->P%0d  r%0d->P%0d  r%0d->P%0d  r%0d->P%0d", i, arch_table_snapshot[i].phys_reg, i + 1,
-        //              arch_table_snapshot[i+1].phys_reg, i + 2, arch_table_snapshot[i+2].phys_reg, i + 3,
-        //              arch_table_snapshot[i+3].phys_reg);
-        // end
+        // MAP TABLES
+        $display("\n--- MAP TABLES ---");
+        $display("Architected Map Table (speculative):");
+        for (integer i = 0; i < `ARCH_REG_SZ; i += 4) begin
+            $display("  r%0d->P%0d  r%0d->P%0d  r%0d->P%0d  r%0d->P%0d", i, arch_table_snapshot[i].phys_reg, i + 1,
+                     arch_table_snapshot[i+1].phys_reg, i + 2, arch_table_snapshot[i+2].phys_reg, i + 3,
+                     arch_table_snapshot[i+3].phys_reg);
+        end
 
-        // $display("Working Map Table (speculative):");
-        // for (integer i = 0; i < `ARCH_REG_SZ; i += 4) begin
-        //     $display("  r%0d->P%0d%s  r%0d->P%0d%s  r%0d->P%0d%s  r%0d->P%0d%s", i, map_table_snapshot[i].phys_reg,
-        //              map_table_snapshot[i].ready ? "+" : "", i + 1, map_table_snapshot[i+1].phys_reg,
-        //              map_table_snapshot[i+1].ready ? "+" : "", i + 2, map_table_snapshot[i+2].phys_reg,
-        //              map_table_snapshot[i+2].ready ? "+" : "", i + 3, map_table_snapshot[i+3].phys_reg,
-        //              map_table_snapshot[i+3].ready ? "+" : "");
-        // end
+        $display("Working Map Table (speculative):");
+        for (integer i = 0; i < `ARCH_REG_SZ; i += 4) begin
+            $display("  r%0d->P%0d%s  r%0d->P%0d%s  r%0d->P%0d%s  r%0d->P%0d%s", i, map_table_snapshot[i].phys_reg,
+                     map_table_snapshot[i].ready ? "+" : "", i + 1, map_table_snapshot[i+1].phys_reg,
+                     map_table_snapshot[i+1].ready ? "+" : "", i + 2, map_table_snapshot[i+2].phys_reg,
+                     map_table_snapshot[i+2].ready ? "+" : "", i + 3, map_table_snapshot[i+3].phys_reg,
+                     map_table_snapshot[i+3].ready ? "+" : "");
+        end
 
-        // // FREE LIST
-        // $display("\n--- FREE LIST ---");
-        // $display("Available Physical Registers: %0d", $countones(freelist_available));
-        // $display("Available Register Ranges:");
+        // FREE LIST
+        $display("\n--- FREE LIST ---");
+        $display("Available Physical Registers: %0d", $countones(freelist_available));
+        $display("Available Register Ranges:");
 
-        // begin
-        //     integer start_range = -1;
-        //     integer in_range = 0;
-        //     integer first_available = 1;
+        begin
+            integer start_range = -1;
+            integer in_range = 0;
+            integer first_available = 1;
 
-        //     // Find and display contiguous ranges of available registers
-        //     for (i = 0; i < `PHYS_REG_SZ_R10K; i = i + 1) begin
-        //         if (freelist_available[i]) begin
-        //             if (!in_range) begin
-        //                 start_range = i;
-        //                 in_range = 1;
-        //             end
-        //         end else begin
-        //             if (in_range) begin
-        //                 // End of range
-        //                 if (first_available) begin
-        //                     first_available = 0;
-        //                     $write("  ");
-        //                 end else begin
-        //                     $write(", ");
-        //                 end
+            // Find and display contiguous ranges of available registers
+            for (i = 0; i < `PHYS_REG_SZ_R10K; i = i + 1) begin
+                if (freelist_available[i]) begin
+                    if (!in_range) begin
+                        start_range = i;
+                        in_range = 1;
+                    end
+                end else begin
+                    if (in_range) begin
+                        // End of range
+                        if (first_available) begin
+                            first_available = 0;
+                            $write("  ");
+                        end else begin
+                            $write(", ");
+                        end
 
-        //                 if (start_range == i - 1) begin
-        //                     $write("P%0d", start_range);
-        //                 end else begin
-        //                     $write("P%0d-P%0d", start_range, i - 1);
-        //                 end
-        //                 in_range = 0;
-        //             end
-        //         end
-        //     end
+                        if (start_range == i - 1) begin
+                            $write("P%0d", start_range);
+                        end else begin
+                            $write("P%0d-P%0d", start_range, i - 1);
+                        end
+                        in_range = 0;
+                    end
+                end
+            end
 
-        //     // Handle case where last register is available
-        //     if (in_range) begin
-        //         if (first_available) begin
-        //             $write("  ");
-        //         end else begin
-        //             $write(", ");
-        //         end
+            // Handle case where last register is available
+            if (in_range) begin
+                if (first_available) begin
+                    $write("  ");
+                end else begin
+                    $write(", ");
+                end
 
-        //         if (start_range == `PHYS_REG_SZ_R10K - 1) begin
-        //             $write("P%0d", start_range);
-        //         end else begin
-        //             $write("P%0d-P%0d", start_range, `PHYS_REG_SZ_R10K - 1);
-        //         end
-        //     end
+                if (start_range == `PHYS_REG_SZ_R10K - 1) begin
+                    $write("P%0d", start_range);
+                end else begin
+                    $write("P%0d-P%0d", start_range, `PHYS_REG_SZ_R10K - 1);
+                end
+            end
 
-        //     if (first_available) begin
-        //         $display("  (None)");
-        //     end else begin
-        //         $display("");
-        //     end
-        // end
+            if (first_available) begin
+                $display("  (None)");
+            end else begin
+                $display("");
+            end
+        end
 
-        // $display("Freelist Restore Mask: %h", freelist_restore_mask);
+        $display("Freelist Restore Mask: %h", freelist_restore_mask);
 
-        // // PHYSICAL REGISTER FILE (show non-zero values)
-        // $display("\n--- PHYSICAL REGISTER FILE (non-zero values) ---");
-        // prf_count = 0;
-        // for (i = 0; i < `PHYS_REG_SZ_R10K; i = i + 1) begin
-        //     if (regfile_entries[i] != 0 && prf_count < 16) begin  // Limit output
-        //         $display("  P%0d = 0x%08h", i, regfile_entries[i]);
-        //         prf_count = prf_count + 1;
-        //     end
-        // end
-        // if (prf_count == 0) $display("  (All registers are zero)");
+        // PHYSICAL REGISTER FILE (show non-zero values)
+        $display("\n--- PHYSICAL REGISTER FILE (non-zero values) ---");
+        prf_count = 0;
+        for (i = 0; i < `PHYS_REG_SZ_R10K; i = i + 1) begin
+            if (regfile_entries[i] != 0 && prf_count < 16) begin  // Limit output
+                $display("  P%0d = 0x%08h", i, regfile_entries[i]);
+                prf_count = prf_count + 1;
+            end
+        end
+        if (prf_count == 0) $display("  (All registers are zero)");
 
         $display("=================================================================================\n");
 `endif

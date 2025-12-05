@@ -27,6 +27,7 @@ module dcache_subsystem (
     input logic                 proc_store_valid,
     input ADDR                  proc_store_addr,
     input DATA                  proc_store_data,
+    input MEM_SIZE              proc_store_mem_size,
     output logic                proc_store_response,  // 1 = Store Complete, 0 = Stall/Retry
     // debug to expose DCache to testbench
     output D_CACHE_LINE [`DCACHE_LINES-1:0]      cache_lines_debug
@@ -112,27 +113,87 @@ module dcache_subsystem (
         store_req_addr = '0;
         dcache_store_data_local = '0;
         dcache_store_byte_en = '0;
-        
+
         if (proc_store_valid) begin
             store_req_addr.valid = 1'b1;
-            store_req_addr.addr.tag = proc_store_addr[31:3];  // Full tag for 8-byte lines
-            store_req_addr.addr.block_offset = proc_store_addr[2:0];  // Byte offset within line
+            store_req_addr.addr.tag = proc_store_addr[31:3];        // Full tag
+            store_req_addr.addr.block_offset = proc_store_addr[2:0]; // Byte offset within line
             store_req_addr.addr.zeros = '0;
-            
-            // For now, assume WORD stores (4 bytes)
-            // Place data in correct position within 64-bit line based on word offset (bit 2)
-            // TODO: Support BYTE and HALF stores with appropriate byte enables
-            if (proc_store_addr[2]) begin
-                // Upper word (bytes 4-7)
-                dcache_store_data_local.word_level[1] = proc_store_data;
-                dcache_store_byte_en = 8'b1111_0000;  // Enable upper 4 bytes
-            end else begin
-                // Lower word (bytes 0-3)
-                dcache_store_data_local.word_level[0] = proc_store_data;
-                dcache_store_byte_en = 8'b0000_1111;  // Enable lower 4 bytes
-            end
+
+            case (proc_store_mem_size)
+                BYTE: begin
+                    if (proc_store_addr[2]) begin
+                        // Upper word
+                        case (proc_store_addr[1:0])
+                            2'b00: begin dcache_store_data_local.word_level[1][7:0]   = proc_store_data[7:0];   dcache_store_byte_en = 8'b0001_0000; end
+                            2'b01: begin dcache_store_data_local.word_level[1][15:8]  = proc_store_data[7:0];   dcache_store_byte_en = 8'b0010_0000; end
+                            2'b10: begin dcache_store_data_local.word_level[1][23:16] = proc_store_data[7:0];   dcache_store_byte_en = 8'b0100_0000; end
+                            2'b11: begin dcache_store_data_local.word_level[1][31:24] = proc_store_data[7:0];   dcache_store_byte_en = 8'b1000_0000; end
+                        endcase
+                    end else begin
+                        // Lower word
+                        case (proc_store_addr[1:0])
+                            2'b00: begin dcache_store_data_local.word_level[0][7:0]   = proc_store_data[7:0];   dcache_store_byte_en = 8'b0000_0001; end
+                            2'b01: begin dcache_store_data_local.word_level[0][15:8]  = proc_store_data[7:0];   dcache_store_byte_en = 8'b0000_0010; end
+                            2'b10: begin dcache_store_data_local.word_level[0][23:16] = proc_store_data[7:0];   dcache_store_byte_en = 8'b0000_0100; end
+                            2'b11: begin dcache_store_data_local.word_level[0][31:24] = proc_store_data[7:0];   dcache_store_byte_en = 8'b0000_1000; end
+                        endcase
+                    end
+                end
+
+                HALF: begin
+                    if (proc_store_addr[2]) begin
+                        // Upper word
+                        if (!proc_store_addr[1]) begin
+                            dcache_store_data_local.word_level[1][15:0] = proc_store_data[15:0];
+                            dcache_store_byte_en = 8'b0011_0000;
+                        end else begin
+                            dcache_store_data_local.word_level[1][31:16] = proc_store_data[15:0];
+                            dcache_store_byte_en = 8'b1100_0000;
+                        end
+                    end else begin
+                        // Lower word
+                        if (!proc_store_addr[1]) begin
+                            dcache_store_data_local.word_level[0][15:0] = proc_store_data[15:0];
+                            dcache_store_byte_en = 8'b0000_0011;
+                        end else begin
+                            dcache_store_data_local.word_level[0][31:16] = proc_store_data[15:0];
+                            dcache_store_byte_en = 8'b0000_1100;
+                        end
+                    end
+                end
+
+                WORD: begin
+                    if (proc_store_addr[2]) begin
+                        dcache_store_data_local.word_level[1] = proc_store_data;
+                        dcache_store_byte_en = 8'b1111_0000;
+                    end else begin
+                        dcache_store_data_local.word_level[0] = proc_store_data;
+                        dcache_store_byte_en = 8'b0000_1111;
+                    end
+                end
+
+                DOUBLE: begin
+                    dcache_store_data_local.word_level[1] = proc_store_data[63:32];
+                    dcache_store_data_local.word_level[0] = proc_store_data[31:0];
+                    dcache_store_byte_en = 8'b1111_1111;
+                end
+
+                default: begin
+                    // fallback to WORD behavior
+                    if (proc_store_addr[2]) begin
+                        dcache_store_data_local.word_level[1] = proc_store_data;
+                        dcache_store_byte_en = 8'b1111_0000;
+                    end else begin
+                        dcache_store_data_local.word_level[0] = proc_store_data;
+                        dcache_store_byte_en = 8'b0000_1111;
+                    end
+                end
+            endcase
         end
     end
+
+
 
     // Store completion logic
     // A store can only complete if the line is already in the cache (hit)
