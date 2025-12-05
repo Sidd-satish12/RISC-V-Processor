@@ -172,7 +172,7 @@ module i_mshr #(
 endmodule
 
 module i_prefetcher #(
-    parameter PREFETCH_DEPTH = 7
+    parameter PREFETCH_DEPTH = 6
 ) (
     input clock,
     input reset,
@@ -204,7 +204,7 @@ module i_prefetcher #(
                 next_addr_incrementor = icache_miss_addr.addr;
             end 
         // On every miss, prefetch until icache_full, or up to until PREFETCH_DEPTH
-        end else if (last_icache_miss_mem_req.valid && (~icache_full || (prefetch_count < PREFETCH_DEPTH && !icache_miss_addr.valid))) begin
+        end else if (last_icache_miss_mem_req.valid && (~icache_full || (prefetch_count < PREFETCH_DEPTH))) begin
             prefetcher_snooping_addr.valid = '1;
             prefetcher_snooping_addr.addr  = addr_incrementor + 'h8;
             if (mem_req_accepted) begin
@@ -477,8 +477,8 @@ module pseudo_tree_lru #(
     logic [TREE_NODES-1:0] lru_tree, next_lru_tree;
     
     // Parallel path calculation signals
-    logic [TREE_NODES-1:0] r1_mask, r1_val;  // Read 1 update mask and values
-    logic [TREE_NODES-1:0] r2_mask, r2_val;  // Read 2 update mask and values
+    // logic [TREE_NODES-1:0] r1_mask, r1_val;  // Read 1 update mask and values
+    // logic [TREE_NODES-1:0] r2_mask, r2_val;  // Read 2 update mask and values
     logic [TREE_NODES-1:0] w_mask,  w_val;   // Write update mask and values
     
     // LRU traversal variable
@@ -530,8 +530,8 @@ module pseudo_tree_lru #(
     // -----------------------------------------------------------
     // Calculate update paths for all 3 ports simultaneously
     always_comb begin
-        get_update_path(read1_index, read1_valid, r1_mask, r1_val);
-        get_update_path(read2_index, read2_valid, r2_mask, r2_val);
+        // get_update_path(read1_index, read1_valid, r1_mask, r1_val);
+        // get_update_path(read2_index, read2_valid, r2_mask, r2_val);
         get_update_path(write_index, write_valid, w_mask, w_val);
     end
 
@@ -539,19 +539,29 @@ module pseudo_tree_lru #(
     // 2. Priority Resolution (The "Merge")
     // -----------------------------------------------------------
     // Priority: Read 2 > Read 1 > Write > Keep Current
+    // always_comb begin
+    //     for (int i = 0; i < TREE_NODES; i++) begin
+    //         if (r2_mask[i]) begin
+    //             // Read 2 has highest priority
+    //             next_lru_tree[i] = r2_val[i];
+    //         end else if (r1_mask[i]) begin
+    //             // Read 1 has second priority
+    //             next_lru_tree[i] = r1_val[i];
+    //         end else if (w_mask[i]) begin
+    //             // Write has third priority
+    //             next_lru_tree[i] = w_val[i];
+    //         end else begin
+    //             // Keep current value
+    //             next_lru_tree[i] = lru_tree[i];
+    //         end
+    //     end
+    // end
+
     always_comb begin
         for (int i = 0; i < TREE_NODES; i++) begin
-            if (r2_mask[i]) begin
-                // Read 2 has highest priority
-                next_lru_tree[i] = r2_val[i];
-            end else if (r1_mask[i]) begin
-                // Read 1 has second priority
-                next_lru_tree[i] = r1_val[i];
-            end else if (w_mask[i]) begin
-                // Write has third priority
+            if (w_mask[i]) begin
                 next_lru_tree[i] = w_val[i];
             end else begin
-                // Keep current value
                 next_lru_tree[i] = lru_tree[i];
             end
         end
