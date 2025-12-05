@@ -198,7 +198,7 @@ module stage_execute (
     end
 
     // =========================================================================
-    // ALU Functional Units (Combinational)
+    // ALU Functional Units 
     // =========================================================================
     always_comb begin
         for (int i = 0; i < `NUM_FU_ALU; i++) begin
@@ -244,7 +244,7 @@ module stage_execute (
                 .dest_tag(issue_entries.mult[i].dest_tag),
                 .rs1(resolved_src1.mult[i]),
                 .rs2(resolved_src2.mult[i]),
-                .func(issue_entries.mult[i].op_type.func),
+                .func(issue_entries.mult[i].op_type.func[2:0]),
                 .grant(mult_grant[i]),
                 .result(fu_results.mult[i]),
                 .request(mult_request[i]),

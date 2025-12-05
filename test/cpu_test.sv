@@ -374,31 +374,9 @@ module testbench;
             if ((clock_count % 10000) == 0) $display("  %16t : %0d cycles", $realtime, clock_count);
 `endif
 
-            // Optional: peek at fake-fetch behavior
-            // $display("%0t [FF] pc=%h consumed=%0d br=%0d tgt=%h", $time, fake_pc, fake_consumed, ff_branch_taken,
-            //          ff_branch_target);
-
-            // Pipeline printing disabled for OOO processor
-            // print_cycles(clock_count - 1);
-            // print_stage(if_inst_dbg, if_NPC_dbg, {31'b0, if_valid_dbg});  // Fetch
-            // print_stage(if_id_inst_dbg, if_id_NPC_dbg, {31'b0, if_id_valid_dbg});  // Dispatch
-            // print_stage(id_ex_inst_dbg, id_ex_NPC_dbg, {31'b0, id_ex_valid_dbg});  // Issue
-            // print_stage(ex_mem_inst_dbg, ex_mem_NPC_dbg, {31'b0, ex_mem_valid_dbg});  // Execute
-            // print_stage(mem_wb_inst_dbg, mem_wb_NPC_dbg, {31'b0, mem_wb_valid_dbg});  // Complete/Retire
-            // print_reg(committed_insts[0].data, {27'b0, committed_insts[0].reg_idx}, {31'b0, committed_insts[0].valid});
-            // print_membus({30'b0,proc2mem_command}, proc2mem_addr[31:0],
-            //              proc2mem_data[63:32], proc2mem_data[31:0]);
-
             print_custom_data();
 
             output_reg_writeback_and_maybe_halt();
-
-
-            // Optional: print CDB broadcasts
-            // for (integer i = 0; i < `N; i++) begin
-            //     $display("  CDB[%0d]: valid=%b, tag=%0d, data=%h", i, cdb_output[i].valid,
-            //              cdb_output[i].tag, cdb_output[i].data);
-            // end
 
 
             // stop the processor
@@ -544,17 +522,6 @@ module testbench;
         end
     endtask
 
-
-
-
-    // OPTIONAL: Print our your data here
-    // It will go to the $program.log file
-    // task print_custom_data;
-    //     $display(
-    //         "%3d: ROB head valid=%b | Dispatch count=%0d | RS ready=%b | Issue ALU valid=%b | Execute valid=%b | ROB update valid=%b | Committed halt=%b valid=%b",
-    //         clock_count - 1, rob_head_valids, dispatch_count, rs_alu_ready, issue_entries.alu[0].valid, ex_valid,
-    //         rob_update_packet.valid, committed_insts[0].halt, committed_insts[0].valid);
-    // endtask
 
     task print_custom_data;
 `ifdef DEBUG
