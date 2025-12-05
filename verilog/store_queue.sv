@@ -206,6 +206,11 @@ module store_queue (
     // Store-to-Load Forwarding Logic
     // Since dispatch blocks loads until all stores execute, we only need
     // to search for address matches - no stall checking needed.
+    // 
+    // IMPORTANT: We forward ONLY when:
+    // 1. The store's address range COVERS the load's byte address (exact match)
+    // 2. The forwarded data is the raw store value (data at LSBs)
+    // 3. For sub-word stores, only forward if addresses match exactly
     // ============================================================
     always_comb begin
         // Default outputs
@@ -218,6 +223,7 @@ module store_queue (
             if (load_lookup_valid[fu]) begin
                 logic [$clog2(`LSQ_SZ)-1:0] search_idx;
                 STOREQ_IDX load_tail;
+                logic addr_match;
                 
                 load_tail = load_lookup_sq_tail[fu];
                 
@@ -231,13 +237,61 @@ module store_queue (
                         break;
                     end
                     
-                    // Check for address match
+                    // Check for address match based on store size
+                    // The store must cover the load's exact byte address
                     if (sq_entries[search_idx].valid) begin
-                        // Compare addresses (word-aligned - compare upper bits)
-                        if (sq_entries[search_idx].address[31:2] == load_lookup_addr[fu][31:2]) begin
+                        addr_match = 1'b0;
+                        
+                        case (sq_entries[search_idx].mem_size)
+                            BYTE: begin
+                                // Byte store: exact address match required
+                                addr_match = (sq_entries[search_idx].address == load_lookup_addr[fu]);
+                            end
+                            HALF: begin
+                                // Half-word store: covers 2 bytes (must be aligned)
+                                // Match if upper bits match and load is within the half-word
+                                addr_match = (sq_entries[search_idx].address[31:1] == load_lookup_addr[fu][31:1]);
+                            end
+                            WORD: begin
+                                // Word store: covers 4 bytes (must be aligned)
+                                // Match if word addresses match
+                                addr_match = (sq_entries[search_idx].address[31:2] == load_lookup_addr[fu][31:2]);
+                            end
+                            DOUBLE: begin
+                                // Double-word store: covers 8 bytes
+                                addr_match = (sq_entries[search_idx].address[31:3] == load_lookup_addr[fu][31:3]);
+                            end
+                        endcase
+                        
+                        if (addr_match) begin
                             // Found youngest matching store - forward its data
+                            // Position data within the word as it would appear in memory
+                            // so mem_fu can extract correctly using byte_offset
                             forward_valid[fu] = 1'b1;
-                            forward_data[fu]  = sq_entries[search_idx].data;
+                            
+                            // Position data based on store size and byte offset within word
+                            case (sq_entries[search_idx].mem_size)
+                                BYTE: begin
+                                    // Place byte at correct position based on addr[1:0]
+                                    case (sq_entries[search_idx].address[1:0])
+                                        2'b00: forward_data[fu] = {24'b0, sq_entries[search_idx].data[7:0]};
+                                        2'b01: forward_data[fu] = {16'b0, sq_entries[search_idx].data[7:0], 8'b0};
+                                        2'b10: forward_data[fu] = {8'b0, sq_entries[search_idx].data[7:0], 16'b0};
+                                        2'b11: forward_data[fu] = {sq_entries[search_idx].data[7:0], 24'b0};
+                                    endcase
+                                end
+                                HALF: begin
+                                    // Place half-word at correct position based on addr[1]
+                                    if (sq_entries[search_idx].address[1])
+                                        forward_data[fu] = {sq_entries[search_idx].data[15:0], 16'b0};
+                                    else
+                                        forward_data[fu] = {16'b0, sq_entries[search_idx].data[15:0]};
+                                end
+                                default: begin
+                                    // WORD/DOUBLE: data already fills the word
+                                    forward_data[fu] = sq_entries[search_idx].data;
+                                end
+                            endcase
                             break;
                         end
                     end
