@@ -169,9 +169,18 @@ module rob (
             $display("--- Complete Updates ---");
             for (int i = 0; i < `N; i++) begin
                 if (rob_update_packet.valid[i]) begin
-                    $display("  Complete[%0d]: ROB_Idx=%0d Branch(taken=%0d tgt=%h)",
-                             i, rob_update_packet.idx[i],
-                             rob_update_packet.branch_taken[i], rob_update_packet.branch_targets[i]);
+                    automatic ROB_IDX idx = rob_update_packet.idx[i];
+                    // State before and after the combinational update
+                    automatic ROB_ENTRY entry_before = rob_entries[idx];
+                    automatic ROB_ENTRY entry_after  = rob_entries_next[idx];
+
+
+                $display("  Complete[%0d]: ROB_Idx=%0d valid_before=%0d complete_before=%0d valid_after=%0d complete_after=%0d Branch(taken=%0d tgt=%h)",
+                        i, idx,
+                        entry_before.valid,  entry_before.complete,
+                        entry_after.valid,   entry_after.complete,
+                        rob_update_packet.branch_taken[i],
+                        rob_update_packet.branch_targets[i]);
                 end
             end
             

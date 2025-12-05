@@ -21,7 +21,10 @@ module mult (
     output DATA result,
     output logic request,
     output logic done,
-    output EX_COMPLETE_ENTRY meta_out
+    output EX_COMPLETE_ENTRY meta_out,
+
+    // new
+    output logic ready
 );
 
     // ==========================================================================
@@ -42,7 +45,20 @@ module mult (
     end
 
     // Start when valid rises or rob_idx changes (new instruction)
-    assign start = valid && (!prev_valid || rob_idx != prev_rob_idx);
+    logic busy;
+
+    always_ff @(posedge clock) begin
+        if (reset)
+            busy <= 1'b0;
+        else if (start)
+            busy <= 1'b1;
+        else if (done)
+            busy <= 1'b0;
+    end
+
+    assign ready = !busy;
+
+    assign start = valid && !busy && (!prev_valid || rob_idx != prev_rob_idx);
 
     // ==========================================================================
     // Construct metadata internally
@@ -86,6 +102,53 @@ module mult (
     MULT_FUNC final_func;
     EX_COMPLETE_ENTRY final_meta;
     logic final_start;
+
+
+    `ifdef DEBUG
+        logic [7:0] debug_counter;
+        logic       track_rob12;
+
+        always_ff @(posedge clock) begin
+            if (reset) begin
+                debug_counter <= 0;
+                track_rob12   <= 0;
+            end else begin
+                // Start tracking when we see the rob_idx=12 mult start
+                if (start && rob_idx == 12) begin
+                    track_rob12   <= 1'b1;
+                    debug_counter <= 0;
+                    $display("MULT_DEBUG: start tracking ROB 12 at time %0t", $time);
+                end else if (track_rob12 && debug_counter < 20) begin
+                    debug_counter <= debug_counter + 1;
+                end else if (debug_counter == 20) begin
+                    track_rob12 <= 1'b0;
+                end
+            end
+        end
+
+        always_ff @(posedge clock) begin
+            if (!reset && track_rob12) begin
+                $display("MULT_PIPE ROB12: t=%0t start=%0d dones={%b} req_pending=%0d request=%0d grant=%0d final_start=%0d done=%0d",
+                        $time,
+                        start,
+                        dones,
+                        req_pending,
+                        request,
+                        grant,
+                        final_start,
+                        done);
+            end
+        end
+    `endif
+
+    `ifdef DEBUG
+    always_ff @(posedge clock) begin
+        if (!reset && track_rob12) begin
+            $display("MULT_ETB ROB12: t=%0t start=%0b busy=%0b dones=%b req_pending=%0b request=%0b grant=%0b final_start=%0b done=%0b",
+                    $time, start, busy, dones, req_pending, request, grant, final_start, done);
+        end
+    end
+    `endif
 
     // ==========================================================================
     // Early pipeline stages (0 to MULT_STAGES-2)
@@ -191,6 +254,27 @@ module mult (
             final_start    = 1'b0;
         end
     end
+
+    `ifdef DEBUG
+    always_ff @(posedge clock) begin
+        if (!reset) begin
+            $display("MULT_CTRL t=%0t valid=%0b start=%0b busy=%0b done=%0b rob_idx=%0d",
+                 $time, valid, start, busy, done, rob_idx);
+            if (start) begin
+                $display("MULT_START: fu=%0d rob_idx=%0d dest_pr=P%0d rs1=%h rs2=%h func=%0d",
+                        0, rob_idx, dest_tag, rs1, rs2, func);
+            end
+            if (request) begin
+                $display("MULT_REQ:   fu=%0d rob_idx=%0d dest_pr=P%0d req_pending=%0d grant=%0d",
+                        0, meta_out.rob_idx, meta_out.dest_pr, req_pending, grant);
+            end
+            if (done) begin
+                $display("MULT_DONE:  fu=%0d rob_idx=%0d dest_pr=P%0d result=%h",
+                        0, meta_out.rob_idx, meta_out.dest_pr, result);
+            end
+        end
+    end
+    `endif
 
     // ==========================================================================
     // Outputs

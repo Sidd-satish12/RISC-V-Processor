@@ -44,4 +44,21 @@ module stage_complete #(
         end
     end
 
+    `ifdef DEBUG
+    always_ff @(posedge clock) begin
+        if (!reset) begin
+            for (int i = 0; i < N; i++) begin
+                if (ex_valid_in[i]) begin
+                    $display("STAGE_COMPLETE: lane %0d ex_valid=1 rob_idx=%0d branch_valid=%0d taken=%0d tgt=%h",
+                            i,
+                            ex_comp_in.rob_idx[i],
+                            ex_comp_in.branch_valid[i],
+                            ex_comp_in.branch_taken[i],
+                            ex_comp_in.branch_target[i]);
+                end
+            end
+        end
+    end
+    `endif
+
 endmodule
