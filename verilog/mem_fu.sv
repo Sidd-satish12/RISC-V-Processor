@@ -1,303 +1,203 @@
 `include "sys_defs.svh"
 
-// Memory Functional Unit: compute addresses and handle load/store operations
-// Supports store-to-load forwarding via store queue interface
+// Memory Functional Unit: handles load/store address computation and data path
+// Two-state design:
+//   - pending_load: tracks loads waiting for cache data
+//   - pending_result: holds completed result until CDB grant
 module mem_fu (
     input clock,
     input reset,
-    input valid,
+    input logic valid,
     input MEM_FUNC func,
     input DATA rs1,
     input DATA rs2,
     input DATA imm,
-    input STOREQ_IDX store_queue_idx,  // For stores: SQ slot; For loads: SQ tail (to find older stores)
+    input STOREQ_IDX store_queue_idx,
     input PHYS_TAG dest_tag,
     input CACHE_DATA cache_hit_data,
 
-    // Store-to-load forwarding from store queue
-    input logic forward_valid,   // Store queue found matching store with data
-    input DATA  forward_data,    // Forwarded data from store queue
-    input logic forward_stall,   // UNUSED - kept for interface compatibility (always 0)
+    // Store-to-load forwarding
+    input logic forward_valid,
+    input DATA  forward_data,
+    input logic forward_stall,  // Unused, kept for interface compatibility
 
-    // Grant signal from CDB - clears pending result when accepted
+    // CDB interface
     input logic grant,
+    output CDB_ENTRY cdb_result,
+    output logic cdb_request,
 
-    // Outputs
+    // Address/data outputs
     output DATA addr,
     output DATA data,
     output EXECUTE_STOREQ_ENTRY store_queue_entry,
-    output CDB_ENTRY cdb_result,
-    output logic cdb_request,
     output logic is_load_request,
     output logic is_store_op,
     output D_ADDR dcache_addr,
-    
-    // Store queue forwarding lookup outputs
-    output logic lookup_valid,      // Request forwarding lookup from store queue
-    output ADDR  lookup_addr,       // Address to look up
-    output STOREQ_IDX lookup_sq_tail // SQ tail to determine which stores are older
+
+    // Store queue forwarding lookup
+    output logic lookup_valid,
+    output ADDR  lookup_addr,
+    output STOREQ_IDX lookup_sq_tail
 );
 
     // =========================================================================
-    // State for handling cache misses
+    // State definitions
     // =========================================================================
-
     typedef struct packed {
         logic valid;
         PHYS_TAG dest_tag;
-        ADDR full_addr;     // Full 32-bit address for forwarding lookup
-        STOREQ_IDX sq_tail; // SQ tail for forwarding lookup on retry
+        ADDR full_addr;
+        STOREQ_IDX sq_tail;
     } PENDING_LOAD;
 
     PENDING_LOAD pending_load, pending_load_next;
-
-    // =========================================================================
-    // State for holding CDB result until granted (like mult module)
-    // This fixes timing: CDB grant arrives 1 cycle after request, but
-    // cache hit data only lasts 1 cycle. We must hold the result.
-    // =========================================================================
-    
     CDB_ENTRY pending_result, pending_result_next;
 
     // =========================================================================
-    // Combinational Logic
+    // Combinational signals
     // =========================================================================
-
-    // Helper signals for operation type detection
-    logic is_load, is_store;
-    logic pending_load_hit;
-    D_ADDR current_dcache_addr;
     ADDR computed_addr;
+    logic is_load, is_store;
+    logic data_available;      // Cache hit or forwarding provides data
+    logic pending_load_hit;    // Pending load now has data
+    logic load_completes;      // Any load completing this cycle
 
+    // Load data extraction
+    DATA loaded_word, final_load_data;
+    ADDR addr_for_extract;
+    logic word_select;
+    logic [1:0] byte_offset;
+    logic [7:0] byte_val;
+    logic [15:0] half_val;
+
+    // =========================================================================
+    // Main combinational logic
+    // =========================================================================
     always_comb begin
-        // Compute effective address
+        // Address computation
         computed_addr = rs1 + imm;
         addr = computed_addr;
         data = rs2;
 
-        // Extract dcache address from computed address
-        // D_ADDR: zeros[15:0] + tag[31:3] + block_offset[2:0]
-        // For 8-byte cache lines: tag = addr[31:3], block_offset = addr[2:0]
-        current_dcache_addr = '{
-            zeros: 16'b0,
-            tag: computed_addr[31:3],
-            block_offset: computed_addr[2:0]
-        };
+        // Operation type
+        is_load = func inside {LOAD_BYTE, LOAD_HALF, LOAD_WORD, LOAD_DOUBLE, LOAD_BYTE_U, LOAD_HALF_U};
+        is_store = func inside {STORE_BYTE, STORE_HALF, STORE_WORD, STORE_DOUBLE};
 
-        // Determine operation type
-        is_load = (func == LOAD_BYTE   || func == LOAD_HALF   || func == LOAD_WORD   ||
-                   func == LOAD_DOUBLE || func == LOAD_BYTE_U || func == LOAD_HALF_U);
+        // Data availability
+        data_available = cache_hit_data.valid || forward_valid;
+        pending_load_hit = pending_load.valid && data_available;
+        load_completes = pending_load_hit || (valid && is_load && data_available);
 
-        is_store = (func == STORE_BYTE || func == STORE_HALF ||
-                    func == STORE_WORD || func == STORE_DOUBLE);
+        // =====================================================================
+        // Load data extraction (from cache or forwarding)
+        // =====================================================================
+        addr_for_extract = pending_load.valid ? pending_load.full_addr : computed_addr;
+        word_select = addr_for_extract[2];
+        byte_offset = addr_for_extract[1:0];
 
-        // Check if pending load now gets data (from cache or forwarding)
-        pending_load_hit = pending_load.valid && (cache_hit_data.valid || forward_valid);
-    end
-
-    // Store queue entry generation (for store operations)
-    always_comb begin
-        if (valid && is_store) begin
-            store_queue_entry = '{
-                valid: 1'b1,
-                addr: computed_addr,
-                data: rs2,
-                store_queue_idx: store_queue_idx
-            };
-            is_store_op = 1'b1;
-        end else begin
-            store_queue_entry = '0;
-            is_store_op = 1'b0;
-        end
-    end
-
-    // Store queue forwarding lookup request
-    always_comb begin
-        lookup_valid   = 1'b0;
-        lookup_addr    = '0;
-        lookup_sq_tail = '0;
-
-        if (valid && is_load) begin
-            // New load - request forwarding lookup
-            lookup_valid   = 1'b1;
-            lookup_addr    = computed_addr;
-            lookup_sq_tail = store_queue_idx;  // SQ tail when load was dispatched
-        end else if (pending_load.valid) begin
-            // Pending load - continue lookup (in case it was stalled before)
-            lookup_valid   = 1'b1;
-            lookup_addr    = pending_load.full_addr;
-            lookup_sq_tail = pending_load.sq_tail;
-        end
-    end
-
-    // 1. Extract correct word from cache line based on address
-    // 2. apply size/sign extension based on func
-    DATA loaded_word;        // 32-bit word from cache/forward
-    DATA final_load_data;    // the one send to the CDB
-    logic        word_select;
-    ADDR         addr_for_size;
-    logic [7:0]  byte_val;
-    logic [15:0] half_val;
-    logic [1:0]  byte_offset;
-
-    always_comb begin
-        // -----------------------------
-        // 1) Choose address context
-        // -----------------------------
-        // If we're completing a pending load, use its stored full_addr,
-        // otherwise use the current computed address.
-        if (pending_load_hit && pending_load.valid) begin
-            addr_for_size = pending_load.full_addr;
-        end else begin
-            addr_for_size = computed_addr;
-        end
-
-        // This bit picks lower/upper word from 64-bit cache line
-        word_select = addr_for_size[2];
-
-        // -----------------------------
-        // 2) Get 32-bit word (forward/cache)
-        // -----------------------------
+        // Select word from cache line or use forwarded data
         if (forward_valid) begin
-            // Forwarded store data is already the correct 32-bit word
             loaded_word = forward_data;
         end else if (cache_hit_data.valid) begin
-            // Select word from 64-bit line based on word_select
-            if (word_select) begin
-                loaded_word = cache_hit_data.data.word_level[1];  // Upper word
-            end else begin
-                loaded_word = cache_hit_data.data.word_level[0];  // Lower word
-            end
+            loaded_word = word_select ? cache_hit_data.data.word_level[1]
+                                      : cache_hit_data.data.word_level[0];
         end else begin
             loaded_word = '0;
         end
 
-        // -----------------------------
-        // 3) Size + sign/zero extension
-        // -----------------------------
-        //   addr[2] chose word; addr[1:0] chooses byte/half inside that word.
-        byte_offset = addr_for_size[1:0];
-
-        // Extract byte and half-word from loaded_word
+        // Extract byte/half from word
         byte_val = loaded_word >> (8 * byte_offset);
+        half_val = byte_offset[1] ? loaded_word[31:16] : loaded_word[15:0];
 
-        if (byte_offset[1] == 1'b0) begin
-            // lower half (bits [15:0])
-            half_val = loaded_word[15:0];
+        // Apply size/sign extension
+        case (func)
+            LOAD_BYTE:   final_load_data = {{24{byte_val[7]}}, byte_val};
+            LOAD_BYTE_U: final_load_data = {24'b0, byte_val};
+            LOAD_HALF:   final_load_data = {{16{half_val[15]}}, half_val};
+            LOAD_HALF_U: final_load_data = {16'b0, half_val};
+            default:     final_load_data = loaded_word;
+        endcase
+
+        // =====================================================================
+        // Store queue entry (for stores)
+        // =====================================================================
+        store_queue_entry = (valid && is_store) ? '{
+            valid: 1'b1,
+            addr: computed_addr,
+            data: rs2,
+            store_queue_idx: store_queue_idx
+        } : '0;
+        is_store_op = valid && is_store;
+
+        // =====================================================================
+        // Store queue forwarding lookup
+        // =====================================================================
+        if (valid && is_load) begin
+            lookup_valid   = 1'b1;
+            lookup_addr    = computed_addr;
+            lookup_sq_tail = store_queue_idx;
+        end else if (pending_load.valid) begin
+            lookup_valid   = 1'b1;
+            lookup_addr    = pending_load.full_addr;
+            lookup_sq_tail = pending_load.sq_tail;
         end else begin
-            // upper half (bits [31:16])
-            half_val = loaded_word[31:16];
+            lookup_valid   = 1'b0;
+            lookup_addr    = '0;
+            lookup_sq_tail = '0;
         end
 
-        // Default: full word
-        final_load_data = loaded_word;
+        // =====================================================================
+        // Dcache request
+        // =====================================================================
+        if (valid && is_load && !forward_valid) begin
+            is_load_request = 1'b1;
+            dcache_addr = '{zeros: 16'b0, tag: computed_addr[31:3], block_offset: computed_addr[2:0]};
+        end else if (pending_load.valid && !forward_valid) begin
+            is_load_request = 1'b1;
+            dcache_addr = '{zeros: 16'b0, tag: pending_load.full_addr[31:3], block_offset: pending_load.full_addr[2:0]};
+        end else begin
+            is_load_request = 1'b0;
+            dcache_addr = '0;
+        end
 
-        unique case (func)
-            LOAD_BYTE: begin
-                // sign-extend 8 bits
-                final_load_data = {{24{byte_val[7]}}, byte_val};
-            end
-            LOAD_BYTE_U: begin
-                // zero-extend 8 bits
-                final_load_data = {24'b0, byte_val};
-            end
-            LOAD_HALF: begin
-                // sign-extend 16 bits
-                final_load_data = {{16{half_val[15]}}, half_val};
-            end
-            LOAD_HALF_U: begin
-                // zero-extend 16 bits
-                final_load_data = {16'b0, half_val};
-            end
-            LOAD_WORD: begin
-                final_load_data = loaded_word;
-            end
-            default: begin
-                final_load_data = loaded_word;
-            end
-        endcase
-    end
-
-    // CDB result and request generation
-    // Uses pending_result register to hold result until CDB grant arrives
-    always_comb begin
-        cdb_result  = '0;
+        // =====================================================================
+        // CDB result and request (with pending_result holding)
+        // =====================================================================
+        cdb_result = '0;
         cdb_request = 1'b0;
-        pending_result_next = pending_result;  // Default: hold state
+        pending_result_next = pending_result;
 
-        // If we have a pending result waiting for grant, output it
         if (pending_result.valid) begin
+            // Already have a result waiting for grant
             cdb_result = pending_result;
             cdb_request = 1'b1;
-            
-            // Clear pending result when grant is received
-            if (grant) begin
+            if (grant)
                 pending_result_next.valid = 1'b0;
-            end
-        end
-        // New results: capture into pending_result register
-        else if (pending_load_hit) begin
-            // Pending load completes (either from cache hit or forwarding)
-            pending_result_next = '{
-                valid: 1'b1,
-                tag: pending_load.dest_tag,
-                data: final_load_data
-            };
+        end else if (pending_load_hit) begin
+            // Pending load completes
+            pending_result_next = '{valid: 1'b1, tag: pending_load.dest_tag, data: final_load_data};
             cdb_result = pending_result_next;
             cdb_request = 1'b1;
-        end else if (valid && is_load && (cache_hit_data.valid || forward_valid)) begin
-            // New load completes immediately (cache hit or store forwarding)
-            pending_result_next = '{
-                valid: 1'b1,
-                tag: dest_tag,
-                data: final_load_data
-            };
+        end else if (valid && is_load && data_available) begin
+            // New load completes immediately
+            pending_result_next = '{valid: 1'b1, tag: dest_tag, data: final_load_data};
             cdb_result = pending_result_next;
             cdb_request = 1'b1;
         end else if (valid && is_store) begin
-            // Store completes immediately (address/data sent to store queue)
-            // Stores don't produce data, so we don't use pending_result
-            // But we still need to hold the request until granted
-            pending_result_next = '{
-                valid: 1'b1,
-                tag: '0,  // No destination for stores
-                data: '0
-            };
+            // Store completes (no data result, just needs CDB slot)
+            pending_result_next = '{valid: 1'b1, tag: '0, data: '0};
             cdb_result = pending_result_next;
             cdb_request = 1'b1;
         end
-    end
 
-    // Dcache request generation
-    // Only request from cache if forwarding didn't provide data
-    always_comb begin
-        is_load_request = 1'b0;
-        dcache_addr     = '0;
-
-        if (valid && is_load && !forward_valid) begin
-            // New load request - no forwarding available, go to dcache
-            is_load_request = 1'b1;
-            dcache_addr     = current_dcache_addr;
-        end else if (pending_load.valid && !forward_valid) begin
-            // Continue requesting for pending load (cache miss, no forwarding)
-            is_load_request = 1'b1;
-            dcache_addr     = '{
-                zeros: 16'b0,
-                tag: pending_load.full_addr[31:3],
-                block_offset: pending_load.full_addr[2:0]
-            };
-        end
-    end
-
-    // Pending load state management
-    always_comb begin
-        pending_load_next = pending_load;  // Default: keep state
+        // =====================================================================
+        // Pending load state
+        // =====================================================================
+        pending_load_next = pending_load;
 
         if (pending_load_hit) begin
-            // Clear pending load when it completes
             pending_load_next.valid = 1'b0;
-        end else if (valid && is_load && !cache_hit_data.valid && !forward_valid && !pending_load.valid) begin
-            // New load misses both cache and store queue - make it pending
+        end else if (valid && is_load && !data_available && !pending_load.valid) begin
             pending_load_next = '{
                 valid: 1'b1,
                 dest_tag: dest_tag,
@@ -307,14 +207,17 @@ module mem_fu (
         end
     end
 
-    // Sequential update of pending load state and pending result
+    // =========================================================================
+    // Sequential state update
+    // =========================================================================
     always_ff @(posedge clock) begin
         if (reset) begin
-            pending_load <= '0;
+            pending_load   <= '0;
             pending_result <= '0;
         end else begin
-            pending_load <= pending_load_next;
+            pending_load   <= pending_load_next;
             pending_result <= pending_result_next;
         end
     end
-endmodule  // mem_fu
+
+endmodule
