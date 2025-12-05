@@ -195,6 +195,8 @@ module stage_dispatch (
         free_alloc_valid = '0;
         rob_entry_packet = '0;
         store_queue_entry_packet = '0;
+        maptable_write_reqs = '0;  // Clear all map table writes
+
         storeq_used = 0;
 
         // Read register mappings from map table
