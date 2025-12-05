@@ -131,7 +131,7 @@ typedef logic [`STOREQ_IDX_BITS-1:0] STOREQ_IDX;
 
 // memory tags represent a unique id for outstanding mem transactions
 // 0 is a sentinel value and is not a valid tag
-`define NUM_MEM_TAGS 15  // max number of oustanding mem requests
+`define NUM_MEM_TAGS 25  // max number of oustanding mem requests
 typedef logic [3:0] MEM_TAG;
 
 `define MEM_SIZE_IN_BYTES (64*1024)
