@@ -135,4 +135,32 @@ module rs #(
         end
     end
 
+    // =========================================================================
+    // Debug Display
+    // =========================================================================
+`ifdef DEBUG
+    always_ff @(posedge clock) begin
+        if (!reset && !mispredict) begin
+            // Check for entries waiting on p11 specifically
+            for (int i = 0; i < RS_SIZE; i++) begin
+                if (rs_array[i].valid) begin
+                    if (rs_array[i].src1_tag == 6'd11 && !rs_array[i].src1_ready) begin
+                        $display("@@@ RS[%0d] waiting for src1=p11 (rob_idx=%0d)", i, rs_array[i].rob_idx);
+                    end
+                    if (rs_array[i].src2_tag == 6'd11 && !rs_array[i].src2_ready) begin
+                        $display("@@@ RS[%0d] waiting for src2=p11 (rob_idx=%0d)", i, rs_array[i].rob_idx);
+                    end
+                end
+            end
+            
+            // Check if p11 is being broadcast for wakeup
+            for (int j = 0; j < CDB_WIDTH; j++) begin
+                if (early_tag_broadcast[j].valid && early_tag_broadcast[j].tag == 6'd11) begin
+                    $display("@@@ CDB broadcasting p11 for wakeup!");
+                end
+            end
+        end
+    end
+`endif
+
 endmodule  // rs
