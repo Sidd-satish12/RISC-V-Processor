@@ -114,6 +114,58 @@ module map_table (
         end
     end
 
+    // =========================================================================
+    // Debug Display
+    // =========================================================================
+`ifdef DEBUG
+    always_ff @(posedge clock) begin
+        if (!reset) begin
+            $display("========================================");
+            $display("=== MAP_TABLE STATE (Cycle %0t) ===", $time);
+            $display("========================================");
+            
+            // Show restore status
+            if (table_restore_en) begin
+                $display("*** MISPREDICT RESTORE HAPPENING ***");
+            end
+            
+            // Show all non-identity mappings and their ready status
+            $display("--- Active Mappings (non-identity or not-ready) ---");
+            for (int i = 0; i < `ARCH_REG_SZ; i++) begin
+                if (map_table_reg[i].phys_reg != PHYS_TAG'(i) || !map_table_reg[i].ready) begin
+                    $display("  x%0d -> p%0d (ready=%0d)", i, map_table_reg[i].phys_reg, map_table_reg[i].ready);
+                end
+            end
+            
+            // Show any writes this cycle
+            $display("--- Writes This Cycle ---");
+            for (int i = 0; i < `N; i++) begin
+                if (write_reqs[i].valid) begin
+                    $display("  x%0d -> p%0d", write_reqs[i].addr, write_reqs[i].phys_reg);
+                end
+            end
+            
+            // Show CDB broadcasts (wakeups)
+            $display("--- CDB Wakeups ---");
+            for (int i = 0; i < `N; i++) begin
+                if (cdb_broadcasts[i].valid) begin
+                    $display("  p%0d now ready", cdb_broadcasts[i].tag);
+                end
+            end
+            
+            // SPECIFICALLY track p11 - change this number if needed
+            $display("--- Tracking p11 ---");
+            for (int i = 0; i < `ARCH_REG_SZ; i++) begin
+                if (map_table_reg[i].phys_reg == 6'd11) begin
+                    $display("  x%0d maps to p11, ready=%0d", i, map_table_reg[i].ready);
+                end
+            end
+            
+            $display("");
+        end
+    end
+`endif
+
 endmodule
 
 module arch_map_table #(

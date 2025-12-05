@@ -292,6 +292,7 @@ module stage_execute (
     logic [1:0] mem_fu_to_dcache_slot [`NUM_FU_MEM-1:0];
     DATA [`NUM_FU_MEM-1:0] mem_addr_out;
     DATA [`NUM_FU_MEM-1:0] mem_data_out;
+    ROB_IDX [`NUM_FU_MEM-1:0] mem_rob_idx_out;
 
     always_comb begin
         for (int i = 0; i < `NUM_FU_MEM; i++) begin
@@ -304,7 +305,7 @@ module stage_execute (
 
     generate
         for (genvar i = 0; i < `NUM_FU_MEM; i++) begin : mem_fu_gen
-            mem_fu mem_inst (
+            mem_fu #(.FU_ID(i)) mem_inst (
                 .clock(clock),
                 .reset(reset | mispredict),
                 .valid(issue_entries.mem[i].valid),
@@ -314,6 +315,7 @@ module stage_execute (
                 .imm(mem_src2_imm[i]),
                 .store_queue_idx(issue_entries.mem[i].store_queue_idx),
                 .dest_tag(issue_entries.mem[i].dest_tag),
+                .rob_idx(issue_entries.mem[i].rob_idx),
                 .cache_hit_data(dcache_read_data[mem_fu_to_dcache_slot[i]]),
                 .forward_valid(sq_forward_valid[i]),
                 .forward_data(sq_forward_data[i]),
@@ -329,7 +331,8 @@ module stage_execute (
                 .dcache_addr(mem_dcache_addrs[i]),
                 .lookup_valid(mem_lookup_valid[i]),
                 .lookup_addr(mem_lookup_addr[i]),
-                .lookup_sq_tail(mem_lookup_sq_tail[i])
+                .lookup_sq_tail(mem_lookup_sq_tail[i]),
+                .rob_idx_out(mem_rob_idx_out[i])
             );
         end
     endgenerate
@@ -428,11 +431,11 @@ module stage_execute (
 
         for (int k = 0; k < `NUM_FU_MEM; k++) begin
             candidates[MEM_START+k] = '{
-                rob_idx:       issue_entries.mem[k].rob_idx,
+                rob_idx:       mem_rob_idx_out[k],
                 branch_valid:  1'b0,
                 branch_taken:  1'b0,
                 branch_target: '0,
-                dest_pr:       issue_entries.mem[k].dest_tag,
+                dest_pr:       mem_cdb_results[k].tag,
                 result:        mem_cdb_results[k].data
             };
             candidate_valid[MEM_START+k] = mem_cdb_results[k].valid;
