@@ -45,7 +45,8 @@ module stage_retire (
 
     // D-Cache Interface
     output logic dcache_store_request,
-    input  logic dcache_store_response,
+    input logic  dcache_store_response,
+    output ADDR  dcache_store_request_pc,
 
     // To ROB: how many instructions to actually retire
     output logic [$clog2(`N+1)-1:0] retire_count_out
@@ -72,18 +73,19 @@ module stage_retire (
     always_comb begin
         freelist_checkpoint_mask_next = freelist_checkpoint_mask;
         {mispredict, rob_mispred_idx, free_mask} = '0;
-        train_req_o            = '{default: 0};
-        trained                = 1'b0;
-        arch_write_enables     = '0;
-        arch_write_addrs       = '0;
-        arch_write_phys_regs   = '0;
-        mispred_dir            = 1'b0;
-        mispred_tgt            = 1'b0;
-        mispred                = 1'b0;
-        entry                  = '0;
-        committed_insts_next   = '0;
-        sq_free_count          = '0;
-        dcache_store_request   = 1'b0;
+        train_req_o = '{default: 0};
+        trained = 1'b0;
+        arch_write_enables = '0;
+        arch_write_addrs = '0;
+        arch_write_phys_regs = '0;
+        mispred_dir = 1'b0;
+        mispred_tgt = 1'b0;
+        mispred = 1'b0;
+        entry = '0;
+        committed_insts = '0;
+        sq_free_count = '0;
+        dcache_store_request = '0;
+        dcache_store_request_pc = '0;
         retired_store_this_cycle = 1'b0;
         retire_count           = '0;
 
@@ -116,7 +118,7 @@ module stage_retire (
                 // Only request if store queue has the data ready (executed)
                 if (sq_head_valid) begin
                     dcache_store_request = 1'b1;
-
+                    dcache_store_request_pc = entry.PC;
                     // If D-Cache says "not done yet" (miss or busy), we STALL retirement
                     if (!dcache_store_response) begin
                         // Stall: do not commit this instruction or any younger ones
@@ -166,9 +168,9 @@ module stage_retire (
                 branch_target_out = entry.branch_target;
 
                 // Only consider mispredict if branch had completed
-                mispred_dir = (entry.pred_taken != entry.branch_taken);
-                mispred_tgt = (entry.branch_taken && (entry.pred_target != entry.branch_target));
-                mispred     = (mispred_dir || mispred_tgt);
+                // mispred_dir               = (entry.pred_taken != entry.branch_taken);
+                mispred_tgt               = (entry.branch_taken && (entry.pred_target != entry.branch_target));
+                mispred                   = (mispred_dir || mispred_tgt);
 
                 // Train on retired branches
                 train_req_o.valid         = 1'b1;

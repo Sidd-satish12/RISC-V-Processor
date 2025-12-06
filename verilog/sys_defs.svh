@@ -205,6 +205,7 @@ typedef struct packed {
 typedef struct packed {
     logic valid;
     D_ADDR  addr;
+    ADDR    PC;
 } D_ADDR_PACKET;
 
 typedef struct packed {

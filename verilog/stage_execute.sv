@@ -395,6 +395,7 @@ module stage_execute (
             if (mem_is_load_request[i]) begin
                 dcache_read_addrs[load_count].valid = 1'b1;
                 dcache_read_addrs[load_count].addr  = mem_dcache_addrs[i];
+                dcache_read_addrs[load_count].PC    = issue_entries.mem[i].PC;
                 mem_fu_to_dcache_slot[i] = load_count;
                 load_count++;
             end

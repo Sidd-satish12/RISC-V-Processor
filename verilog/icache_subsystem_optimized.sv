@@ -228,56 +228,6 @@ module i_prefetcher #(
 
 endmodule
 
-// old prefetcher, kept for comparing performance
-// module i_prefetcher (
-//     input clock,
-//     input reset,
-
-//     input I_ADDR_PACKET icache_miss_addr,
-//     input logic         icache_full,
-
-//     input  logic         mem_req_accepted,
-//     output I_ADDR_PACKET prefetcher_snooping_addr
-// );
-//     I_ADDR_PACKET last_icache_miss_mem_req, next_last_icache_miss_mem_req;
-//     I_ADDR addr_incrementor, next_addr_incrementor;
-
-//     always_comb begin
-//         prefetcher_snooping_addr = '0;
-//         next_addr_incrementor = addr_incrementor;
-//         next_last_icache_miss_mem_req = last_icache_miss_mem_req;
-
-//         // New or first icache miss yet to successfully request
-//         if (icache_miss_addr.valid & (icache_miss_addr.addr != last_icache_miss_mem_req.addr | ~last_icache_miss_mem_req.valid)) begin
-//             // Send mem snooping request
-//             prefetcher_snooping_addr.valid = '1;
-//             prefetcher_snooping_addr.addr  = icache_miss_addr.addr;
-//             if (mem_req_accepted) begin
-//                 next_last_icache_miss_mem_req.valid = '1;
-//                 next_last_icache_miss_mem_req.addr = icache_miss_addr.addr;
-//                 next_addr_incrementor = icache_miss_addr.addr;
-//             end 
-//         end else if (~icache_full & last_icache_miss_mem_req.valid) begin
-//             // Send lookahead snooping request
-//             prefetcher_snooping_addr.valid = '1;
-//             prefetcher_snooping_addr.addr  = addr_incrementor + 'h8;
-//             if (mem_req_accepted) begin
-//                 next_addr_incrementor = addr_incrementor + 'h8;
-//             end
-//         end
-//     end
-
-//     always_ff @(posedge clock) begin
-//         if (reset) begin
-//             last_icache_miss_mem_req <= '0;
-//             addr_incrementor <= '0;
-//         end else begin
-//             addr_incrementor <= next_addr_incrementor;
-//             last_icache_miss_mem_req <= next_last_icache_miss_mem_req;
-//         end
-//     end
-
-// endmodule
 
 module icache #(
     parameter MEM_DEPTH = `ICACHE_LINES + `PREFETCH_STREAM_BUFFER_SIZE,
@@ -311,8 +261,6 @@ module icache #(
     
     // LRU signals
     logic [I_CACHE_INDEX_BITS-1:0]        lru_index;
-    logic [I_CACHE_INDEX_BITS-1:0]        cpu_read_hit_index [1:0];
-    logic [1:0]                           cpu_read_hit_valid;
     logic [I_CACHE_INDEX_BITS-1:0]        prefetch_write_index;
     logic                                 prefetch_write_valid;
     logic [I_CACHE_INDEX_BITS-1:0]        free_slot_index;  // Index from one_hot_to_index conversion
@@ -349,19 +297,14 @@ module icache #(
     );
 
     // Pseudo Tree LRU for replacement policy
-    // Pass both read ports separately for parallel processing
-    // Read 1 = older instruction (index 0), Read 2 = newer instruction (index 1)
+    // Only tracks write operations to avoid race conditions
     pseudo_tree_lru #(
         .CACHE_SIZE(MEM_DEPTH),
         .INDEX_BITS(I_CACHE_INDEX_BITS)
     ) lru_inst (
         .clock(clock),
         .reset(reset),
-        .read1_index(cpu_read_hit_index[0]),      // Older instruction (Read 1)
-        .read1_valid(cpu_read_hit_valid[0]),
-        .read2_index(cpu_read_hit_index[1]),      // Newer instruction (Read 2) - highest priority
-        .read2_valid(cpu_read_hit_valid[1]),
-        .write_index(prefetch_write_index),       // Prefetch write - lowest priority
+        .write_index(prefetch_write_index),       // Prefetch write
         .write_valid(prefetch_write_valid),
         .lru_index(lru_index)
     );
@@ -415,13 +358,9 @@ module icache #(
         full = &valid_bits;
     end
 
-    // Cache read logic with hit index tracking for LRU
+    // Cache read logic
     always_comb begin
         cache_outs_temp = '0;
-        cpu_read_hit_index[0] = '0;
-        cpu_read_hit_index[1] = '0;
-        cpu_read_hit_valid[0] = 1'b0;
-        cpu_read_hit_valid[1] = 1'b0;
         
         for (int j = 0; j < 2; j++) begin
             for (int i = 0; i < MEM_DEPTH; i++) begin
@@ -429,9 +368,6 @@ module icache #(
                     (read_addrs[j].addr.tag == cache_lines[i].tag)) begin
                     cache_outs_temp[j].data = cache_lines[i].data;
                     cache_outs_temp[j].valid = 1'b1;
-                    // Track which cache line index was hit for LRU update
-                    cpu_read_hit_index[j] = I_CACHE_INDEX_BITS'(i);
-                    cpu_read_hit_valid[j] = 1'b1;
                 end
             end
         end
@@ -443,9 +379,7 @@ endmodule
 // Pseudo Tree LRU module for cache replacement policy
 // Uses a binary tree structure with N-1 bits to track LRU state
 // Each bit indicates which subtree is LRU (0 = left, 1 = right)
-// Optimized for parallel path calculation with priority resolution
-// Handles 3 simultaneous access ports: Read 1, Read 2, Write
-// Priority: Read 2 (highest) > Read 1 > Write (lowest)
+// Only tracks write operations to avoid race conditions
 module pseudo_tree_lru #(
     parameter CACHE_SIZE = `ICACHE_LINES,
     parameter INDEX_BITS = $clog2(CACHE_SIZE)
@@ -453,15 +387,7 @@ module pseudo_tree_lru #(
     input clock,
     input reset,
 
-    // Read 1 access update interface (Instruction N - older)
-    input logic [INDEX_BITS-1:0] read1_index,   // Cache line index accessed by Read 1
-    input logic                  read1_valid,   // Whether Read 1 access occurred
-
-    // Read 2 access update interface (Instruction N+1 - newer, highest priority)
-    input logic [INDEX_BITS-1:0] read2_index,    // Cache line index accessed by Read 2
-    input logic                  read2_valid,    // Whether Read 2 access occurred
-
-    // Prefetch Write access update interface (lowest priority)
+    // Prefetch Write access update interface
     input logic [INDEX_BITS-1:0] write_index,    // Cache line index written by prefetcher
     input logic                  write_valid,    // Whether prefetch write occurred
 
@@ -477,8 +403,6 @@ module pseudo_tree_lru #(
     logic [TREE_NODES-1:0] lru_tree, next_lru_tree;
     
     // Parallel path calculation signals
-    // logic [TREE_NODES-1:0] r1_mask, r1_val;  // Read 1 update mask and values
-    // logic [TREE_NODES-1:0] r2_mask, r2_val;  // Read 2 update mask and values
     logic [TREE_NODES-1:0] w_mask,  w_val;   // Write update mask and values
     
     // LRU traversal variable
@@ -525,37 +449,10 @@ module pseudo_tree_lru #(
         end
     endfunction
 
-    // -----------------------------------------------------------
-    // 1. Parallel Path Calculation
-    // -----------------------------------------------------------
-    // Calculate update paths for all 3 ports simultaneously
+
     always_comb begin
-        // get_update_path(read1_index, read1_valid, r1_mask, r1_val);
-        // get_update_path(read2_index, read2_valid, r2_mask, r2_val);
         get_update_path(write_index, write_valid, w_mask, w_val);
     end
-
-    // -----------------------------------------------------------
-    // 2. Priority Resolution (The "Merge")
-    // -----------------------------------------------------------
-    // Priority: Read 2 > Read 1 > Write > Keep Current
-    // always_comb begin
-    //     for (int i = 0; i < TREE_NODES; i++) begin
-    //         if (r2_mask[i]) begin
-    //             // Read 2 has highest priority
-    //             next_lru_tree[i] = r2_val[i];
-    //         end else if (r1_mask[i]) begin
-    //             // Read 1 has second priority
-    //             next_lru_tree[i] = r1_val[i];
-    //         end else if (w_mask[i]) begin
-    //             // Write has third priority
-    //             next_lru_tree[i] = w_val[i];
-    //         end else begin
-    //             // Keep current value
-    //             next_lru_tree[i] = lru_tree[i];
-    //         end
-    //     end
-    // end
 
     always_comb begin
         for (int i = 0; i < TREE_NODES; i++) begin

@@ -301,7 +301,7 @@ module cpu (
     // TODO: Connect these to actual memory operation addresses from execute stage
     D_ADDR_PACKET          [1:0] d_cache_read_addrs;
     CACHE_DATA             [1:0] dcache_data;
-    D_ADDR_PACKET                dcache_mem_req_addr;
+    D_ADDR_PACKET                dcache_mem_read_addr;
     D_ADDR_PACKET                dcache_mem_write_addr;
     MEM_BLOCK                    dcache_mem_write_data;
     logic                        dcache_mem_write_valid;
@@ -322,7 +322,7 @@ module cpu (
         .mem_data         (mem2proc_data),
         .mem_data_tag     (mem2proc_data_tag),
         // Arbitor IOs - Read requests
-        .mem_req_addr     (dcache_mem_req_addr),
+        .mem_req_addr     (dcache_mem_read_addr),
         .mem_req_accepted (dcache_mem_req_accepted),
         // Arbitor IOs - Write requests (dirty writebacks)
         .mem_write_addr   (dcache_mem_write_addr),
@@ -333,6 +333,7 @@ module cpu (
         .proc_store_addr  (sq_to_dcache_addr),
         .proc_store_data  (sq_to_dcache_data),
         .proc_store_mem_size (sq_to_dcache_mem_size),
+        .proc_store_PC    (retire_store_request_pc),
         .proc_store_response (dcache_store_response),
         // debug to expose DCache to testbench
         .cache_lines_debug (cache_lines_dbg)
@@ -342,13 +343,11 @@ module cpu (
     //          Memory Arbiter Logic                //
     //                                              //
     //////////////////////////////////////////////////
-
-    // Arbitration: Data requests (dcache) prioritized over instruction requests (icache)
-    // Writes: Only dcache writes, no conflicts
-    // 
-    // D_ADDR to 32-bit address conversion:
-    // D_ADDR stores: tag = addr[31:3] (29 bits), block_offset = addr[2:0] (3 bits)
-    // To reconstruct 8-byte-aligned address: {tag, 3'b0}
+// Priority hierarchy
+// D-Cache dirty writebacks (highest)
+// D-Cache store misses
+// D-Cache load misses (older load read_addrs[0] before younger read_addrs[1])
+// I-Cache instruction fetch misses (older fetch read_addrs[0] before younger read_addrs[1])
     always_comb begin
         // Default values
         proc2mem_command = MEM_NONE;
@@ -363,14 +362,12 @@ module cpu (
             // Convert D_ADDR to 32-bit 8-byte-aligned address
             proc2mem_addr    = {dcache_mem_write_addr.addr.tag, 3'b0};
             proc2mem_data    = dcache_mem_write_data;
-            // Writes are always accepted if transaction tag is available
-            // Note: mem_req_accepted logic is for reads only
         end
         // Priority 2: Dcache reads (data memory operations)
-        else if (dcache_mem_req_addr.valid) begin
+        else if (dcache_mem_read_addr.valid) begin
             proc2mem_command = MEM_LOAD;
             // Convert D_ADDR to 32-bit 8-byte-aligned address
-            proc2mem_addr    = {dcache_mem_req_addr.addr.tag, 3'b0};
+            proc2mem_addr    = {dcache_mem_read_addr.addr.tag, 3'b0};
             dcache_mem_req_accepted = (mem2proc_transaction_tag != 0);
         end
         // Priority 3: Icache reads (instruction fetch)
@@ -390,8 +387,8 @@ module cpu (
     always_ff @(negedge clock) begin
         if (!reset) begin
             $display("=== MEMORY ARBITER (negedge) ===");
-            $display("  dcache_mem_write_valid=%b dcache_mem_req_addr.valid=%b icache_mem_req_addr.valid=%b",
-                     dcache_mem_write_valid, dcache_mem_req_addr.valid, icache_mem_req_addr.valid);
+            $display("  dcache_mem_write_valid=%b dcache_mem_read_addr.valid=%b icache_mem_req_addr.valid=%b",
+                     dcache_mem_write_valid, dcache_mem_read_addr.valid, icache_mem_req_addr.valid);
             if (dcache_mem_write_valid) begin
                 $display("  WRITEBACK: tag=%h addr=%h data=%h",
                          dcache_mem_write_addr.addr.tag, 
@@ -1088,6 +1085,8 @@ module cpu (
     logic train_triggered_dbg;
     logic retire_valid_dbg;
 
+    ADDR retire_store_request_pc;
+
     stage_retire stage_retire_0 (
         .clock(clock),
         .reset(reset),
@@ -1136,6 +1135,7 @@ module cpu (
         // To D-Cache
         .dcache_store_request(retire_store_request),
         .dcache_store_response(dcache_store_response),
+        .dcache_store_request_pc(retire_store_request_pc),
         
         // To ROB: how many to actually retire
         .retire_count_out(retire_count)

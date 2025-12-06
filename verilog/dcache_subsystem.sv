@@ -5,46 +5,53 @@ module dcache_subsystem (
     input clock,
     input reset,
 
-    // Memory operations read
+    // Cache read from loads
     input  D_ADDR_PACKET [1:0]  read_addrs,  // read_addr[0] is older operations
-    output CACHE_DATA [1:0]     cache_outs,
+    output CACHE_DATA    [1:0]  cache_outs,
 
-    // Mem.sv IOs - Read requests
-    input MEM_TAG               current_req_tag,
-    input MEM_BLOCK             mem_data,
-    input MEM_TAG               mem_data_tag,
+    // Data back from memory
+    input MEM_TAG               current_data_back_tag,
+    input MEM_BLOCK             mem_data_back,
+    input MEM_TAG               mem_data_back_tag,
 
-    // Arbitor IOs - Read requests
-    output D_ADDR_PACKET        mem_req_addr,
-    input  logic                mem_req_accepted,
+    // Memory read request
+    output D_ADDR_PACKET        mem_read_addr,
+    input  logic                mem_read_accepted,
     
-    // Arbitor IOs - Write requests (dirty writebacks)
-    output D_ADDR_PACKET        mem_write_addr,
+    // Dirty writebacks on eviction
+    output D_ADDR_PACKET        mem_write_addr, // request always accepted
     output MEM_BLOCK            mem_write_data,
     output logic                mem_write_valid,
 
-    // Processor Store Interface (from Store Queue)
+    // Store request (from Store Queue)
     input logic                 proc_store_valid,
     input ADDR                  proc_store_addr,
     input DATA                  proc_store_data,
     input MEM_SIZE              proc_store_mem_size,
+    input ADDR                  proc_store_PC,
     output logic                proc_store_response,  // 1 = Store Complete, 0 = Stall/Retry
     // debug to expose DCache to testbench
     output D_CACHE_LINE [`DCACHE_LINES-1:0]      cache_lines_debug
 );
 
     // Internal wires
-    D_ADDR_PACKET dcache_write_addr, oldest_miss_addr, dcache_write_addr_refill;
+    D_ADDR_PACKET dcache_write_addr, dcache_write_addr_refill;
     logic dcache_full;
     D_MSHR_PACKET new_mshr_entry;
     D_CACHE_LINE evicted_line;
     logic evicted_valid;
     CACHE_DATA [1:0] dcache_outs;
     logic mshr_addr_found;  // MSHR already has this address
+    logic prefetcher_addr_found_dcache;  // Prefetcher address found in dcache
+    logic prefetcher_addr_found_mshr;    // Prefetcher address found in MSHR
 
     // Store logic signals
     D_ADDR_PACKET store_req_addr;
     logic     store_hit_dcache;
+    
+    // Prefetcher signals
+    D_ADDR_PACKET prefetcher_snooping_addr;
+    D_ADDR_PACKET cache_miss_addr;  // Combined miss from loads and stores
 
     // D-cache write control signals
     D_ADDR_PACKET dcache_write_addr_refill_local;
@@ -62,9 +69,12 @@ module dcache_subsystem (
         .snooping_addr(store_req_addr),
         .addr_found   (store_hit_dcache),
         .full         (dcache_full),
-        // Dcache write mem_data (refill)
+        // Snoop for prefetcher addresses
+        .prefetch_snooping_addr(prefetcher_snooping_addr),
+        .prefetch_addr_found(prefetcher_addr_found_dcache),
+        // Dcache write mem_data_back (refill)
         .write_addr   (dcache_write_addr),
-        .write_data   (mem_data),
+        .write_data   (mem_data_back),
         // Dcache Store Update
         .store_en     (dcache_store_en_local),
         .store_addr   (store_req_addr),
@@ -80,28 +90,40 @@ module dcache_subsystem (
     // Direct output from dcache (no victim cache)
     assign cache_outs = dcache_outs;
 
+    // Prefetcher module - handles all memory requests (misses + prefetches)
+    d_prefetcher d_prefetcher_inst (
+        .clock                   (clock),
+        .reset                   (reset),
+        // Cache miss inputs (loads and stores)
+        .cache_miss_addr         (cache_miss_addr),
+        .dcache_full             (dcache_full),
+        .mem_read_accepted       (mem_read_accepted),
+        .current_data_back_tag   (current_data_back_tag),
+        // Snooping for prefetch addresses
+        .snooping_addr           (prefetcher_snooping_addr),
+        .addr_found_dcache       (prefetcher_addr_found_dcache),
+        .addr_found_mshr         (prefetcher_addr_found_mshr),
+        // Memory request output
+        .mem_read_addr           (mem_read_addr)
+    );
+
     d_mshr d_mshr_inst (
         .clock          (clock),
         .reset          (reset),
-        // Snoop for duplicate requests (loads & stores)
-        .snooping_addr  (oldest_miss_addr.addr),
-        .addr_found     (mshr_addr_found),
-        // When mem_req_accepted
+        // Snoop for duplicate requests (loads, stores, and prefetches)
+        .snooping_addr  (prefetcher_snooping_addr.addr),
+        .addr_found     (prefetcher_addr_found_mshr),
+        // When mem_read_accepted
         .new_entry      (new_mshr_entry),
         // Mem data back
-        .mem_data_tag   (mem_data_tag),
-        .mem_data_d_addr(dcache_write_addr_refill)
+        .mem_data_back_tag   (mem_data_back_tag),
+        .mem_data_back_d_addr(dcache_write_addr_refill)
     );
 
     assign dcache_write_addr_refill_local = dcache_write_addr_refill;
 
     // D-cache write mux: Refill takes priority
-    always_comb begin
-        dcache_write_addr = '0;
-        if (dcache_write_addr_refill_local.valid) begin
-            dcache_write_addr = dcache_write_addr_refill_local;
-        end 
-    end
+    assign dcache_write_addr = dcache_write_addr_refill_local.valid ? dcache_write_addr_refill_local : '0;
 
     // Store Request Processing
     // Convert processor store address to cache address format and generate byte enables
@@ -218,29 +240,32 @@ module dcache_subsystem (
         end
     end
 
-    // Oldest miss address logic - prioritize store misses over load misses
+    // Cache miss address logic - prioritize store misses over load misses
+    // This is passed to prefetcher which handles all memory requests
     always_comb begin
-        oldest_miss_addr = '0;
+        cache_miss_addr = '0;
         
-        // If store misses the cache, request the line
+        // If store misses the cache, pass to prefetcher
         if (proc_store_valid && !store_hit_dcache) begin
-            oldest_miss_addr.valid = 1'b1;
-            oldest_miss_addr.addr.tag = proc_store_addr[31:3];  // Full tag for 8-byte lines
-            oldest_miss_addr.addr.block_offset = '0;  // Request full line
-            oldest_miss_addr.addr.zeros = '0;
+            cache_miss_addr.valid = 1'b1;
+            cache_miss_addr.addr.tag = proc_store_addr[31:3];  // Full tag for 8-byte lines
+            cache_miss_addr.addr.block_offset = '0;  // Request full line
+            cache_miss_addr.addr.zeros = '0;
+            cache_miss_addr.PC = proc_store_PC;
         end
         // Otherwise check for load misses
         else if (read_addrs[0].valid && !dcache_outs[0].valid) begin
-            oldest_miss_addr.valid = 1'b1;
-            oldest_miss_addr.addr  = read_addrs[0].addr;
+            cache_miss_addr.valid = 1'b1;
+            cache_miss_addr.addr  = read_addrs[0].addr;
+            cache_miss_addr.PC   = read_addrs[0].PC;
         end else if (read_addrs[1].valid && !dcache_outs[1].valid) begin
-            oldest_miss_addr.valid = 1'b1;
-            oldest_miss_addr.addr  = read_addrs[1].addr;
+            cache_miss_addr.valid = 1'b1;
+            cache_miss_addr.addr  = read_addrs[1].addr;
+            cache_miss_addr.PC   = read_addrs[1].PC;
         end
     end
 
     // Memory write logic - send dirty evictions to memory
-    // Since we removed victim cache, evictions go directly to memory
     // NOTE: evicted_line and evicted_valid are now REGISTERED in dcache module
     // to capture eviction data before the refill overwrites the cache line
     always_comb begin
@@ -258,27 +283,12 @@ module dcache_subsystem (
         end
     end
 
-    // Memory read request logic - handle cache misses
-    always_comb begin
-        mem_req_addr = '0;
-        
-        // Send read requests for cache misses
-        // ARBITRATION: Prioritize dirty writeback over read request
-        // DUPLICATE CHECK: Only send if not already in MSHR
-        if (oldest_miss_addr.valid && !mem_write_valid && !mshr_addr_found) begin
-            mem_req_addr = oldest_miss_addr;
-        end
-    end
+    // Memory read request is now handled by d_prefetcher
+    // mem_read_addr is output from d_prefetcher
 
     // MSHR entry logic - add when request is accepted
-    always_comb begin
-        new_mshr_entry = '0;
-        if (mem_req_accepted && current_req_tag != 0) begin
-            new_mshr_entry = '{valid: 1'b1,
-                              mem_tag: current_req_tag,
-                              d_addr: mem_req_addr.addr};
-        end
-    end
+    assign new_mshr_entry = (mem_read_accepted && current_data_back_tag != 0) ?
+        '{valid: 1'b1, mem_tag: current_data_back_tag, d_addr: mem_read_addr.addr} : '0;
 
     // D-Cache Subsystem Display - Mem FU Interface
 `ifdef DEBUG
@@ -311,9 +321,9 @@ module dcache_subsystem (
             
             // Memory Requests We're Making
             $display("--- Memory Requests ---");
-            if (mem_req_addr.valid) begin
+            if (mem_read_addr.valid) begin
                 $display("  Read Request: Valid=1 Addr.tag=%h Addr.block_offset=%0d Accepted=%0d", 
-                         mem_req_addr.addr.tag, mem_req_addr.addr.block_offset, mem_req_accepted);
+                         mem_read_addr.addr.tag, mem_read_addr.addr.block_offset, mem_read_accepted);
             end else begin
                 $display("  Read Request: Valid=0");
             end
@@ -327,25 +337,28 @@ module dcache_subsystem (
             end
             
             // Memory Data Coming Back
-            if (mem_data_tag != 0) begin
+            if (mem_data_back_tag != 0) begin
                 $display("  Memory Data Returned: Tag=%0d Data=%h", 
-                         mem_data_tag, mem_data.dbbl_level);
+                         mem_data_back_tag, mem_data_back.dbbl_level);
             end
             
             // Store Interface
             $display("--- Store Interface ---");
             if (proc_store_valid) begin
                 $display("  Store Request: Valid=1 Addr=%h Data=%h Hit=%0d Response=%0d", 
-                         proc_store_addr, proc_store_data, store_hit_dcache, proc_store_response);
+                         proc_store_addr & 32'hFFFFFFF8, proc_store_data, store_hit_dcache, proc_store_response);
             end else begin
                 $display("  Store Request: Valid=0");
             end
             
             // MSHR State
             $display("--- MSHR State ---");
-            $display("  Oldest Miss Addr: Valid=%0d Tag=%h", 
-                     oldest_miss_addr.valid, oldest_miss_addr.addr.tag);
-            $display("  MSHR Addr Found (duplicate): %0d", mshr_addr_found);
+            $display("  Cache Miss Addr: Valid=%0d Tag=%h PC=%h", 
+                     cache_miss_addr.valid, cache_miss_addr.addr.tag, cache_miss_addr.PC);
+            $display("  Prefetcher Snooping: Valid=%0d Tag=%h", 
+                     prefetcher_snooping_addr.valid, prefetcher_snooping_addr.addr.tag);
+            $display("  Prefetcher Found in DCache: %0d, Found in MSHR: %0d", 
+                     prefetcher_addr_found_dcache, prefetcher_addr_found_mshr);
             $display("  Cache Full: %0d", dcache_full);
             
             // Refill State
@@ -366,6 +379,196 @@ module dcache_subsystem (
 
 endmodule
 
+// D-Cache Prefetcher with PC-hashed stride table
+// Handles all memory requests (cache misses + prefetches)
+module d_prefetcher #(
+    parameter PREFETCH_TABLE_SIZE = 32,
+    parameter PREFETCH_DEPTH = 6
+) (
+    input clock,
+    input reset,
+
+    // Cache miss input (from loads and stores)
+    input D_ADDR_PACKET cache_miss_addr,
+    
+    // Cache state
+    input logic dcache_full,
+    
+    // Memory interface
+    input  logic         mem_read_accepted,
+    input  MEM_TAG       current_data_back_tag,
+    
+    // Snooping interface (check if prefetch address already cached/requested)
+    output D_ADDR_PACKET snooping_addr,
+    input  logic         addr_found_dcache,
+    input  logic         addr_found_mshr,
+    
+    // Memory request output (handles both misses and prefetches)
+    output D_ADDR_PACKET mem_read_addr
+);
+
+    // Stride table entry structure
+    typedef struct packed {
+        logic valid;
+        ADDR last_addr;        // Last data address accessed by this PC
+        logic [31:0] last_stride; // Learned stride (signed)
+        logic [1:0] state;      // State machine: 00=Init, 01=Transient, 10/11=Steady/Confident
+    } PREFETCH_ENTRY;
+
+    localparam TABLE_INDEX_BITS = $clog2(PREFETCH_TABLE_SIZE);
+    localparam PREFETCH_COUNT_BITS = $clog2(PREFETCH_DEPTH + 1);
+    
+    // Stride table
+    PREFETCH_ENTRY [PREFETCH_TABLE_SIZE-1:0] stride_table, next_stride_table;
+    
+    // Prefetch state
+    logic [PREFETCH_COUNT_BITS-1:0] prefetch_count, next_prefetch_count;
+    D_ADDR_PACKET prefetch_base_addr, next_prefetch_base_addr;
+    logic [31:0] prefetch_stride, next_prefetch_stride;
+    logic prefetch_active, next_prefetch_active;
+    
+    // PC hashing function: simple hash of PC bits
+    function automatic logic [TABLE_INDEX_BITS-1:0] hash_pc(input ADDR pc);
+        // Hash PC[7:2] to table index (simple modulo)
+        hash_pc = TABLE_INDEX_BITS'(pc[7:2] % PREFETCH_TABLE_SIZE);
+    endfunction
+    
+    // Convert D_ADDR to full byte address for stride calculation
+    function automatic ADDR d_addr_to_byte_addr(input D_ADDR addr);
+        d_addr_to_byte_addr = {addr.tag, addr.block_offset};
+    endfunction
+    
+    // Calculate stride from two addresses
+    function automatic logic [31:0] calculate_stride(input ADDR addr1, input ADDR addr2);
+        calculate_stride = $signed(addr1) - $signed(addr2);
+    endfunction
+    
+    // State machine update logic
+    function automatic logic [1:0] update_state(
+        input logic [1:0] current_state,
+        input logic [31:0] current_stride,
+        input logic [31:0] new_stride
+    );
+        if (current_stride == new_stride) begin
+            // Stride matches: increment state (saturate at 11)
+            if (current_state < 2'b11) begin
+                update_state = current_state + 1'b1;
+            end else begin
+                update_state = current_state;
+            end
+        end else begin
+            // Stride differs: reset to Init (00)
+            update_state = 2'b00;
+        end
+    endfunction
+    
+    // Check if state allows prefetching (state >= 10)
+    function automatic logic can_prefetch(input logic [1:0] state);
+        can_prefetch = (state >= 2'b10);
+    endfunction
+
+    always_comb begin
+        // Default values
+        next_stride_table = stride_table;
+        next_prefetch_count = prefetch_count;
+        next_prefetch_base_addr = prefetch_base_addr;
+        next_prefetch_stride = prefetch_stride;
+        next_prefetch_active = prefetch_active;
+        snooping_addr = '0;
+        mem_read_addr = '0;
+        
+        // Convert cache miss address to byte address for stride calculation
+        ADDR miss_byte_addr = d_addr_to_byte_addr(cache_miss_addr.addr);
+        logic [TABLE_INDEX_BITS-1:0] table_idx = hash_pc(cache_miss_addr.PC);
+        PREFETCH_ENTRY table_entry = stride_table[table_idx];
+        
+        // Process cache miss: learn stride and update table
+        if (cache_miss_addr.valid) begin
+            // Snoop the miss address to check if already in MSHR
+            snooping_addr = cache_miss_addr;
+            
+            if (table_entry.valid) begin
+                // Entry exists: calculate stride and update state
+                logic [31:0] calculated_stride = calculate_stride(miss_byte_addr, table_entry.last_addr);
+                logic [1:0] new_state = update_state(table_entry.state, table_entry.last_stride, calculated_stride);
+                
+                next_stride_table[table_idx].last_stride = calculated_stride;
+                next_stride_table[table_idx].state = new_state;
+                next_stride_table[table_idx].last_addr = miss_byte_addr;
+                
+                // If state allows prefetching, start prefetch sequence
+                if (can_prefetch(new_state)) begin
+                    next_prefetch_active = 1'b1;
+                    next_prefetch_base_addr = cache_miss_addr;
+                    next_prefetch_stride = calculated_stride;
+                    next_prefetch_count = '0;
+                end
+            end else begin
+                // New entry: initialize
+                next_stride_table[table_idx].valid = 1'b1;
+                next_stride_table[table_idx].last_addr = miss_byte_addr;
+                next_stride_table[table_idx].last_stride = '0;
+                next_stride_table[table_idx].state = 2'b00;  // Init state
+            end
+            
+            // Request the miss address only if not already in MSHR
+            if (!addr_found_mshr) begin
+                mem_read_addr = cache_miss_addr;
+            end
+        end
+        // Prefetch logic: continue prefetching if active and conditions met
+        else if (prefetch_active && !dcache_full && (prefetch_count < PREFETCH_DEPTH)) begin
+            // Calculate next prefetch address
+            ADDR next_prefetch_byte_addr = d_addr_to_byte_addr(prefetch_base_addr.addr) + prefetch_stride;
+            D_ADDR next_prefetch_d_addr;
+            next_prefetch_d_addr.tag = next_prefetch_byte_addr[31:3];
+            next_prefetch_d_addr.block_offset = next_prefetch_byte_addr[2:0];
+            next_prefetch_d_addr.zeros = '0;
+            
+            snooping_addr.valid = 1'b1;
+            snooping_addr.addr = next_prefetch_d_addr;
+            snooping_addr.PC = prefetch_base_addr.PC;
+            
+            // Only send request if not found in dcache or MSHR
+            if (!addr_found_dcache && !addr_found_mshr) begin
+                mem_read_addr.valid = 1'b1;
+                mem_read_addr.addr = next_prefetch_d_addr;
+                mem_read_addr.PC = prefetch_base_addr.PC;
+                
+                if (mem_read_accepted) begin
+                    // Update prefetch state
+                    next_prefetch_base_addr.addr = next_prefetch_d_addr;
+                    next_prefetch_count = prefetch_count + 1'b1;
+                end
+            end else if (addr_found_dcache || addr_found_mshr) begin
+                // Address already cached/requested, skip and continue
+                next_prefetch_base_addr.addr = next_prefetch_d_addr;
+                next_prefetch_count = prefetch_count + 1'b1;
+            end
+        end else if (prefetch_active && (dcache_full || (prefetch_count >= PREFETCH_DEPTH))) begin
+            // Prefetch complete or cache full: stop prefetching
+            next_prefetch_active = 1'b0;
+        end
+    end
+
+    always_ff @(posedge clock) begin
+        if (reset) begin
+            stride_table <= '0;
+            prefetch_count <= '0;
+            prefetch_base_addr <= '0;
+            prefetch_stride <= '0;
+            prefetch_active <= 1'b0;
+        end else begin
+            stride_table <= next_stride_table;
+            prefetch_count <= next_prefetch_count;
+            prefetch_base_addr <= next_prefetch_base_addr;
+            prefetch_stride <= next_prefetch_stride;
+            prefetch_active <= next_prefetch_active;
+        end
+    end
+
+endmodule
+
 // D-Cache MSHR (Miss Status Handling Register)
 // Tracks outstanding memory requests
 module d_mshr #(
@@ -378,12 +581,12 @@ module d_mshr #(
     input  D_ADDR snooping_addr,
     output logic  addr_found,
 
-    // When mem_req_accepted
+    // When mem_read_accepted
     input D_MSHR_PACKET new_entry,
 
     // Mem data back
-    input  MEM_TAG       mem_data_tag,
-    output D_ADDR_PACKET mem_data_d_addr
+    input  MEM_TAG       mem_data_back_tag,
+    output D_ADDR_PACKET mem_data_back_d_addr
 );
 
     localparam D_CACHE_INDEX_BITS = $clog2(MSHR_WIDTH);
@@ -407,20 +610,20 @@ module d_mshr #(
     always_comb begin
         next_head = head;
         next_tail = tail;
-        mem_data_d_addr = '0;
+        mem_data_back_d_addr = '0;
         next_mshr_entries = mshr_entries;
 
         // Data returned from Memory, Pop MSHR Entry
-        pop_cond_has_data = (mem_data_tag != '0);
+        pop_cond_has_data = (mem_data_back_tag != '0);
         pop_cond_head_valid = mshr_entries[head].valid;
-        pop_cond_tag_match = (mem_data_tag == mshr_entries[head].mem_tag);
+        pop_cond_tag_match = (mem_data_back_tag == mshr_entries[head].mem_tag);
         pop_condition = pop_cond_has_data && pop_cond_head_valid && pop_cond_tag_match;
         
         if (pop_condition) begin
             next_head = D_CACHE_INDEX_BITS'((head + 1'b1) % MSHR_WIDTH);
             next_mshr_entries[head].valid = '0;
-            mem_data_d_addr.valid = 1'b1;
-            mem_data_d_addr.addr = mshr_entries[head].d_addr;
+            mem_data_back_d_addr.valid = 1'b1;
+            mem_data_back_d_addr.addr = mshr_entries[head].d_addr;
         end
 
         // New memory request, push new MSHR Entry
@@ -455,8 +658,8 @@ module d_mshr #(
                              i, mshr_entries[i].mem_tag, mshr_entries[i].d_addr.tag);
                 end
             end
-            if (mem_data_tag != 0) begin
-                $display("  Memory Data Returned: Tag=%0d", mem_data_tag);
+            if (mem_data_back_tag != 0) begin
+                $display("  Memory Data Returned: Tag=%0d", mem_data_back_tag);
             end
             if (new_entry.valid) begin
                 $display("  New Entry Pushed: MemTag=%0d, DAddr.tag=%h", 
@@ -486,6 +689,10 @@ module dcache #(
     input  D_ADDR_PACKET snooping_addr,
     output logic         addr_found,
     output logic         full,
+    
+    // Prefetch snooping
+    input  D_ADDR_PACKET prefetch_snooping_addr,
+    output logic         prefetch_addr_found,
 
     // Dcache write (refill from memory)
     input D_ADDR_PACKET write_addr,
@@ -510,7 +717,6 @@ module dcache #(
     logic [MEM_DEPTH-1:0]             cache_write_enable_mask;
     logic [MEM_DEPTH-1:0]             cache_write_no_evict_one_hot;
     logic [D_CACHE_INDEX_BITS-1:0]    cache_write_evict_index;
-    logic [D_CACHE_INDEX_BITS-1:0]    lfsr_out;
     logic [MEM_DEPTH-1:0]             valid_bits;
 
     // Hit logic for stores
@@ -541,16 +747,23 @@ module dcache #(
         .gnt(cache_write_no_evict_one_hot)
     );
 
-    // LFSR for random eviction
-    LFSR #(
-        .WIDTH(D_CACHE_INDEX_BITS)
-    ) LFSR_inst (
-        .clk(clock),
-        .rst(reset),
-        .op(lfsr_out)
+    // Pseudo-LRU for replacement policy (only updates on writes)
+    logic [D_CACHE_INDEX_BITS-1:0] lru_index;
+    logic [D_CACHE_INDEX_BITS-1:0] prefetch_write_index;
+    logic prefetch_write_valid;
+    
+    pseudo_tree_lru #(
+        .CACHE_SIZE(MEM_DEPTH),
+        .INDEX_BITS(D_CACHE_INDEX_BITS)
+    ) lru_inst (
+        .clock(clock),
+        .reset(reset),
+        .write_index(prefetch_write_index),
+        .write_valid(prefetch_write_valid),
+        .lru_index(lru_index)
     );
     
-    assign cache_write_evict_index = D_CACHE_INDEX_BITS'(lfsr_out % MEM_DEPTH);
+    assign cache_write_evict_index = lru_index;
 
     // Hit detection for store snooping
     always_comb begin
@@ -563,6 +776,17 @@ module dcache #(
                 addr_found = 1'b1;
                 hit_index = D_CACHE_INDEX_BITS'(i);
                 hit_valid = 1'b1;
+            end
+        end
+    end
+    
+    // Prefetch snooping - check if prefetch address is already in cache
+    always_comb begin
+        prefetch_addr_found = 1'b0;
+        for (int i = 0; i < MEM_DEPTH; i++) begin
+            if (prefetch_snooping_addr.valid && cache_lines[i].valid && 
+                (prefetch_snooping_addr.addr.tag == cache_lines[i].tag)) begin
+                prefetch_addr_found = 1'b1;
             end
         end
     end
@@ -582,12 +806,23 @@ module dcache #(
     D_CACHE_LINE evicted_line_comb;
     logic        evicted_valid_comb;
     
+    // Convert one-hot free slot selection to index for LRU update
+    logic [D_CACHE_INDEX_BITS-1:0] free_slot_index;
+    one_hot_to_index #(
+        .INPUT_WIDTH(MEM_DEPTH)
+    ) one_hot_to_index_inst (
+        .one_hot(cache_write_no_evict_one_hot),
+        .index(free_slot_index)
+    );
+    
     always_comb begin
         cache_write_enable_mask = '0;
         cache_line_write = '0;
         evicted_line_comb = '0;
         evicted_valid_comb = 1'b0;
         merged_data = '0;
+        prefetch_write_index = '0;
+        prefetch_write_valid = 1'b0;
 
         // Priority 1: Refill (allocating new line from memory)
         if (write_addr.valid) begin
@@ -599,11 +834,15 @@ module dcache #(
             // Try to find a free slot first
             if (|cache_write_no_evict_one_hot) begin
                 cache_write_enable_mask = cache_write_no_evict_one_hot;
+                prefetch_write_index = free_slot_index;
+                prefetch_write_valid = 1'b1;
             end else begin
-                // No free slot, evict using LFSR-selected index
+                // No free slot, evict using LRU-selected index
                 cache_write_enable_mask[cache_write_evict_index] = 1'b1;
                 evicted_line_comb = cache_lines[cache_write_evict_index];
                 evicted_valid_comb = cache_lines[cache_write_evict_index].valid;
+                prefetch_write_index = cache_write_evict_index;
+                prefetch_write_valid = 1'b1;
             end
         end
         // Priority 2: Store update (hit only - merge with existing data)
@@ -688,5 +927,126 @@ module dcache #(
         end
     end
 `endif
+
+endmodule
+
+// Pseudo Tree LRU module for cache replacement policy
+// Uses a binary tree structure with N-1 bits to track LRU state
+// Each bit indicates which subtree is LRU (0 = left, 1 = right)
+// Only tracks write operations to avoid race conditions
+module pseudo_tree_lru #(
+    parameter CACHE_SIZE = `DCACHE_LINES,
+    parameter INDEX_BITS = $clog2(CACHE_SIZE)
+) (
+    input clock,
+    input reset,
+
+    // Write access update interface
+    input logic [INDEX_BITS-1:0] write_index,    // Cache line index written
+    input logic                  write_valid,    // Whether write occurred
+
+    // LRU output
+    output logic [INDEX_BITS-1:0] lru_index     // Index of least recently used cache line
+);
+
+    // Tree structure: for N cache lines, we need N-1 internal nodes
+    // Each node stores 1 bit indicating which subtree is LRU (0=left, 1=right)
+    localparam TREE_NODES = CACHE_SIZE - 1;
+    localparam TREE_NODE_BITS = $clog2(TREE_NODES + CACHE_SIZE + 1);  // Bits needed for tree node indices
+    
+    logic [TREE_NODES-1:0] lru_tree, next_lru_tree;
+    
+    // Parallel path calculation signals
+    logic [TREE_NODES-1:0] w_mask,  w_val;   // Write update mask and values
+    
+    // LRU traversal variable
+    logic [TREE_NODE_BITS-1:0] node_idx;
+
+    // Helper function to calculate update path masks and values
+    // This is purely combinational logic, executed in parallel
+    function automatic void get_update_path(
+        input logic [INDEX_BITS-1:0] idx,
+        input logic valid,
+        output logic [TREE_NODES-1:0] mask,
+        output logic [TREE_NODES-1:0] val
+    );
+        logic [TREE_NODE_BITS-1:0] node_idx;
+        logic [TREE_NODE_BITS-1:0] parent_idx;
+        
+        mask = '0;
+        val  = '0;
+        
+        if (valid) begin
+            node_idx = TREE_NODES + idx;
+            
+            // Traverse from leaf to root, calculating which nodes need updates
+            for (int i = 0; i < INDEX_BITS; i++) begin
+                if (node_idx > 0) begin
+                    parent_idx = (node_idx - 1) >> 1;
+                    if (parent_idx < TREE_NODES) begin
+                        mask[parent_idx] = 1'b1;  // Mark this node as affected
+                        
+                        // Set value: Right child (even) accessed -> set parent to 0 (left subtree becomes LRU)
+                        //            Left child (odd) accessed -> set parent to 1 (right subtree becomes LRU)
+                        if ((node_idx & 1) == 0) begin
+                            // Right child (even): set parent to 0 (left subtree becomes LRU, right is MRU)
+                            val[parent_idx] = 1'b0;
+                        end else begin
+                            // Left child (odd): set parent to 1 (right subtree becomes LRU, left is MRU)
+                            val[parent_idx] = 1'b1;
+                        end
+                        
+                        node_idx = parent_idx;
+                    end
+                end
+            end
+        end
+    endfunction
+
+    always_comb begin
+        get_update_path(write_index, write_valid, w_mask, w_val);
+    end
+
+    always_comb begin
+        for (int i = 0; i < TREE_NODES; i++) begin
+            if (w_mask[i]) begin
+                next_lru_tree[i] = w_val[i];
+            end else begin
+                next_lru_tree[i] = lru_tree[i];
+            end
+        end
+    end
+
+    // Find LRU index by traversing the tree from root to leaf
+    always_comb begin
+        lru_index = '0;
+        node_idx = '0;
+        
+        // Traverse tree from root (node 0) to leaf following LRU bits
+        for (int level = 0; level < INDEX_BITS; level++) begin
+            if (node_idx < TREE_NODES) begin
+                if (lru_tree[node_idx]) begin
+                    // Right subtree is LRU, go right
+                    node_idx = (node_idx << 1) + 2;  // Right child: 2*node + 2
+                end else begin
+                    // Left subtree is LRU, go left
+                    node_idx = (node_idx << 1) + 1;  // Left child: 2*node + 1
+                end
+            end
+        end
+        
+        // Convert final tree node index to cache line index
+        // Cache index = leaf_node_index - TREE_NODES
+        lru_index = INDEX_BITS'(node_idx - TREE_NODES);
+    end
+
+    // Sequential State Update
+    always_ff @(posedge clock) begin
+        if (reset) begin
+            lru_tree <= '0;  // Initialize: all bits 0 means left subtrees are LRU
+        end else begin
+            lru_tree <= next_lru_tree;
+        end
+    end
 
 endmodule
