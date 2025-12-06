@@ -32,9 +32,9 @@ echo "PERFORMANCE SUMMARY"
 echo
 
 # Header
-printf '%-20s %-12s %-15s %-12s %-10s\n' "Program" "CPI" "Time (ns)" "CPI_ref" "Compare"
-printf '%-20s %-12s %-15s %-12s %-10s\n' \
-  "--------------------" "------------" "---------------" "------------" "----------"
+printf '%-20s %-12s %-12s %-15s %-10s\n' "Program" "CPI" "CPI_ref" "Time (ns)" "Compare"
+printf '%-20s %-12s %-12s %-15s %-10s\n' \
+  "--------------------" "------------" "------------" "---------------" "----------"
 
 for prog in "${PROGS[@]}"; do
   actual_file="$OUT_DIR/$prog.cpi"
@@ -67,6 +67,6 @@ for prog in "${PROGS[@]}"; do
     cmp_color="$RED"
   fi
 
-  printf '%-20s %-12s %-15s %-12s %b%-10s%b\n' \
-    "$prog" "$actual_cpi" "$actual_time" "$ref_cpi" "$cmp_color" "$cmp" "$RESET"
+  printf '%-20s %-12s %-12s %-15s %b%-10s%b\n' \
+    "$prog" "$actual_cpi" "$ref_cpi" "$actual_time" "$cmp_color" "$cmp" "$RESET"
 done
