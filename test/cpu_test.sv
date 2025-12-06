@@ -389,8 +389,8 @@ module testbench;
                 // Wait one more clock cycle to let any pending cache writes complete
                 // (memDP updates on posedge, so stores committed this cycle won't be 
                 // visible in cache until after the next posedge)
-                @(posedge clock);
-                #1;
+                // @(posedge clock);
+                // #1;
 
                 // close the writeback output file (pipeline output disabled)
                 // close_pipeline_output_file();
