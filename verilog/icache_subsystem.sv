@@ -1,7 +1,7 @@
 `include "verilog/sys_defs.svh"
 `include "verilog/ISA.svh"
 
-module icache_subsystem_optimized (
+module icache_subsystem (
     input clock,
     input reset,
 

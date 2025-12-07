@@ -286,6 +286,7 @@ CPU_SOURCES = verilog/cpu.sv \
 			  verilog/alu.sv \
 			  verilog/branch.sv \
 			  verilog/icache_subsystem_optimized.sv \
+			  verilog/pseudo_tree_lru.sv \
 			  verilog/one_hot_to_index.sv \
 			  verilog/dcache_subsystem.sv \
 			  verilog/stage_fetch.sv \
