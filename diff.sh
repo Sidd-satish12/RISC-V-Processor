@@ -45,9 +45,6 @@ for prog in "${PROGS[@]}"; do
   else
     echo -e "${RED}✗${RESET} $prog: ${RED}DIFF${RESET}"
     ((DIFFS++))
-    echo -e "${CYAN}--- Differences for $prog ---${RESET}"
-    diff "$actual_file" "$ref_file" || true
-    echo
   fi
 done
 
