@@ -82,7 +82,7 @@ module stage_retire (
         mispred_tgt = 1'b0;
         mispred = 1'b0;
         entry = '0;
-        committed_insts = '0;
+        committed_insts_next = '0;
         sq_free_count = '0;
         dcache_store_request = '0;
         dcache_store_request_pc = '0;
