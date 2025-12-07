@@ -95,7 +95,7 @@ endmodule
 
 // this should never be full, so no logic for handling full FIFO head tail edge case
 module i_mshr #(
-    parameter MSHR_WIDTH = `NUM_MEM_TAGS + `N
+    parameter MSHR_WIDTH = `NUM_MEM_TAGS
 ) (
     input clock,
     input reset,
@@ -171,7 +171,9 @@ module i_mshr #(
 
 endmodule
 
-module i_prefetcher (
+module i_prefetcher #(
+    parameter PREFETCH_DEPTH = 7
+) (
     input clock,
     input reset,
 
@@ -183,28 +185,31 @@ module i_prefetcher (
 );
     I_ADDR_PACKET last_icache_miss_mem_req, next_last_icache_miss_mem_req;
     I_ADDR addr_incrementor, next_addr_incrementor;
+    logic [$clog2(PREFETCH_DEPTH + 1):0] prefetch_count, next_prefetch_count;
 
     always_comb begin
         prefetcher_snooping_addr = '0;
         next_addr_incrementor = addr_incrementor;
         next_last_icache_miss_mem_req = last_icache_miss_mem_req;
+        next_prefetch_count = prefetch_count;  // Preserve current count by default
 
         // New or first icache miss yet to successfully request
         if (icache_miss_addr.valid & (icache_miss_addr.addr != last_icache_miss_mem_req.addr | ~last_icache_miss_mem_req.valid)) begin
-            // Send mem snooping request
             prefetcher_snooping_addr.valid = '1;
             prefetcher_snooping_addr.addr  = icache_miss_addr.addr;
+            next_prefetch_count = '0;  // Reset counter on new miss
             if (mem_req_accepted) begin
                 next_last_icache_miss_mem_req.valid = '1;
                 next_last_icache_miss_mem_req.addr = icache_miss_addr.addr;
                 next_addr_incrementor = icache_miss_addr.addr;
             end 
-        end else if (~icache_full & last_icache_miss_mem_req.valid) begin
-            // Send lookahead snooping request
+        // On every miss, prefetch until icache_full, or up to until PREFETCH_DEPTH
+        end else if (last_icache_miss_mem_req.valid && (~icache_full || (prefetch_count < PREFETCH_DEPTH))) begin
             prefetcher_snooping_addr.valid = '1;
             prefetcher_snooping_addr.addr  = addr_incrementor + 'h8;
             if (mem_req_accepted) begin
                 next_addr_incrementor = addr_incrementor + 'h8;
+                next_prefetch_count = prefetch_count + 1;
             end
         end
     end
@@ -213,9 +218,11 @@ module i_prefetcher (
         if (reset) begin
             last_icache_miss_mem_req <= '0;
             addr_incrementor <= '0;
+            prefetch_count <= '0;
         end else begin
             addr_incrementor <= next_addr_incrementor;
             last_icache_miss_mem_req <= next_last_icache_miss_mem_req;
+            prefetch_count <= next_prefetch_count;
         end
     end
 
@@ -243,14 +250,21 @@ module icache #(
     input MEM_BLOCK     write_data
 );
 
-    CACHE_DATA [1:0]                  cache_outs_temp;
+    CACHE_DATA [1:0]                      cache_outs_temp;
     I_CACHE_LINE [MEM_DEPTH-1:0]          cache_lines;
     I_CACHE_LINE                          cache_line_write;
     logic [MEM_DEPTH-1:0]                 cache_write_enable_mask;
     logic [MEM_DEPTH-1:0]                 cache_write_no_evict_one_hot;
     logic [I_CACHE_INDEX_BITS-1:0]        cache_write_evict_index;
-    logic [I_CACHE_INDEX_BITS-1:0]        lfsr_out;
     logic [MEM_DEPTH-1:0]                 valid_bits;
+    
+    // LRU signals
+    logic [I_CACHE_INDEX_BITS-1:0]        lru_index;
+    logic [I_CACHE_INDEX_BITS-1:0]        cpu_read_hit_index [1:0];
+    logic [1:0]                           cpu_read_hit_valid;
+    logic [I_CACHE_INDEX_BITS-1:0]        prefetch_write_index;
+    logic                                 prefetch_write_valid;
+    logic [I_CACHE_INDEX_BITS-1:0]        free_slot_index;  // Index from one_hot_to_index conversion
 
     memDP #(
         .WIDTH(MEM_WIDTH),
@@ -275,33 +289,57 @@ module icache #(
         .gnt(cache_write_no_evict_one_hot)
     );
 
-    // Write selection random eviction
-    LFSR #(
-        .WIDTH(I_CACHE_INDEX_BITS)
-    ) LFSR_inst (
-        .clk(clock),
-        .rst(reset),
-        .op(lfsr_out)
+    // Convert one-hot free slot selection to index
+    one_hot_to_index #(
+        .INPUT_WIDTH(MEM_DEPTH)
+    ) one_hot_to_index_inst (
+        .one_hot(cache_write_no_evict_one_hot),
+        .index(free_slot_index)
+    );
+
+    // Pseudo Tree LRU for replacement policy
+    // Pass both read ports separately for parallel processing
+    // Read 1 = older instruction (index 0), Read 2 = newer instruction (index 1)
+    pseudo_tree_lru #(
+        .CACHE_SIZE(MEM_DEPTH),
+        .INDEX_BITS(I_CACHE_INDEX_BITS)
+    ) lru_inst (
+        .clock(clock),
+        .reset(reset),
+        .read1_index(cpu_read_hit_index[0]),      // Older instruction (Read 1)
+        .read1_valid(cpu_read_hit_valid[0]),
+        .read2_index(cpu_read_hit_index[1]),      // Newer instruction (Read 2) - highest priority
+        .read2_valid(cpu_read_hit_valid[1]),
+        .write_index(prefetch_write_index),       // Prefetch write - lowest priority
+        .write_valid(prefetch_write_valid),
+        .lru_index(lru_index)
     );
     
-    // Extend LFSR output to full index width (modulo handles out-of-range)
-    assign cache_write_evict_index = I_CACHE_INDEX_BITS'(lfsr_out % MEM_DEPTH);
+    // Use LRU index for eviction
+    assign cache_write_evict_index = lru_index;
 
 
-    // Cache write logic
+    // Cache write logic and LRU update index determination
     always_comb begin
+        // Default values
+        prefetch_write_index = '0;
+        prefetch_write_valid = 1'b0;
         cache_write_enable_mask = '0;
         cache_line_write = '{valid: write_addr.valid,
                             tag: write_addr.addr.tag,
                             data: write_data};
         
         if (write_addr.valid) begin
-            // Try to find an invalid (free) slot first
             if (|cache_write_no_evict_one_hot) begin
+                // Use free slot: one-hot mask for write enable, index for LRU update
                 cache_write_enable_mask = cache_write_no_evict_one_hot;
+                prefetch_write_index = free_slot_index;
+                prefetch_write_valid = 1'b1;
             end else begin
-                // No free slot, evict using LFSR-selected index
+                // No free slot, evict using LRU-selected index
                 cache_write_enable_mask[cache_write_evict_index] = 1'b1;
+                prefetch_write_index = cache_write_evict_index;
+                prefetch_write_valid = 1'b1;
             end
         end
     end
@@ -326,19 +364,192 @@ module icache #(
         full = &valid_bits;
     end
 
-    // Cache read logic
+    // Cache read logic with hit index tracking for LRU
     always_comb begin
         cache_outs_temp = '0;
+        cpu_read_hit_index[0] = '0;
+        cpu_read_hit_index[1] = '0;
+        cpu_read_hit_valid[0] = 1'b0;
+        cpu_read_hit_valid[1] = 1'b0;
+        
         for (int j = 0; j < 2; j++) begin
             for (int i = 0; i < MEM_DEPTH; i++) begin
                 if (read_addrs[j].valid && cache_lines[i].valid && 
                     (read_addrs[j].addr.tag == cache_lines[i].tag)) begin
                     cache_outs_temp[j].data = cache_lines[i].data;
                     cache_outs_temp[j].valid = 1'b1;
+                    // Track which cache line index was hit for LRU update
+                    cpu_read_hit_index[j] = I_CACHE_INDEX_BITS'(i);
+                    cpu_read_hit_valid[j] = 1'b1;
                 end
             end
         end
     end
     assign cache_outs = cache_outs_temp;
+
+endmodule
+
+// Pseudo Tree LRU module for cache replacement policy
+// Uses a binary tree structure with N-1 bits to track LRU state
+// Each bit indicates which subtree is LRU (0 = left, 1 = right)
+// Optimized for parallel path calculation with priority resolution
+// Handles 3 simultaneous access ports: Read 1, Read 2, Write
+// Priority: Read 2 (highest) > Read 1 > Write (lowest)
+module pseudo_tree_lru #(
+    parameter CACHE_SIZE = `ICACHE_LINES,
+    parameter INDEX_BITS = $clog2(CACHE_SIZE)
+) (
+    input clock,
+    input reset,
+
+    // Read 1 access update interface (Instruction N - older)
+    input logic [INDEX_BITS-1:0] read1_index,   // Cache line index accessed by Read 1
+    input logic                  read1_valid,   // Whether Read 1 access occurred
+
+    // Read 2 access update interface (Instruction N+1 - newer, highest priority)
+    input logic [INDEX_BITS-1:0] read2_index,    // Cache line index accessed by Read 2
+    input logic                  read2_valid,    // Whether Read 2 access occurred
+
+    // Prefetch Write access update interface (lowest priority)
+    input logic [INDEX_BITS-1:0] write_index,    // Cache line index written by prefetcher
+    input logic                  write_valid,    // Whether prefetch write occurred
+
+    // LRU output
+    output logic [INDEX_BITS-1:0] lru_index     // Index of least recently used cache line
+);
+
+    // Tree structure: for N cache lines, we need N-1 internal nodes
+    // Each node stores 1 bit indicating which subtree is LRU (0=left, 1=right)
+    localparam TREE_NODES = CACHE_SIZE - 1;
+    localparam TREE_NODE_BITS = $clog2(TREE_NODES + CACHE_SIZE + 1);  // Bits needed for tree node indices
+    
+    logic [TREE_NODES-1:0] lru_tree, next_lru_tree;
+    
+    // Parallel path calculation signals
+    // logic [TREE_NODES-1:0] r1_mask, r1_val;  // Read 1 update mask and values
+    // logic [TREE_NODES-1:0] r2_mask, r2_val;  // Read 2 update mask and values
+    logic [TREE_NODES-1:0] w_mask,  w_val;   // Write update mask and values
+    
+    // LRU traversal variable
+    logic [TREE_NODE_BITS-1:0] node_idx;
+
+    // Helper function to calculate update path masks and values
+    // This is purely combinational logic, executed in parallel
+    function automatic void get_update_path(
+        input logic [INDEX_BITS-1:0] idx,
+        input logic valid,
+        output logic [TREE_NODES-1:0] mask,
+        output logic [TREE_NODES-1:0] val
+    );
+        logic [TREE_NODE_BITS-1:0] node_idx;
+        logic [TREE_NODE_BITS-1:0] parent_idx;
+        
+        mask = '0;
+        val  = '0;
+        
+        if (valid) begin
+            node_idx = TREE_NODES + idx;
+            
+            // Traverse from leaf to root, calculating which nodes need updates
+            for (int i = 0; i < INDEX_BITS; i++) begin
+                if (node_idx > 0) begin
+                    parent_idx = (node_idx - 1) >> 1;
+                    if (parent_idx < TREE_NODES) begin
+                        mask[parent_idx] = 1'b1;  // Mark this node as affected
+                        
+                        // Set value: Right child (even) accessed -> set parent to 0 (left subtree becomes LRU)
+                        //            Left child (odd) accessed -> set parent to 1 (right subtree becomes LRU)
+                        if ((node_idx & 1) == 0) begin
+                            // Right child (even): set parent to 0 (left subtree becomes LRU, right is MRU)
+                            val[parent_idx] = 1'b0;
+                        end else begin
+                            // Left child (odd): set parent to 1 (right subtree becomes LRU, left is MRU)
+                            val[parent_idx] = 1'b1;
+                        end
+                        
+                        node_idx = parent_idx;
+                    end
+                end
+            end
+        end
+    endfunction
+
+    // -----------------------------------------------------------
+    // 1. Parallel Path Calculation
+    // -----------------------------------------------------------
+    // Calculate update paths for all 3 ports simultaneously
+    always_comb begin
+        // get_update_path(read1_index, read1_valid, r1_mask, r1_val);
+        // get_update_path(read2_index, read2_valid, r2_mask, r2_val);
+        get_update_path(write_index, write_valid, w_mask, w_val);
+    end
+
+    // -----------------------------------------------------------
+    // 2. Priority Resolution (The "Merge")
+    // -----------------------------------------------------------
+    // Priority: Read 2 > Read 1 > Write > Keep Current
+    // always_comb begin
+    //     for (int i = 0; i < TREE_NODES; i++) begin
+    //         if (r2_mask[i]) begin
+    //             // Read 2 has highest priority
+    //             next_lru_tree[i] = r2_val[i];
+    //         end else if (r1_mask[i]) begin
+    //             // Read 1 has second priority
+    //             next_lru_tree[i] = r1_val[i];
+    //         end else if (w_mask[i]) begin
+    //             // Write has third priority
+    //             next_lru_tree[i] = w_val[i];
+    //         end else begin
+    //             // Keep current value
+    //             next_lru_tree[i] = lru_tree[i];
+    //         end
+    //     end
+    // end
+
+    always_comb begin
+        next_lru_tree[i] = lru_tree[i];
+        for (int i = 0; i < TREE_NODES; i++) begin
+            if (w_mask[i]) begin
+                next_lru_tree[i] = w_val[i];
+            end
+        end
+    end
+
+    // -----------------------------------------------------------
+    // 3. LRU Index Output Logic
+    // -----------------------------------------------------------
+    // Find LRU index by traversing the tree from root to leaf
+    always_comb begin
+        lru_index = '0;
+        node_idx = '0;
+        
+        // Traverse tree from root (node 0) to leaf following LRU bits
+        for (int level = 0; level < INDEX_BITS; level++) begin
+            if (node_idx < TREE_NODES) begin
+                if (lru_tree[node_idx]) begin
+                    // Right subtree is LRU, go right
+                    node_idx = (node_idx << 1) + 2;  // Right child: 2*node + 2
+                end else begin
+                    // Left subtree is LRU, go left
+                    node_idx = (node_idx << 1) + 1;  // Left child: 2*node + 1
+                end
+            end
+        end
+        
+        // Convert final tree node index to cache line index
+        // Cache index = leaf_node_index - TREE_NODES
+        lru_index = INDEX_BITS'(node_idx - TREE_NODES);
+    end
+
+    // -----------------------------------------------------------
+    // 4. Sequential State Update
+    // -----------------------------------------------------------
+    always_ff @(posedge clock) begin
+        if (reset) begin
+            lru_tree <= '0;  // Initialize: all bits 0 means left subtrees are LRU
+        end else begin
+            lru_tree <= next_lru_tree;
+        end
+    end
 
 endmodule

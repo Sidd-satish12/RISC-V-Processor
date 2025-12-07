@@ -1,6 +1,12 @@
 `include "verilog/sys_defs.svh"
 `include "verilog/ISA.svh"
 
+// Memory Priority hierarchy
+// D-Cache dirty writebacks (highest)
+// D-Cache store misses
+// D-Cache load misses (older load read_addrs[0] before younger read_addrs[1])
+// I-Cache instruction fetch misses (older fetch read_addrs[0] before younger read_addrs[1])
+
 module dcache_subsystem (
     input clock,
     input reset,
@@ -29,7 +35,8 @@ module dcache_subsystem (
     input DATA                  proc_store_data,
     input MEM_SIZE              proc_store_mem_size,
     output logic                proc_store_response,  // 1 = Store Complete, 0 = Stall/Retry
-    // debug to expose DCache to testbench
+
+    // for .out files
     output D_CACHE_LINE [`DCACHE_LINES-1:0]      cache_lines_debug
 );
 
@@ -279,90 +286,6 @@ module dcache_subsystem (
                               d_addr: mem_read_addr.addr};
         end
     end
-
-    // D-Cache Subsystem Display - Mem FU Interface
-`ifdef DEBUG
-    always_ff @(posedge clock) begin
-        if (!reset) begin
-            $display("========================================");
-            $display("=== D-CACHE SUBSYSTEM (Cycle %0t) ===", $time);
-            $display("========================================");
-            
-            // Mem FU Requests
-            $display("--- Mem FU Requests ---");
-            for (int i = 0; i < 2; i++) begin
-                if (read_addrs[i].valid) begin
-                    $display("  Read[%0d]: Valid=1 Addr.tag=%h Addr.block_offset=%0d", 
-                             i, read_addrs[i].addr.tag, read_addrs[i].addr.block_offset);
-                end else begin
-                    $display("  Read[%0d]: Valid=0", i);
-                end
-            end
-            
-            // Our Responses
-            $display("--- Cache Responses ---");
-            for (int i = 0; i < 2; i++) begin
-                if (cache_outs[i].valid) begin
-                    $display("  Out[%0d]: Valid=1 Data=%h", i, cache_outs[i].data.dbbl_level);
-                end else begin
-                    $display("  Out[%0d]: Valid=0 (miss)", i);
-                end
-            end
-            
-            // Memory Requests We're Making
-            $display("--- Memory Requests ---");
-            if (mem_read_addr.valid) begin
-                $display("  Read Request: Valid=1 Addr.tag=%h Addr.block_offset=%0d Accepted=%0d", 
-                         mem_read_addr.addr.tag, mem_read_addr.addr.block_offset, mem_read_accepted);
-            end else begin
-                $display("  Read Request: Valid=0");
-            end
-            
-            // Memory Writebacks
-            if (mem_write_valid) begin
-                $display("  Writeback: Valid=1 Addr.tag=%h Data=%h", 
-                         mem_write_addr.addr.tag, mem_write_data.dbbl_level);
-            end else begin
-                $display("  Writeback: Valid=0");
-            end
-            
-            // Memory Data Coming Back
-            if (mem_data_tag != 0) begin
-                $display("  Memory Data Returned: Tag=%0d Data=%h", 
-                         mem_data_tag, mem_data.dbbl_level);
-            end
-            
-            // Store Interface
-            $display("--- Store Interface ---");
-            if (proc_store_valid) begin
-                $display("  Store Request: Valid=1 Addr=%h Data=%h Hit=%0d Response=%0d", 
-                         proc_store_addr, proc_store_data, store_hit_dcache, proc_store_response);
-            end else begin
-                $display("  Store Request: Valid=0");
-            end
-            
-            // MSHR State
-            $display("--- MSHR State ---");
-            $display("  Oldest Miss Addr: Valid=%0d Tag=%h", 
-                     oldest_miss_addr.valid, oldest_miss_addr.addr.tag);
-            $display("  MSHR Addr Found (duplicate): %0d", mshr_addr_found);
-            $display("  Cache Full: %0d", dcache_full);
-            
-            // Refill State
-            if (dcache_write_addr_refill_local.valid) begin
-                $display("  Refill: Valid=1 Addr.tag=%h", dcache_write_addr_refill_local.addr.tag);
-            end
-            
-            // Eviction State
-            if (evicted_valid) begin
-                $display("  Eviction: Valid=1 Dirty=%0d Tag=%h", 
-                         evicted_line.dirty, evicted_line.tag);
-            end
-            
-            $display("");
-        end
-    end
-`endif
 
 endmodule
 
@@ -655,38 +578,5 @@ module dcache #(
         end
     end
     assign cache_outs = cache_outs_temp;
-
-    // D-Cache State Display
-    // Format matches final memory output: @@@ mem[%5d] = %h : %0d
-`ifdef DEBUG
-    always_ff @(posedge clock) begin
-        if (!reset) begin
-            logic [31:0] byte_addr;
-            $display("========================================");
-            $display("=== D-CACHE STATE (Cycle %0t) ===", $time);
-            $display("========================================");
-            $display("Cache Lines (Total: %0d):", MEM_DEPTH);
-            for (int i = 0; i < MEM_DEPTH; i++) begin
-                if (cache_lines[i].valid) begin
-                    // Convert tag to byte address: tag is addr[31:3], so byte_addr = tag << 3
-                    byte_addr = {cache_lines[i].tag, 3'b0};
-                    if (cache_lines[i].dirty) begin
-                        $display("  [%2d] @@@ mem[%5d] = %016h : %0d (DIRTY)", 
-                                 i, byte_addr, cache_lines[i].data.dbbl_level,
-                                 cache_lines[i].data.dbbl_level);
-                    end else begin
-                        $display("  [%2d] @@@ mem[%5d] = %016h : %0d", 
-                                 i, byte_addr, cache_lines[i].data.dbbl_level,
-                                 cache_lines[i].data.dbbl_level);
-                    end
-                end else begin
-                    $display("  [%2d] (empty)", i);
-                end
-            end
-            $display("Cache Full: %0d", full);
-            $display("");
-        end
-    end
-`endif
 
 endmodule
