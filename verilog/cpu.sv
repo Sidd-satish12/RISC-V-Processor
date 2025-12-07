@@ -318,12 +318,12 @@ module cpu (
         .read_addrs       (d_cache_read_addrs),
         .cache_outs       (dcache_data),
         // Mem.sv IOs - Read requests
-        .current_req_tag  (mem2proc_transaction_tag),
-        .mem_data         (mem2proc_data),
-        .mem_data_tag     (mem2proc_data_tag),
+        .current_data_back_tag  (mem2proc_transaction_tag),
+        .mem_data_back         (mem2proc_data),
+        .mem_data_back_tag     (mem2proc_data_tag),
         // Arbitor IOs - Read requests
-        .mem_req_addr     (dcache_mem_read_addr),
-        .mem_req_accepted (dcache_mem_req_accepted),
+        .mem_read_addr     (dcache_mem_read_addr),
+        .mem_read_accepted (dcache_mem_req_accepted),
         // Arbitor IOs - Write requests (dirty writebacks)
         .mem_write_addr   (dcache_mem_write_addr),
         .mem_write_data   (dcache_mem_write_data),
