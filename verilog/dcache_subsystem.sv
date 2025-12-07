@@ -5,25 +5,25 @@ module dcache_subsystem (
     input clock,
     input reset,
 
-    // Memory operations read
+    // Cache read from loads
     input  D_ADDR_PACKET [1:0]  read_addrs,  // read_addr[0] is older operations
     output CACHE_DATA [1:0]     cache_outs,
 
-    // Mem.sv IOs - Read requests
+    // Data back from memory
     input MEM_TAG               current_req_tag,
     input MEM_BLOCK             mem_data,
     input MEM_TAG               mem_data_tag,
 
-    // Arbitor IOs - Read requests
-    output D_ADDR_PACKET        mem_req_addr,
-    input  logic                mem_req_accepted,
+    // Memory read request
+    output D_ADDR_PACKET        mem_read_addr,
+    input  logic                mem_read_accepted,
     
-    // Arbitor IOs - Write requests (dirty writebacks)
-    output D_ADDR_PACKET        mem_write_addr,
+    // Dirty writebacks on eviction
+    output D_ADDR_PACKET        mem_write_addr, // request always accepted
     output MEM_BLOCK            mem_write_data,
     output logic                mem_write_valid,
 
-    // Processor Store Interface (from Store Queue)
+    // Store request (from Store Queue)
     input logic                 proc_store_valid,
     input ADDR                  proc_store_addr,
     input DATA                  proc_store_data,
@@ -86,7 +86,7 @@ module dcache_subsystem (
         // Snoop for duplicate requests (loads & stores)
         .snooping_addr  (oldest_miss_addr.addr),
         .addr_found     (mshr_addr_found),
-        // When mem_req_accepted
+        // When mem_read_accepted
         .new_entry      (new_mshr_entry),
         // Mem data back
         .mem_data_tag   (mem_data_tag),
@@ -260,23 +260,23 @@ module dcache_subsystem (
 
     // Memory read request logic - handle cache misses
     always_comb begin
-        mem_req_addr = '0;
+        mem_read_addr = '0;
         
         // Send read requests for cache misses
         // ARBITRATION: Prioritize dirty writeback over read request
         // DUPLICATE CHECK: Only send if not already in MSHR
         if (oldest_miss_addr.valid && !mem_write_valid && !mshr_addr_found) begin
-            mem_req_addr = oldest_miss_addr;
+            mem_read_addr = oldest_miss_addr;
         end
     end
 
     // MSHR entry logic - add when request is accepted
     always_comb begin
         new_mshr_entry = '0;
-        if (mem_req_accepted && current_req_tag != 0) begin
+        if (mem_read_accepted && current_req_tag != 0) begin
             new_mshr_entry = '{valid: 1'b1,
                               mem_tag: current_req_tag,
-                              d_addr: mem_req_addr.addr};
+                              d_addr: mem_read_addr.addr};
         end
     end
 
@@ -311,9 +311,9 @@ module dcache_subsystem (
             
             // Memory Requests We're Making
             $display("--- Memory Requests ---");
-            if (mem_req_addr.valid) begin
+            if (mem_read_addr.valid) begin
                 $display("  Read Request: Valid=1 Addr.tag=%h Addr.block_offset=%0d Accepted=%0d", 
-                         mem_req_addr.addr.tag, mem_req_addr.addr.block_offset, mem_req_accepted);
+                         mem_read_addr.addr.tag, mem_read_addr.addr.block_offset, mem_read_accepted);
             end else begin
                 $display("  Read Request: Valid=0");
             end
@@ -378,7 +378,7 @@ module d_mshr #(
     input  D_ADDR snooping_addr,
     output logic  addr_found,
 
-    // When mem_req_accepted
+    // When mem_read_accepted
     input D_MSHR_PACKET new_entry,
 
     // Mem data back

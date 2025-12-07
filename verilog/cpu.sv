@@ -322,8 +322,8 @@ module cpu (
         .mem_data         (mem2proc_data),
         .mem_data_tag     (mem2proc_data_tag),
         // Arbitor IOs - Read requests
-        .mem_req_addr     (dcache_mem_req_addr),
-        .mem_req_accepted (dcache_mem_req_accepted),
+        .mem_read_addr     (dcache_mem_req_addr),
+        .mem_read_accepted (dcache_mem_req_accepted),
         // Arbitor IOs - Write requests (dirty writebacks)
         .mem_write_addr   (dcache_mem_write_addr),
         .mem_write_data   (dcache_mem_write_data),
