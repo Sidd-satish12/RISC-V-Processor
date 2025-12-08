@@ -320,6 +320,43 @@ module store_queue (
         end
     end
 
+
+    // ============================================================
+    // Forwarding statistics
+    // ============================================================
+    longint unsigned sq_load_lookups;
+    longint unsigned sq_forward_hits;
+
+    always_ff @(posedge clock) begin
+        if (reset || mispredict) begin
+            sq_load_lookups <= 0;
+            sq_forward_hits <= 0;
+        end else begin
+            for (int fu = 0; fu < `NUM_FU_MEM; fu++) begin
+                if (load_lookup_valid[fu]) begin
+                    sq_load_lookups <= sq_load_lookups + 1;
+                    if (forward_valid[fu])
+                        sq_forward_hits <= sq_forward_hits + 1;
+                end
+            end
+        end
+    end
+
+    final begin
+        $display("==== Store Queue Forwarding Stats ====");
+        $display("Load lookups       = %0d", sq_load_lookups);
+        $display("Forwarding hits    = %0d", sq_forward_hits);
+        if (sq_load_lookups != 0) begin
+            real ratio;
+            ratio = (sq_forward_hits * 1.0) / sq_load_lookups * 100.0;
+            $display("Forward hit ratio  = %0f %%", ratio);
+        end else begin
+            $display("Forward hit ratio  = N/A (no lookups)");
+        end
+        $display("======================================");
+    end
+
+
     // ============================================================
     // Store Queue Debug Display
     // ============================================================

@@ -316,6 +316,8 @@ module icache #(
     logic [I_CACHE_INDEX_BITS-1:0]        prefetch_write_index;
     logic                                 prefetch_write_valid;
     logic [I_CACHE_INDEX_BITS-1:0]        free_slot_index;  // Index from one_hot_to_index conversion
+    logic [63:0] icache_accesses;
+    logic [63:0] icache_hits;
 
     memDP #(
         .WIDTH(MEM_WIDTH),
@@ -437,6 +439,44 @@ module icache #(
         end
     end
     assign cache_outs = cache_outs_temp;
+
+`ifndef SYNTHESIS
+    // ============================================================
+    // I-Cache access / hit counters
+    // ============================================================
+    always_ff @(posedge clock) begin
+        if (reset) begin
+            icache_accesses <= 64'd0;
+            icache_hits     <= 64'd0;
+        end else begin
+            // Count each valid fetch port as an access; count hits where data is valid
+            for (int j = 0; j < 2; j++) begin
+                if (read_addrs[j].valid) begin
+                    icache_accesses <= icache_accesses + 64'd1;
+                    if (cache_outs_temp[j].valid) begin
+                        icache_hits <= icache_hits + 64'd1;
+                    end
+                end
+            end
+        end
+    end
+
+    // Print stats at end of simulation
+    final begin
+        real hit_rate_pct;
+        if (icache_accesses != 0) begin
+            hit_rate_pct = (icache_hits * 100.0) / icache_accesses;
+            $display("============================================");
+            $display(" ICACHE STATS");
+            $display("  accesses = %0d", icache_accesses);
+            $display("  hits     = %0d", icache_hits);
+            $display("  hitrate  = %0.2f%%", hit_rate_pct);
+            $display("============================================");
+        end else begin
+            $display("ICACHE STATS: no accesses recorded.");
+        end
+    end
+`endif
 
 endmodule
 

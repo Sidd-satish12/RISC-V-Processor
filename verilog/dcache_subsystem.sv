@@ -517,6 +517,12 @@ module dcache #(
     logic [D_CACHE_INDEX_BITS-1:0]    hit_index;
     logic                             hit_valid;
 
+`ifndef SYNTHESIS
+    logic [63:0] dcache_load_accesses;
+    logic [63:0] dcache_load_hits;
+`endif
+
+
     assign cache_lines_debug = cache_lines;
     memDP #(
         .WIDTH(MEM_WIDTH),
@@ -655,6 +661,44 @@ module dcache #(
         end
     end
     assign cache_outs = cache_outs_temp;
+
+    `ifndef SYNTHESIS
+    // ============================================================
+    // D-Cache load access / hit counters
+    // ============================================================
+    always_ff @(posedge clock) begin
+        if (reset) begin
+            dcache_load_accesses <= 64'd0;
+            dcache_load_hits     <= 64'd0;
+        end else begin
+            for (int j = 0; j < 2; j++) begin
+                if (read_addrs[j].valid) begin
+                    dcache_load_accesses <= dcache_load_accesses + 64'd1;
+                    if (cache_outs_temp[j].valid) begin
+                        dcache_load_hits <= dcache_load_hits + 64'd1;
+                    end
+                end
+            end
+        end
+    end
+
+    // Print stats at end of simulation
+    final begin
+        real hit_rate_pct;
+        if (dcache_load_accesses != 0) begin
+            hit_rate_pct = (dcache_load_hits * 100.0) / dcache_load_accesses;
+            $display("============================================");
+            $display(" D-CACHE LOAD STATS");
+            $display("  accesses = %0d", dcache_load_accesses);
+            $display("  hits     = %0d", dcache_load_hits);
+            $display("  hitrate  = %0.2f%%", hit_rate_pct);
+            $display("============================================");
+        end else begin
+            $display("D-CACHE LOAD STATS: no load accesses recorded.");
+        end
+    end
+`endif
+
 
     // D-Cache State Display
     // Format matches final memory output: @@@ mem[%5d] = %h : %0d
