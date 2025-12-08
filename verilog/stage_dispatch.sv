@@ -319,6 +319,10 @@ module stage_dispatch (
                                     decode_op_type[i].func == STORE_DOUBLE)),
                     exception: NO_ERROR,
                     branch: (decode_op_type[i].category == CAT_BRANCH),
+                    cond_branch: (decode_op_type[i].category == CAT_BRANCH &&
+                     (decode_op_type[i].func != JAL &&
+                        decode_op_type[i].func != JALR)),
+                    ras_pop: (decode_op_type[i].func == JALR && !decode_uses_rd[i]),
                     branch_target: '0,  // Filled in by execute stage
                     branch_taken: 1'b0,  // Filled in by execute stage
                     pred_target: dispatch_window[i].bp_pred_target,

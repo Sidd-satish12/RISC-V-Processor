@@ -51,6 +51,32 @@ module stage_fetch (
         return ADDR'(signed'(pc) + signed'(`RV32_signext_Bimm(instr)));
     endfunction
 
+    // ------------------------------------------------------------------------
+    // Function: get_branch_rd
+    // Returns the RD index if JAL or JALR writes to a register (rd != x0)
+    // Returns 0 if no destination register
+    // ------------------------------------------------------------------------
+    function automatic logic get_branch_rd(INST instr);
+        logic [4:0] rd;
+        logic uses_rd;
+
+        // Only JAL and JALR write to rd
+        if (instr.r.opcode == `RV32_JAL_OP) begin
+            rd = instr.j.rd;  // JAL destination
+        end
+        else if (instr.r.opcode == `RV32_JALR_OP) begin
+            rd = instr.i.rd;  // JALR destination
+        end
+        else begin
+            rd = `ZERO_REG;
+        end
+
+        uses_rd = (rd != `ZERO_REG);
+
+        return uses_rd;
+    endfunction
+
+
     // =========================================================================
     // Signals
     // =========================================================================
@@ -65,6 +91,9 @@ module stage_fetch (
     
     // Computed targets
     ADDR jal_target, branch_target;
+
+    // address stack logic (checks if it writes to an rd)
+    logic uses_rd;
     
     // Control signals
     logic first_is_jal, first_is_jalr, first_is_cond;
@@ -120,15 +149,30 @@ module stage_fetch (
         
         // JAL/JALR always taken, conditional uses predictor
         first_branch_taken = first_is_jal || first_is_jalr || (first_is_cond && bp_response.taken) || (branch_target == first_branch_pc + 4);
+
+        // logic for return address stack pop/push operation
+        uses_rd = get_branch_rd(insts[first_branch_idx]);
     end
+
+    // JAL logic
+    // logic first_is_call;
+
+    // always_comb begin
+    //     // JAL is considered a function call if it jumps somewhere other than next instruction
+    //     first_is_call = first_is_jal && (jal_target != first_branch_pc + 4);
+    // end
+
 
     // =========================================================================
     // Branch Predictor Request
     // =========================================================================
     
     always_comb begin
-        bp_request.valid = first_is_jalr || first_is_cond;
-        bp_request.pc    = first_branch_pc;
+        bp_request.valid   = first_is_jalr || first_is_cond || first_is_jal;
+        bp_request.pc      = first_branch_pc;
+        bp_request.is_jal  = first_is_jal;
+        bp_request.is_jalr = first_is_jalr;
+        bp_request.uses_rd = uses_rd;
     end
 
     // =========================================================================

@@ -38,6 +38,36 @@ module bp (
     logic [63:0] bp_total_branches;
     logic [63:0] bp_correct_predictions;
 
+    // =======================
+    // Return Address Stack
+    // =======================
+    localparam RAS_DEPTH = 16;
+    ADDR ras [0:RAS_DEPTH-1];                     // stack entries
+    logic [$clog2(RAS_DEPTH)-1:0] ras_ptr;       // pointer
+    logic ras_push;
+    ADDR ras_data_out;
+    logic ras_pop_retire;
+
+
+    // RAS push/pop logic
+    always_ff @(posedge clock or posedge reset) begin
+        if (reset) begin
+            ras_ptr <= 0;
+        end 
+        else begin
+            if (ras_push && (ras_ptr < RAS_DEPTH)) begin
+                ras[ras_ptr] <= predict_req_i.pc + 32'd4;  // push return addr
+                ras_ptr <= ras_ptr + 1;
+            end
+            if (train_req_i.ras_pop && (ras_ptr > 0)) begin
+                ras_ptr <= ras_ptr - 1;
+            end
+        end
+    end
+
+    // combinational read of top-of-stack for JALR prediction
+    assign ras_data_out = (ras_ptr > 0) ? ras[ras_ptr-1] : 32'd0;
+
     // Helper functions
     function automatic BP_COUNTER_STATE update_counter(BP_COUNTER_STATE current_counter, logic branch_taken);
         case (current_counter)
@@ -70,16 +100,46 @@ module bp (
         btb_hit = btb_array[prediction_indices.btb_idx].valid && btb_array[prediction_indices.btb_idx].tag == prediction_indices.btb_tag;
 
         predict_resp_o.taken = predict_taken;
-        predict_resp_o.target = btb_hit ? btb_array[prediction_indices.btb_idx].target : (predict_req_i.pc + 32'h4);
+        predict_resp_o.target = predict_req_i.pc + 32'h4;
+
+
+        // -----------------------------
+        // RAS push/pop logic (updated)
+        // -----------------------------
+        if (predict_req_i.valid) begin
+            if ((predict_req_i.is_jal || predict_req_i.is_jalr) && predict_req_i.uses_rd) begin
+                // Push for JAL or JALR that writes to rd
+                ras_push = 1'b1;
+                //ras_pop  = 1'b0;
+            end
+            else if (predict_req_i.is_jalr && !predict_req_i.uses_rd) begin
+                // Pop for JALR that does NOT write to rd (return)
+                ras_push = 1'b0;
+                //ras_pop  = 1'b1;
+            end
+            else begin
+                ras_push = 1'b0;
+                //ras_pop  = 1'b0;
+            end
+        end else begin
+            ras_push = 1'b0;
+            //ras_pop  = 1'b0;
+        end
+
+        // Use top-of-stack for JALR returns
+        if (predict_req_i.is_jalr && !predict_req_i.uses_rd) begin
+            predict_resp_o.target = ras_data_out;
+            predict_resp_o.taken = 1'b1;
+        end
     end
 
     // ghr_next logic
     always_comb begin
         ghr_next = ghr;  // Default: hold current GHR
         
-        if (train_req_i.valid && train_req_i.mispredict) begin // a retiring branch instruction was mispredicted
+        if (train_req_i.valid && train_req_i.mispredict && train_req_i.cond) begin // a retiring branch instruction was mispredicted
             ghr_next = {train_req_i.ghr_snapshot[`BP_GHR_WIDTH-2:0], train_req_i.actual_taken};
-        end else if (predict_req_i.valid) begin // from fetch
+        end else if (predict_req_i.valid && !predict_req_i.is_jal && !predict_req_i.is_jalr) begin // from fetch
             ghr_next = {ghr[`BP_GHR_WIDTH-2:0], predict_taken};
         end 
     end 
@@ -96,12 +156,15 @@ module bp (
         end else begin
             ghr <= ghr_next;
 
-            // Handle training updates
             if (train_req_i.valid) begin
-                // Update stats
                 bp_total_branches <= bp_total_branches + 1;
                 if (!train_req_i.mispredict)
                     bp_correct_predictions <= bp_correct_predictions + 1;
+            end
+            // Handle training updates
+            if (train_req_i.valid && train_req_i.cond) begin
+                // Update stats
+
 
                 // Update PHT counter
                 pattern_history_table[training_indices.pht_idx] <= update_counter(
@@ -109,7 +172,7 @@ module bp (
                     train_req_i.actual_taken
                 );
 
-                // Update BTB on taken branches
+                //Update BTB on taken branches
                 if (train_req_i.actual_taken) begin
                     btb_array[training_indices.btb_idx].valid  <= 1'b1;
                     btb_array[training_indices.btb_idx].tag    <= training_indices.btb_tag;

@@ -13,7 +13,7 @@
 // all files should `include "sys_defs.svh" to at least define the timescale
 `timescale 1ns / 100ps
 
-//`define DEBUG
+`define DEBUG
 
 
 // =========================================
@@ -666,6 +666,8 @@ typedef struct packed {
     logic          store;          // is this a store instruction
     EXCEPTION_CODE exception;      // Any exception code
     logic          branch;         // Is this a branch?
+    logic          cond_branch;    // is this a conditonal branch (not JAL/JALR)
+    logic          ras_pop;        // signal used to signify a return (JALR that does not writeback to register)
     logic          branch_taken;   // Resolved taken/not taken
     ADDR           branch_target;  // Resolved branch target
     logic          pred_taken;     // Predicted taken/not taken
@@ -696,8 +698,11 @@ typedef BP_COUNTER_STATE saturating_counter2_t;
 
 // Branch predictor I/O structures
 typedef struct packed {
-    logic valid;  // Valid prediction request
-    ADDR  pc;     // PC to predict
+    logic valid;   // Valid prediction request
+    ADDR  pc;      // PC to predict
+    logic is_jal;  // Return address stack logic
+    logic is_jalr; // Return address stack logic
+    logic uses_rd; // return address stack logic
 } BP_PREDICT_REQUEST;
 
 typedef struct packed {
@@ -709,6 +714,8 @@ typedef struct packed {
 typedef struct packed {
     logic              valid;          // true when it was a branch
     logic              mispredict; 
+    logic              cond;            // conditional branch
+    logic              ras_pop;        // if return (jalr) pop ras when there is no mispredict
     ADDR               pc;             // PC of branch
     logic              actual_taken;   // Actual outcome
     ADDR               actual_target;  // Actual target (if taken)

@@ -170,8 +170,10 @@ module stage_retire (
                 mispred_tgt = (entry.branch_taken && (entry.pred_target != entry.branch_target));
                 mispred     = (mispred_dir || mispred_tgt);
 
-                // Train on retired branches
+                // Train on retired branches that are not JAL/JALR
                 train_req_o.valid         = 1'b1;
+                train_req_o.cond          = entry.cond_branch;
+                train_req_o.ras_pop       = entry.ras_pop;
                 train_req_o.pc            = entry.PC;
                 train_req_o.actual_taken  = entry.branch_taken;
                 train_req_o.actual_target = entry.branch_target;
@@ -182,6 +184,7 @@ module stage_retire (
                     mispredict      = 1'b1;
                     rob_mispred_idx = head_idxs[w];  // ROB index of the mispredicted branch
                     train_req_o.mispredict = 1'b1;
+                    train_req_o.ras_pop = 1'b0;
                     break;
                 end
             end
