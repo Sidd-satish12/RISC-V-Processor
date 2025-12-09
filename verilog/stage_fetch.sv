@@ -166,9 +166,20 @@ module stage_fetch (
     // =========================================================================
     // Branch Predictor Request
     // =========================================================================
+
+    logic bp_req_sent;
+
+    always_ff @(posedge clock or posedge reset) begin
+        if (reset)
+            bp_req_sent <= 1'b0;
+        else if (send_to_ib && !bp_req_sent && (first_is_jal || first_is_jalr || first_is_cond))
+            bp_req_sent <= 1'b1;   // request now sent
+        else if (PC_next != PC)
+            bp_req_sent <= 1'b0;   // clear once PC advances
+    end
     
     always_comb begin
-        bp_request.valid   = first_is_jalr || first_is_cond || first_is_jal;
+        bp_request.valid   = send_to_ib && !bp_req_sent && (first_is_jal || first_is_jalr || first_is_cond);
         bp_request.pc      = first_branch_pc;
         bp_request.is_jal  = first_is_jal;
         bp_request.is_jalr = first_is_jalr;

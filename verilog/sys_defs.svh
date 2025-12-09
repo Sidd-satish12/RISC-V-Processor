@@ -13,7 +13,7 @@
 // all files should `include "sys_defs.svh" to at least define the timescale
 `timescale 1ns / 100ps
 
-`define DEBUG
+//`define DEBUG
 
 
 // =========================================
@@ -26,7 +26,7 @@
 `define MAX_RS_FREE_CNT 3 // max broadcasted free spots in RS
 
 // structure sizes
-`define ROB_SZ 32 // ROB Size
+`define ROB_SZ 64 // ROB Size
 `define RS_SZ 16 // Reservation Station Size
 `define ARCH_REG_SZ 32 // 32 Architecural Registers in RISCV
 `define PHYS_REG_SZ_R10K (32 + `ROB_SZ)  // 64 physical registers for R10K
@@ -39,7 +39,7 @@
 `define NUM_CATS 4                              // Number of OP_CATEGORY values (0-4)
 
 // Instruction buffer
-`define IB_SZ  64  // Instruction buffer size
+`define IB_SZ  128  // Instruction buffer size
 `define IB_IDX_BITS  $clog2(`IB_SZ)
 `define IB_PUSH_WIDTH  4
 
@@ -74,7 +74,7 @@
 `define MULT_STAGES 4
 
 // Load/Store Queue (not implemented in base design)
-`define LSQ_SZ 8
+`define LSQ_SZ 16
 
 ///////////////////////////////
 // ---- Basic Constants ---- //
