@@ -41,12 +41,11 @@ module bp (
     // =======================
     // Return Address Stack
     // =======================
-    localparam RAS_DEPTH = 16;
-    ADDR ras [0:RAS_DEPTH-1];                     // stack entries
+    localparam RAS_DEPTH = 32;
+    ADDR ras [RAS_DEPTH-1:0];                     // stack entries
     logic [$clog2(RAS_DEPTH)-1:0] ras_ptr;       // pointer
     logic ras_push;
     ADDR ras_data_out;
-    logic ras_pop_retire;
 
 
     // RAS push/pop logic
@@ -60,9 +59,22 @@ module bp (
                 ras_ptr <= ras_ptr + 1;
             end
             if (train_req_i.ras_pop && (ras_ptr > 0)) begin
+                ras[ras_ptr] <= '0;
                 ras_ptr <= ras_ptr - 1;
             end
         end
+
+        // -------------------------
+        // DEBUG: print RAS contents
+        // -------------------------
+        `ifdef DEBUG
+            $display("---- RAS STATE ----");
+            for (int i = 0; i < RAS_DEPTH; i = i + 1) begin
+                $display("RAS[%0d] = 0x%08h", i, ras[i]);
+            end
+            $display("RAS pointer = %0d", ras_ptr);
+            $display("-------------------");
+        `endif
     end
 
     // combinational read of top-of-stack for JALR prediction
@@ -100,7 +112,7 @@ module bp (
         btb_hit = btb_array[prediction_indices.btb_idx].valid && btb_array[prediction_indices.btb_idx].tag == prediction_indices.btb_tag;
 
         predict_resp_o.taken = predict_taken;
-        predict_resp_o.target = predict_req_i.pc + 32'h4;
+        predict_resp_o.target = btb_hit ? btb_array[prediction_indices.btb_idx].target : (predict_req_i.pc + 32'h4);
 
 
         // -----------------------------
@@ -110,20 +122,16 @@ module bp (
             if ((predict_req_i.is_jal || predict_req_i.is_jalr) && predict_req_i.uses_rd) begin
                 // Push for JAL or JALR that writes to rd
                 ras_push = 1'b1;
-                //ras_pop  = 1'b0;
             end
             else if (predict_req_i.is_jalr && !predict_req_i.uses_rd) begin
                 // Pop for JALR that does NOT write to rd (return)
                 ras_push = 1'b0;
-                //ras_pop  = 1'b1;
             end
             else begin
                 ras_push = 1'b0;
-                //ras_pop  = 1'b0;
             end
         end else begin
             ras_push = 1'b0;
-            //ras_pop  = 1'b0;
         end
 
         // Use top-of-stack for JALR returns
@@ -131,6 +139,7 @@ module bp (
             predict_resp_o.target = ras_data_out;
             predict_resp_o.taken = 1'b1;
         end
+
     end
 
     // ghr_next logic
@@ -144,6 +153,10 @@ module bp (
         end 
     end 
 
+
+
+
+    
     always_ff @(posedge clock) begin
         if (reset) begin
             ghr                    <= '0;
