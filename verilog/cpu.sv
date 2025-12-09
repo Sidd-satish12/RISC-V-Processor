@@ -271,6 +271,7 @@ module cpu (
 
     // I-cache <-> fetch
     I_ADDR_PACKET          [1:0] i_cache_read_addrs;
+    I_ADDR_PACKET          [1:0] i_cache_read_addrs_pipelined;
     I_ADDR_PACKET           icache_mem_req_addr;
     CACHE_DATA             [1:0] icache_data;
     CACHE_DATA             [1:0] icache_data_pipelined;
@@ -292,12 +293,14 @@ module cpu (
         .mem_req_accepted (icache_mem_req_accepted)
     );
 
-    // Pipeline register for icache_data
+    // Pipeline registers for icache_data and read_addrs to keep them synchronized
     always_ff @(posedge clock) begin
         if (reset) begin
             icache_data_pipelined <= '0;
+            i_cache_read_addrs_pipelined <= '0;
         end else begin
             icache_data_pipelined <= icache_data;
+            i_cache_read_addrs_pipelined <= i_cache_read_addrs;
         end
     end
 
@@ -434,6 +437,7 @@ module cpu (
         .reset        (reset),
 
         .read_addrs   (i_cache_read_addrs),
+        .read_addrs_pipelined (i_cache_read_addrs_pipelined),
         .cache_data   (icache_data_pipelined),
 
         .fetch_packet (fetch_packet),

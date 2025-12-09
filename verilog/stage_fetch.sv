@@ -7,6 +7,7 @@ module stage_fetch (
 
     // icache_subsystem
     output I_ADDR_PACKET [1:0]        read_addrs,
+    input I_ADDR_PACKET [1:0]         read_addrs_pipelined,
     input CACHE_DATA     [1:0]        cache_data,
 
     // branch predictor
@@ -57,6 +58,8 @@ module stage_fetch (
     
     INST  [3:0] insts;
     ADDR PC, PC_next, PC_aligned;
+    ADDR PC_pipelined, PC_aligned_pipelined;
+    logic [2:0] PC_pipelined_low_bits;
     
     // Branch detection
     logic [2:0] first_branch_idx;   // 4 = not found
@@ -82,8 +85,15 @@ module stage_fetch (
     assign insts[2] = cache_data[1].data.word_level[0];
     assign insts[3] = cache_data[1].data.word_level[1];
     
+    // PC for current cycle (used to generate read_addrs)
     assign PC_aligned = {PC[31:3], 3'b000};
-    assign first_branch_pc = PC_aligned + (ADDR'(first_branch_idx) << 2);
+    
+    // PC for pipelined cache_data (from previous cycle)
+    // Reconstruct PC_aligned from pipelined addresses
+    assign PC_aligned_pipelined = {{read_addrs_pipelined[0].addr.zeros, read_addrs_pipelined[0].addr.tag, 3'b0}};
+    // Reconstruct full PC_pipelined using pipelined low bits
+    assign PC_pipelined = {PC_aligned_pipelined[31:3], PC_pipelined_low_bits};
+    assign first_branch_pc = PC_aligned_pipelined + (ADDR'(first_branch_idx) << 2);
 
     // =========================================================================
     // Find First and Second Branch
@@ -95,8 +105,8 @@ module stage_fetch (
 
         for (int i = 0; i < 4; i++) begin
             if (first_branch_idx == 3'd4 && is_branch(insts[i])) begin
-                // Skip slot 0 if PC is misaligned
-                if (i != 0 || !PC[2]) first_branch_idx = 3'(i);
+                // Skip slot 0 if PC is misaligned (use pipelined PC since cache_data is pipelined)
+                if (i != 0 || !PC_pipelined[2]) first_branch_idx = 3'(i);
             end else if (first_branch_idx != 3'd4 && second_branch_idx == 3'd4 && is_branch(insts[i])) begin
                 second_branch_idx = 3'(i);
             end
@@ -138,8 +148,8 @@ module stage_fetch (
     always_comb begin
         valid_bits = 4'b1111;
         
-        // Misaligned: skip first slot
-        if (PC[2]) valid_bits[0] = 1'b0;
+        // Misaligned: skip first slot (use pipelined PC since cache_data is pipelined)
+        if (PC_pipelined[2]) valid_bits[0] = 1'b0;
         
         // Invalidate after taken branch
         if (first_branch_idx != 3'd4 && first_branch_taken) begin
@@ -210,7 +220,7 @@ module stage_fetch (
     
     always_comb begin
         for (int i = 0; i < 4; i++) begin
-            fetch_packet[i].pc    = PC_aligned + (ADDR'(i) << 2);
+            fetch_packet[i].pc    = PC_aligned_pipelined + (ADDR'(i) << 2);
             fetch_packet[i].inst  = insts[i];
             fetch_packet[i].valid = send_to_ib ? valid_bits[i] : 1'b0;
             
@@ -246,8 +256,11 @@ module stage_fetch (
     always_ff @(posedge clock) begin
         if (reset) begin
             PC <= '0;
+            PC_pipelined_low_bits <= 3'b0;
         end else begin
             PC <= PC_next;
+            // Pipeline PC[2:0] to match the pipelined cache_data
+            PC_pipelined_low_bits <= PC[2:0];
         end
     end
     
