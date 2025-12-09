@@ -272,7 +272,7 @@ module stage_fetch (
             
             if (first_is_jalr) begin
                 fetch_packet[first_branch_idx].bp_pred_target  = bp_response.target;
-                fetch_packet[first_branch_idx].bp_ghr_snapshot = bp_response.ghr_snapshot;
+                fetch_packet[first_branch_idx].bp_ghr_snapshot = '0;
             end else if (first_is_cond) begin
                 fetch_packet[first_branch_idx].bp_pred_target  = first_branch_taken ? branch_target : (first_branch_pc + 4);
                 fetch_packet[first_branch_idx].bp_ghr_snapshot = bp_response.ghr_snapshot;
