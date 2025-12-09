@@ -23,16 +23,14 @@ module bp (
 
     // Local parameters derived from macros
     localparam PHT_ENTRY_COUNT = (1 << `BP_PHT_BITS);
-    localparam BTB_ENTRY_COUNT = (1 << `BP_BTB_BITS);
 
     // Internal storage
     logic              [`BP_GHR_WIDTH-1:0] ghr, ghr_next;
     logic                                  recovery_active;
     BP_COUNTER_STATE [PHT_ENTRY_COUNT-1:0] pattern_history_table;
-    BP_BTB_ENTRY     [BTB_ENTRY_COUNT-1:0] btb_array;
 
     BP_INDICES prediction_indices, training_indices;
-    logic btb_hit;
+
     logic predict_taken;
     // Branch prediction statistics
     logic [63:0] bp_total_branches;
@@ -81,8 +79,6 @@ module bp (
     function automatic BP_INDICES compute_indices(logic [31:0] pc, logic [`BP_GHR_WIDTH-1:0] ghr);
         BP_INDICES computed_indices;
         computed_indices.pht_idx = pc[`BP_PC_WORD_ALIGN_BITS+:`BP_PHT_BITS] ^ {{(`BP_PHT_BITS - `BP_GHR_WIDTH) {1'b0}}, ghr};
-        computed_indices.btb_idx = pc[`BP_PC_WORD_ALIGN_BITS+:`BP_BTB_BITS];
-        computed_indices.btb_tag = pc[`BP_PC_WORD_ALIGN_BITS+`BP_BTB_BITS+:`BP_BTB_TAG_BITS];
         return computed_indices;
     endfunction
 
@@ -96,8 +92,6 @@ module bp (
     always_comb begin
         predict_resp_o.ghr_snapshot = ghr;
         predict_taken = pattern_history_table[prediction_indices.pht_idx][1];  // MSB of counter is the taken bit
-
-        btb_hit = btb_array[prediction_indices.btb_idx].valid && btb_array[prediction_indices.btb_idx].tag == prediction_indices.btb_tag;
 
         predict_resp_o.taken = predict_taken;
         predict_resp_o.target = predict_req_i.pc + 32'h4;
@@ -144,13 +138,16 @@ module bp (
         end 
     end 
 
+
+
+
+    
     always_ff @(posedge clock) begin
         if (reset) begin
             ghr                    <= '0;
             for (int i = 0; i < PHT_ENTRY_COUNT; i = i + 1) begin
                 pattern_history_table[i] <= WEAKLY_TAKEN;
             end
-            btb_array              <= '0;
 
             // stats
             bp_total_branches      <= 64'd0;
@@ -174,12 +171,6 @@ module bp (
                     train_req_i.actual_taken
                 );
 
-                //Update BTB on taken branches
-                if (train_req_i.actual_taken) begin
-                    btb_array[training_indices.btb_idx].valid  <= 1'b1;
-                    btb_array[training_indices.btb_idx].tag    <= training_indices.btb_tag;
-                    btb_array[training_indices.btb_idx].target <= train_req_i.actual_target;
-                end
             end
         end
     end
