@@ -41,7 +41,6 @@ From the synthesis output (`Compile syn.simv.out`):
 - Resource allocation checks (lines 108-191): Complex loop checking ROB, freelist, RS banks, store queue
 
 **Path Length**: 
-- Map table read (combinational)
 - Forward renaming within dispatch group (N iterations, each depends on previous)
 - Resource availability checks (N iterations with early break)
 - RS entry packet construction
